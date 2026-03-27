@@ -8,9 +8,19 @@ const repoRoot = path.resolve(__dirname, '../..');
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, repoRoot, '');
-  const supabaseUrl = env.VITE_SUPABASE_URL || env.SUPABASE_URL || '';
+  // Vercel/CI inject env into process.env; loadEnv only reads .env files.
+  const supabaseUrl =
+    env.VITE_SUPABASE_URL ||
+    env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    '';
   const supabaseAnonKey =
-    env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || '';
+    env.VITE_SUPABASE_ANON_KEY ||
+    env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    '';
 
   return {
     plugins: [react()],
