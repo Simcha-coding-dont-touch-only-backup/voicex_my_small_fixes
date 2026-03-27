@@ -1,9 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build && mkdir -p public && cp -r apps/admin-web/dist/* public/",
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/health", "destination": "/health" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "buildCommand": "npm run build"
 }
