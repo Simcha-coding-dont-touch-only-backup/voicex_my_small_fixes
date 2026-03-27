@@ -1,6 +1,7 @@
 {
   "name": "voicex",
   "private": true,
+  "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*"
