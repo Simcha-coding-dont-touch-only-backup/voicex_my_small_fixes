@@ -6,10 +6,24 @@ import { config } from './config.js';
 import { twilioRouter } from './modules/twilio/routes.js';
 import { adminRouter } from './modules/admin/routes.js';
 import { webhookRouter } from './modules/orders/webhook-routes.js';
+import './modules/ivr/init-handlers.js';
 
 const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        connectSrc: ["'self'", "https://*.supabase.co"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "https:", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        fontSrc: ["'self'", "https:", "data:"],
+      },
+    },
+  })
+);
 app.use(morgan('combined'));
 app.use(cors({ origin: config.adminUrl, credentials: true }));
 
