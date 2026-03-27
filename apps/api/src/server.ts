@@ -23,8 +23,10 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(config.port, () => {
-  console.log(`VoiceX API listening on port ${config.port}`);
-});
+if (process.env.VERCEL !== '1') {
+  app.listen(config.port, () => {
+    console.log(`VoiceX API listening on port ${config.port}`);
+  });
+}
 
 export default app;
