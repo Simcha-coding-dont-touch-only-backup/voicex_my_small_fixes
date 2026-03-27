@@ -1,0 +1,66 @@
+import { Router } from 'express';
+import { supabaseAdmin } from '../../lib/supabase.js';
+import * as XLSX from 'xlsx';
+
+export const reportsRouter = Router();
+
+reportsRouter.get('/purchases', async (req, res) => {
+  const { date_from, date_to, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
+
+  let query = supabaseAdmin
+    .from('order_items')
+    .select('*, orders!inner(created_at, status, user_id, users(name))');
+
+  if (date_from) query = query.gte('orders.created_at', date_from as string);
+  if (date_to) query = query.lte('orders.created_at', date_to as string);
+
+  const { data, error } = await query.order('created_at', { ascending: sort_dir === 'asc', referencedTable: 'orders' });
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  res.json({ success: true, data });
+});
+
+reportsRouter.get('/purchases/export', async (req, res) => {
+  const { date_from, date_to } = req.query;
+
+  let query = supabaseAdmin
+    .from('order_items')
+    .select('*, orders!inner(created_at, status, user_id, users(name))');
+
+  if (date_from) query = query.gte('orders.created_at', date_from as string);
+  if (date_to) query = query.lte('orders.created_at', date_to as string);
+
+  const { data, error } = await query.order('created_at', { ascending: false, referencedTable: 'orders' });
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  const rows = (data || []).map((item: any) => ({
+    'Order Date': new Date(item.orders.created_at).toLocaleDateString(),
+    'Customer': item.orders.users?.name || 'N/A',
+    'Product': item.product_name,
+    'VoiceX ID': item.voicex_id,
+    'Quantity': item.quantity,
+    'Unit Price': (item.unit_price_cents / 100).toFixed(2),
+    'Amazon Price': (item.amazon_price_cents / 100).toFixed(2),
+    'Markup %': item.markup_percent,
+    'Total': ((item.unit_price_cents * item.quantity) / 100).toFixed(2),
+    'Order Status': item.orders.status,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Purchases');
+
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=purchases-report.xlsx');
+  res.send(buffer);
+});

@@ -1,0 +1,18 @@
+# Local Supabase CLI project id (not the cloud project ref — use `supabase link` for remote).
+# https://supabase.com/docs/guides/local-development/cli/config
+project_id = "voicex"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[studio]
+enabled = true
+port = 54323

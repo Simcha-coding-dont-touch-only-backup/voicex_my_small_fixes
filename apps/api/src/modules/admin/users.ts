@@ -1,0 +1,195 @@
+import { Router } from 'express';
+import bcrypt from 'bcryptjs';
+import { supabaseAdmin } from '../../lib/supabase.js';
+
+export const usersRouter = Router();
+
+usersRouter.get('/', async (req, res) => {
+  const { page = '1', per_page = '20', search, status, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
+  const offset = (parseInt(page as string) - 1) * parseInt(per_page as string);
+
+  let query = supabaseAdmin
+    .from('users')
+    .select('*, user_phones(phone_number, is_primary)', { count: 'exact' });
+
+  if (search) {
+    query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
+  }
+  if (status) {
+    query = query.eq('status', status as string);
+  }
+
+  const { data, count, error } = await query
+    .order(sort_by as string, { ascending: sort_dir === 'asc' })
+    .range(offset, offset + parseInt(per_page as string) - 1);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  res.json({
+    success: true,
+    data,
+    total: count || 0,
+    page: parseInt(page as string),
+    per_page: parseInt(per_page as string),
+    total_pages: Math.ceil((count || 0) / parseInt(per_page as string)),
+  });
+});
+
+usersRouter.get('/:id', async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('*, user_phones(*), addresses(*), payment_methods(id, card_last4, card_brand, card_exp_month, card_exp_year, is_default)')
+    .eq('id', req.params.id)
+    .single();
+
+  if (error || !data) {
+    res.status(404).json({ success: false, error: 'User not found' });
+    return;
+  }
+
+  res.json({ success: true, data });
+});
+
+usersRouter.post('/', async (req, res) => {
+  const { name, email, phone_number, pin, is_whitelisted } = req.body;
+
+  const pinHash = pin ? await bcrypt.hash(pin, 10) : null;
+
+  const { data: user, error } = await supabaseAdmin
+    .from('users')
+    .insert({ name, email, status: 'active', is_whitelisted: is_whitelisted || false })
+    .select()
+    .single();
+
+  if (error || !user) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to create user' });
+    return;
+  }
+
+  if (phone_number) {
+    await supabaseAdmin.from('user_phones').insert({
+      user_id: user.id,
+      phone_number,
+      is_primary: true,
+    });
+  }
+
+  if (pinHash) {
+    await supabaseAdmin.from('user_pins').insert({
+      user_id: user.id,
+      pin_hash: pinHash,
+    });
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'create_user',
+    entity_type: 'user',
+    entity_id: user.id,
+    changes: { name, email, phone_number },
+  });
+
+  res.status(201).json({ success: true, data: user });
+});
+
+usersRouter.patch('/:id', async (req, res) => {
+  const { name, email, status, is_whitelisted } = req.body;
+
+  const updates: Record<string, unknown> = {};
+  if (name !== undefined) updates.name = name;
+  if (email !== undefined) updates.email = email;
+  if (status !== undefined) updates.status = status;
+  if (is_whitelisted !== undefined) updates.is_whitelisted = is_whitelisted;
+
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .update(updates)
+    .eq('id', req.params.id)
+    .select()
+    .single();
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'update_user',
+    entity_type: 'user',
+    entity_id: req.params.id,
+    changes: updates,
+  });
+
+  res.json({ success: true, data });
+});
+
+usersRouter.patch('/:id/pin', async (req, res) => {
+  const { pin } = req.body;
+  if (!pin || pin.length !== 4) {
+    res.status(400).json({ success: false, error: 'PIN must be 4 digits' });
+    return;
+  }
+
+  const pinHash = await bcrypt.hash(pin, 10);
+
+  const { error } = await supabaseAdmin
+    .from('user_pins')
+    .upsert({ user_id: req.params.id, pin_hash: pinHash }, { onConflict: 'user_id' });
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'reset_pin',
+    entity_type: 'user',
+    entity_id: req.params.id,
+    changes: null,
+  });
+
+  res.json({ success: true, message: 'PIN updated' });
+});
+
+usersRouter.delete('/:id', async (req, res) => {
+  const { error } = await supabaseAdmin
+    .from('users')
+    .update({ status: 'deleted' })
+    .eq('id', req.params.id);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'delete_user',
+    entity_type: 'user',
+    entity_id: req.params.id,
+    changes: null,
+  });
+
+  res.json({ success: true, message: 'User deleted' });
+});
+
+usersRouter.get('/:id/login-history', async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('login_events')
+    .select('*')
+    .eq('user_id', req.params.id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  res.json({ success: true, data });
+});

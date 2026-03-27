@@ -1,0 +1,22 @@
+{
+  "name": "voicex",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "dev:admin": "npm run dev -w apps/admin-web",
+    "build:api": "npm run build -w apps/api",
+    "build:admin": "npm run build -w apps/admin-web",
+    "build": "npm run build:api && npm run build:admin",
+    "lint": "npm run lint -w apps/api -w apps/admin-web",
+    "db:migrate": "node --env-file=.env scripts/supabase-db-push.mjs",
+    "create-admin": "node --env-file=.env scripts/create-admin-user.mjs",
+    "db:reset": "supabase db reset"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

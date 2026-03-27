@@ -1,0 +1,137 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { apiGet } from '../lib/api';
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+
+export function UsersPage() {
+  const [users, setUsers] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const perPage = 20;
+
+  const loadUsers = () => {
+    const params = new URLSearchParams({
+      page: String(page),
+      per_page: String(perPage),
+    });
+    if (search) params.set('search', search);
+    if (statusFilter) params.set('status', statusFilter);
+
+    apiGet<any>(`/users?${params}`).then((res) => {
+      setUsers(res.data || []);
+      setTotal(res.total || 0);
+    });
+  };
+
+  useEffect(() => { loadUsers(); }, [page, statusFilter]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPage(1);
+    loadUsers();
+  };
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-gray-800">Users</h2>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-3">
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or email..."
+              className="rounded-lg border pl-9 pr-4 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+          <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">
+            Search
+          </button>
+        </form>
+
+        <select
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          className="rounded-lg border px-3 py-2 text-sm"
+        >
+          <option value="">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="frozen">Frozen</option>
+          <option value="deleted">Deleted</option>
+        </select>
+      </div>
+
+      <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-gray-50 text-left text-gray-500">
+              <th className="px-6 py-3 font-medium">Name</th>
+              <th className="px-6 py-3 font-medium">Phone</th>
+              <th className="px-6 py-3 font-medium">Email</th>
+              <th className="px-6 py-3 font-medium">Status</th>
+              <th className="px-6 py-3 font-medium">Whitelisted</th>
+              <th className="px-6 py-3 font-medium">Joined</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((user) => (
+              <tr key={user.id} className="border-b hover:bg-gray-50">
+                <td className="px-6 py-4">
+                  <Link to={`/users/${user.id}`} className="font-medium text-indigo-600 hover:underline">
+                    {user.name}
+                  </Link>
+                </td>
+                <td className="px-6 py-4 text-gray-600">
+                  {user.user_phones?.find((p: any) => p.is_primary)?.phone_number || '-'}
+                </td>
+                <td className="px-6 py-4 text-gray-600">{user.email || '-'}</td>
+                <td className="px-6 py-4">
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                    user.status === 'active' ? 'bg-green-100 text-green-700' :
+                    user.status === 'frozen' ? 'bg-orange-100 text-orange-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {user.status}
+                  </span>
+                </td>
+                <td className="px-6 py-4">{user.is_whitelisted ? 'Yes' : 'No'}</td>
+                <td className="px-6 py-4 text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
+              </tr>
+            ))}
+            {users.length === 0 && (
+              <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">No users found</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        <div className="flex items-center justify-between border-t px-6 py-3">
+          <span className="text-sm text-gray-500">{total} total users</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage(Math.max(1, page - 1))}
+              disabled={page === 1}
+              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="px-3 py-1 text-sm">Page {page}</span>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={page * perPage >= total}
+              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
