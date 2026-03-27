@@ -1,5 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
   "buildCommand": "npm run build && mkdir -p public && cp -r apps/admin-web/dist/* public/"
 }
