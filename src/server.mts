@@ -14,7 +14,7 @@ const adminDist = path.join(__dirname, '..', 'apps', 'admin-web', 'dist');
 
 const app = express();
 
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(morgan('combined'));
 app.use(cors({ origin: config.adminUrl, credentials: true }));
 
