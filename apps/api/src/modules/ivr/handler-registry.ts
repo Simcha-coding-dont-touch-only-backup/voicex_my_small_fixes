@@ -31,5 +31,3 @@ export function getHandler(name: string): IvrHandler | undefined {
 export function getHandlerNames(): string[] {
   return Array.from(registry.keys());
 }
-
-import './init-handlers.js';
