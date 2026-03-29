@@ -6,7 +6,6 @@ import { config } from './config.js';
 import { twilioRouter } from './modules/twilio/routes.js';
 import { adminRouter } from './modules/admin/routes.js';
 import { webhookRouter } from './modules/orders/webhook-routes.js';
-import './modules/ivr/init-handlers.js';
 
 const app = express();
 

@@ -1,67 +1,46 @@
 import type { Request, Response } from 'express';
 import { ivrRuntime } from '../../ivr/runtime.js';
-import { handlePinEntry } from '../../ivr/flows/pin-flow.js';
-import { handleRegistration } from '../../ivr/flows/registration-flow.js';
-import { handleMainMenu } from '../../ivr/flows/main-menu-flow.js';
-import { handleCatalogFlow } from '../../ivr/flows/catalog-flow.js';
-import { handleCartFlow } from '../../ivr/flows/cart-flow.js';
-import { handleCheckoutFlow } from '../../ivr/flows/checkout-flow.js';
-import { handleOrdersFlow } from '../../ivr/flows/orders-flow.js';
-
-const STEP_HANDLERS: Record<string, (req: Request, res: Response) => Promise<void>> = {
-  pin_entry: handlePinEntry,
-  pin_confirm: handlePinEntry,
-  register_name: handleRegistration,
-  register_name_confirm: handleRegistration,
-  register_pin: handleRegistration,
-  register_pin_confirm: handleRegistration,
-  main_menu: handleMainMenu,
-  catalog_input: handleCatalogFlow,
-  catalog_action: handleCatalogFlow,
-  catalog_qty: handleCatalogFlow,
-  catalog_qty_confirm: handleCatalogFlow,
-  catalog_after_add: handleCatalogFlow,
-  cart_menu: handleCartFlow,
-  cart_list: handleCartFlow,
-  cart_change_id: handleCartFlow,
-  cart_change_qty: handleCartFlow,
-  cart_change_confirm: handleCartFlow,
-  cart_remove_id: handleCartFlow,
-  cart_remove_confirm: handleCartFlow,
-  checkout_address_choice: handleCheckoutFlow,
-  checkout_address_line1: handleCheckoutFlow,
-  checkout_address_line2: handleCheckoutFlow,
-  checkout_address_city: handleCheckoutFlow,
-  checkout_address_state: handleCheckoutFlow,
-  checkout_address_zip: handleCheckoutFlow,
-  checkout_address_confirm: handleCheckoutFlow,
-  checkout_payment_choice: handleCheckoutFlow,
-  checkout_summary: handleCheckoutFlow,
-  checkout_confirm: handleCheckoutFlow,
-  orders_list: handleOrdersFlow,
-  orders_detail: handleOrdersFlow,
-};
+import { dispatchNode } from '../../ivr/graph-dispatcher.js';
+import { buildHangup } from '../twiml-builder.js';
 
 export async function handleGatherResult(req: Request, res: Response) {
-  const step = req.query.step as string || req.body.step;
-  const handler = STEP_HANDLERS[step];
+  const nodeKey = req.query.node_key as string;
+  const callSid = req.query.call_sid as string;
 
-  if (!handler) {
-    console.error(`Unknown IVR step: ${step}`);
-    const { buildHangup } = await import('../twiml-builder.js');
-    res.type('text/xml').send(
-      buildHangup('An error occurred. Please call back.')
-    );
+  if (!nodeKey || !callSid) {
+    console.error('Missing node_key or call_sid in gather result');
+    res.type('text/xml').send(buildHangup('An error occurred. Please call back.'));
     return;
   }
 
   try {
-    await handler(req, res);
+    const session = await ivrRuntime.getSession(callSid);
+    const flowVersionId = session?.flow_version_id;
+
+    if (!flowVersionId) {
+      const activeVersion = await ivrRuntime.getActiveFlowVersion();
+      if (!activeVersion) {
+        res.type('text/xml').send(buildHangup('System is not configured. Please contact support.'));
+        return;
+      }
+      await dispatchNode(req, res, nodeKey, callSid, activeVersion.id, extractSessionData(req));
+      return;
+    }
+
+    await ivrRuntime.updateSession(callSid, { current_node_key: nodeKey });
+    await dispatchNode(req, res, nodeKey, callSid, flowVersionId, extractSessionData(req));
   } catch (error) {
-    console.error(`Error in step ${step}:`, error);
-    const { buildHangup } = await import('../twiml-builder.js');
-    res.type('text/xml').send(
-      buildHangup('We encountered an error. Please try again later.')
-    );
+    console.error(`Error in gather result for node ${nodeKey}:`, error);
+    res.type('text/xml').send(buildHangup('We encountered an error. Please try again later.'));
   }
+}
+
+function extractSessionData(req: Request): Record<string, string> {
+  const data: Record<string, string> = {};
+  for (const [key, value] of Object.entries(req.query)) {
+    if (typeof value === 'string') {
+      data[key] = value;
+    }
+  }
+  return data;
 }

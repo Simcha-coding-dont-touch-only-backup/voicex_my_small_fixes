@@ -14,7 +14,7 @@ export async function handlePaymentResult(req: Request, res: Response) {
     res.type('text/xml').send(
       buildSay(
         'Payment capture failed. Let us try again.',
-        `/api/twilio/voice/gather?step=checkout_payment_choice&user_id=${userId}&call_sid=${callSid}`
+        `/api/twilio/voice/gather?node_key=checkout_payment_choice&user_id=${userId}&call_sid=${callSid}`
       )
     );
     return;
@@ -44,7 +44,7 @@ export async function handlePaymentResult(req: Request, res: Response) {
     res.type('text/xml').send(
       buildSay(
         `Card ending in ${last4} has been captured. Proceeding to order summary.`,
-        `/api/twilio/voice/gather?step=checkout_summary&user_id=${userId}&call_sid=${callSid}&payment_method_id=${pm.id}`
+        `/api/twilio/voice/gather?node_key=checkout_summary&user_id=${userId}&call_sid=${callSid}&payment_method_id=${pm.id}`
       )
     );
   } catch (error) {

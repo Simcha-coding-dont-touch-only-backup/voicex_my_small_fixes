@@ -11,11 +11,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
+    "@voicex/shared": "*",
+    "@xyflow/react": "^12.10.1",
+    "lucide-react": "^0.460.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "react-router-dom": "^6.28.0",
-    "lucide-react": "^0.460.0",
-    "@voicex/shared": "*"
+    "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

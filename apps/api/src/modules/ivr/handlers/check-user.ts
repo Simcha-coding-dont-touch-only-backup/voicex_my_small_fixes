@@ -1,0 +1,76 @@
+import { supabaseAdmin } from '../../../lib/supabase.js';
+import { registerHandler } from '../handler-registry.js';
+import { buildGather, buildHangup } from '../../twilio/twiml-builder.js';
+import { ivrRuntime } from '../runtime.js';
+
+registerHandler('check_user', async (ctx) => {
+  const callerNumber = ctx.req.body.From;
+
+  const { data: phones } = await supabaseAdmin
+    .from('user_phones')
+    .select('user_id')
+    .eq('phone_number', callerNumber)
+    .limit(1);
+
+  if (phones && phones.length > 0) {
+    const userId = phones[0].user_id;
+
+    const { data: user } = await supabaseAdmin
+      .from('users')
+      .select('id, name, status')
+      .eq('id', userId)
+      .single();
+
+    if (!user) {
+      return { type: 'twiml', twiml: buildHangup('We could not find your account. Please contact support.') };
+    }
+
+    if (user.status === 'frozen') {
+      return { type: 'twiml', twiml: buildHangup('Your account is currently restricted. Please contact support.') };
+    }
+
+    if (user.status === 'deleted') {
+      return { type: 'twiml', twiml: buildHangup('This account is no longer active. Please contact support.') };
+    }
+
+    await ivrRuntime.updateSession(ctx.callSid, { user_id: user.id });
+
+    const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'existing_user');
+    if (nextNode) {
+      return {
+        type: 'twiml',
+        twiml: buildGather({
+          prompt: nextNode.prompt_text || 'Please enter your 4 digit PIN.',
+          actionPath: '/api/twilio/voice/gather',
+          inputType: 'dtmf',
+          numDigits: 4,
+          timeout: 10,
+          finishOnKey: '',
+          sessionData: {
+            call_sid: ctx.callSid,
+            user_id: user.id,
+            node_key: nextNode.node_key,
+          },
+        }),
+      };
+    }
+  }
+
+  await ivrRuntime.updateSession(ctx.callSid, { user_id: null });
+
+  const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'new_user');
+  return {
+    type: 'twiml',
+    twiml: buildGather({
+      prompt: nextNode?.prompt_text || 'Welcome to VoiceX! Please say your full name followed by the pound key.',
+      actionPath: '/api/twilio/voice/gather',
+      inputType: 'dtmf speech',
+      timeout: 10,
+      finishOnKey: '#',
+      sessionData: {
+        call_sid: ctx.callSid,
+        node_key: nextNode?.node_key || 'register_name',
+      },
+    }),
+  };
+});
