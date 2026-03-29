@@ -178,6 +178,122 @@ usersRouter.delete('/:id', async (req, res) => {
   res.json({ success: true, message: 'User deleted' });
 });
 
+usersRouter.patch('/:id/addresses/:addressId', async (req, res) => {
+  const { label, address1, address2, city, state, zip_code, country, is_default } = req.body;
+
+  const updates: Record<string, unknown> = {};
+  if (label !== undefined) updates.label = label;
+  if (address1 !== undefined) updates.address1 = address1;
+  if (address2 !== undefined) updates.address2 = address2;
+  if (city !== undefined) updates.city = city;
+  if (state !== undefined) updates.state = state;
+  if (zip_code !== undefined) updates.zip_code = zip_code;
+  if (country !== undefined) updates.country = country;
+  if (is_default !== undefined) updates.is_default = is_default;
+
+  const { data, error } = await supabaseAdmin
+    .from('addresses')
+    .update(updates)
+    .eq('id', req.params.addressId)
+    .eq('user_id', req.params.id)
+    .select()
+    .single();
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  if (is_default) {
+    await supabaseAdmin
+      .from('addresses')
+      .update({ is_default: false })
+      .eq('user_id', req.params.id)
+      .neq('id', req.params.addressId);
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'update_address',
+    entity_type: 'address',
+    entity_id: req.params.addressId,
+    changes: updates,
+  });
+
+  res.json({ success: true, data });
+});
+
+usersRouter.post('/:id/addresses', async (req, res) => {
+  const { label, address1, address2, city, state, zip_code, country, is_default } = req.body;
+
+  if (!address1 || !city || !state || !zip_code) {
+    res.status(400).json({ success: false, error: 'address1, city, state, and zip_code are required' });
+    return;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('addresses')
+    .insert({
+      user_id: req.params.id,
+      label: label || null,
+      address1,
+      address2: address2 || null,
+      city,
+      state,
+      zip_code,
+      country: country || 'US',
+      is_default: is_default || false,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  if (is_default) {
+    await supabaseAdmin
+      .from('addresses')
+      .update({ is_default: false })
+      .eq('user_id', req.params.id)
+      .neq('id', data.id);
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'create_address',
+    entity_type: 'address',
+    entity_id: data.id,
+    changes: { label, address1, address2, city, state, zip_code, country },
+  });
+
+  res.status(201).json({ success: true, data });
+});
+
+usersRouter.delete('/:id/addresses/:addressId', async (req, res) => {
+  const { error } = await supabaseAdmin
+    .from('addresses')
+    .delete()
+    .eq('id', req.params.addressId)
+    .eq('user_id', req.params.id);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'delete_address',
+    entity_type: 'address',
+    entity_id: req.params.addressId,
+    changes: null,
+  });
+
+  res.json({ success: true, message: 'Address deleted' });
+});
+
 usersRouter.get('/:id/login-history', async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('login_events')
