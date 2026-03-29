@@ -37,8 +37,12 @@ export function buildGather(options: {
 
   if (options.retryPrompt) {
     response.say({ voice: 'Polly.Matthew' }, options.retryPrompt);
-    response.redirect(`${BASE}${options.actionPath}?${queryParams.toString()}`);
   }
+
+  // Always redirect on gather timeout/empty input so the call doesn't hang up.
+  // The action URL handler will receive empty Digits/SpeechResult and can
+  // decide whether to retry or advance.
+  response.redirect({ method: 'POST' }, actionUrl);
 
   return response.toString();
 }
