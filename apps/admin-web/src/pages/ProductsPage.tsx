@@ -1,12 +1,20 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
-import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X } from 'lucide-react';
+import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2 } from 'lucide-react';
 
-const emptyCreateForm = {
-  amazon_asin: '', amazon_url: '', amazon_name: '', amazon_price_cents: '',
-  voice_name: '', custom_price_cents: '', category_ids: [] as string[],
-};
+interface AsinLookupData {
+  asin: string;
+  url: string;
+  name: string | null;
+  description: string | null;
+  price_cents: number | null;
+  currency: string;
+  availability: string;
+  is_purchasable: boolean;
+  images: { url: string; is_featured: boolean }[];
+  brand: string | null;
+}
 
 function buildEditForm(p: any) {
   return {
@@ -31,7 +39,11 @@ export function ProductsPage() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
-  const [form, setForm] = useState({ ...emptyCreateForm });
+  const [asinInput, setAsinInput] = useState('');
+  const [lookupData, setLookupData] = useState<AsinLookupData | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState('');
+  const [createOverrides, setCreateOverrides] = useState({ voice_name: '', voice_description: '', custom_price_cents: '', category_ids: [] as string[] });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
@@ -51,16 +63,56 @@ export function ProductsPage() {
     apiGet<any>('/catalog/categories').then((r) => setCategories(r.data || []));
   }, []);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await apiPost('/catalog/products', {
-      ...form,
-      amazon_price_cents: form.amazon_price_cents ? parseInt(form.amazon_price_cents) : null,
-      custom_price_cents: form.custom_price_cents ? parseInt(form.custom_price_cents) : null,
-    });
-    setShowForm(false);
-    setForm({ ...emptyCreateForm });
-    load();
+  const handleLookup = async () => {
+    const trimmed = asinInput.trim().toUpperCase();
+    if (!trimmed) return;
+    setLookupLoading(true);
+    setLookupError('');
+    setLookupData(null);
+    try {
+      const r = await apiPost<any>('/catalog/products/lookup-asin', { asin: trimmed });
+      setLookupData(r.data);
+      setAsinInput(trimmed);
+    } catch (err: any) {
+      setLookupError(err.message || 'Failed to look up product.');
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!lookupData) return;
+    setSaving(true);
+    try {
+      await apiPost('/catalog/products', {
+        amazon_asin: lookupData.asin,
+        amazon_url: lookupData.url,
+        amazon_name: lookupData.name,
+        amazon_description: lookupData.description,
+        amazon_price_cents: lookupData.price_cents,
+        voice_name: createOverrides.voice_name || null,
+        voice_description: createOverrides.voice_description || null,
+        custom_price_cents: createOverrides.custom_price_cents ? parseInt(createOverrides.custom_price_cents) : null,
+        category_ids: createOverrides.category_ids,
+      });
+      setShowForm(false);
+      setAsinInput('');
+      setLookupData(null);
+      setLookupError('');
+      setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', category_ids: [] });
+      load();
+    } catch (err: any) {
+      setLookupError(err.message || 'Failed to create product.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetCreateForm = () => {
+    setAsinInput('');
+    setLookupData(null);
+    setLookupError('');
+    setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', category_ids: [] });
   };
 
   const startEdit = (product: any) => {
@@ -102,59 +154,143 @@ export function ProductsPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-800">Products</h2>
-        <button onClick={() => { setShowForm(!showForm); cancelEdit(); }}
+        <button onClick={() => { setShowForm(!showForm); if (showForm) resetCreateForm(); cancelEdit(); }}
           className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">
           <Plus size={16} /> Add Product
         </button>
       </div>
 
       {showForm && (
-        <form onSubmit={handleCreate} className="mb-6 rounded-xl bg-white p-6 shadow-sm">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
+        <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-end gap-3">
+            <div className="flex-1 max-w-xs">
               <label className="text-sm font-medium text-gray-600">Amazon ASIN</label>
-              <input required value={form.amazon_asin} onChange={(e) => setForm({ ...form, amazon_asin: e.target.value })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+              <input
+                value={asinInput}
+                onChange={(e) => setAsinInput(e.target.value.toUpperCase())}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleLookup(); } }}
+                placeholder="e.g. B09V3KXJPB"
+                maxLength={10}
+                className="mt-1 w-full rounded border px-3 py-2 text-sm font-mono tracking-wider"
+              />
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Amazon URL</label>
-              <input required value={form.amazon_url} onChange={(e) => setForm({ ...form, amazon_url: e.target.value })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Amazon Name</label>
-              <input value={form.amazon_name} onChange={(e) => setForm({ ...form, amazon_name: e.target.value })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Amazon Price (cents)</label>
-              <input type="number" value={form.amazon_price_cents} onChange={(e) => setForm({ ...form, amazon_price_cents: e.target.value })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Custom Name (override)</label>
-              <input value={form.voice_name} onChange={(e) => setForm({ ...form, voice_name: e.target.value })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Custom Price (cents, override)</label>
-              <input type="number" value={form.custom_price_cents} onChange={(e) => setForm({ ...form, custom_price_cents: e.target.value })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm" />
-            </div>
-            <div className="sm:col-span-2 lg:col-span-3">
-              <label className="text-sm font-medium text-gray-600">Categories</label>
-              <select multiple value={form.category_ids}
-                onChange={(e) => setForm({ ...form, category_ids: Array.from(e.target.selectedOptions, (o) => o.value) })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm h-24">
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
+            <button
+              onClick={handleLookup}
+              disabled={lookupLoading || !asinInput.trim()}
+              className="flex items-center gap-2 rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {lookupLoading ? <><Loader2 size={14} className="animate-spin" /> Looking up...</> : 'Lookup'}
+            </button>
+            <button onClick={() => { setShowForm(false); resetCreateForm(); }} className="rounded border px-4 py-2 text-sm">Cancel</button>
           </div>
-          <div className="mt-4 flex gap-2">
-            <button type="submit" className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">Create</button>
-            <button type="button" onClick={() => setShowForm(false)} className="rounded border px-4 py-2 text-sm">Cancel</button>
-          </div>
-        </form>
+
+          {lookupError && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{lookupError}</div>
+          )}
+
+          {lookupData && (
+            <div>
+              <div className="mb-4 grid gap-6 lg:grid-cols-2">
+                <div>
+                  <h4 className="mb-3 text-sm font-semibold text-gray-700">Amazon Data (auto-fetched)</h4>
+                  <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                    <div>
+                      <span className="text-xs font-medium text-gray-500">Name</span>
+                      <p className="text-sm text-gray-800">{lookupData.name || '-'}</p>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-500">Description</span>
+                      <p className="text-sm text-gray-800 max-h-24 overflow-y-auto">{lookupData.description ? lookupData.description.substring(0, 300) + (lookupData.description.length > 300 ? '...' : '') : '-'}</p>
+                    </div>
+                    <div className="flex gap-6">
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">Price</span>
+                        <p className="text-sm font-semibold text-gray-800">{lookupData.price_cents != null ? `$${(lookupData.price_cents / 100).toFixed(2)}` : '-'}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">Availability</span>
+                        <p className="text-sm">
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${lookupData.availability === 'in_stock' ? 'bg-green-100 text-green-700' : lookupData.availability === 'out_of_stock' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                            {lookupData.availability.replace(/_/g, ' ')}
+                          </span>
+                        </p>
+                      </div>
+                      {lookupData.brand && (
+                        <div>
+                          <span className="text-xs font-medium text-gray-500">Brand</span>
+                          <p className="text-sm text-gray-800">{lookupData.brand}</p>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-500">ASIN</span>
+                      <p className="text-sm font-mono text-gray-600">{lookupData.asin}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="mb-3 text-sm font-semibold text-gray-700">VoiceX Overrides <span className="font-normal text-gray-400">(optional)</span></h4>
+                  <div className="space-y-3 rounded-lg border border-indigo-200 bg-indigo-50/30 p-4">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Custom Name</label>
+                      <input
+                        value={createOverrides.voice_name}
+                        onChange={(e) => setCreateOverrides({ ...createOverrides, voice_name: e.target.value })}
+                        placeholder={lookupData.name || 'Leave blank to use Amazon name'}
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Custom Description</label>
+                      <textarea
+                        value={createOverrides.voice_description}
+                        onChange={(e) => setCreateOverrides({ ...createOverrides, voice_description: e.target.value })}
+                        placeholder="Leave blank to use Amazon description"
+                        rows={3}
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Custom Price (cents)</label>
+                      <input
+                        type="number"
+                        value={createOverrides.custom_price_cents}
+                        onChange={(e) => setCreateOverrides({ ...createOverrides, custom_price_cents: e.target.value })}
+                        placeholder={lookupData.price_cents != null ? `${lookupData.price_cents} (Amazon + markup)` : 'Leave blank for auto-markup'}
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400">If left blank, calls will use the Amazon data shown on the left.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="text-sm font-medium text-gray-600">Categories</label>
+                <select
+                  multiple
+                  value={createOverrides.category_ids}
+                  onChange={(e) => setCreateOverrides({ ...createOverrides, category_ids: Array.from(e.target.selectedOptions, (o) => o.value) })}
+                  className="mt-1 w-full rounded border px-3 py-2 text-sm h-24"
+                >
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreate}
+                  disabled={saving}
+                  className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {saving ? 'Creating...' : 'Create Product'}
+                </button>
+                <button onClick={() => { setShowForm(false); resetCreateForm(); }} className="rounded border px-4 py-2 text-sm">Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="mb-4">

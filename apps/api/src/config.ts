@@ -25,7 +25,6 @@ export const config = {
 
   rye: {
     apiKey: process.env.RYE_API_KEY!,
-    baseUrl: process.env.RYE_BASE_URL || 'https://staging.api.rye.com',
   },
 
   google: {

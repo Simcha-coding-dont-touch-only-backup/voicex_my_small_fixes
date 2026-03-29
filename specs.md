@@ -20,7 +20,7 @@ Flow:
 •	If there is an active account user is redirected to 'Password Stage'. ✅ DONE (PIN-based)
 •	If there is no active account, user is redirected to 'Create Account Stage'. User has to provide; Name, Email, Password, At least one address, At least one credit card ⚠️ PARTIAL — Name and PIN captured; Email, Address, and Credit Card are NOT collected during registration
 •	Once logged in, user can add a product to the cart using a 'Catalog Number' ✅ DONE
-•	When a 'Catalog Number' is entered, system repeats the product name and price. User can select to hear its description, full details and reviews. After confirmation, product gets added to cart with the Qty selected by user.. ⚠️ PARTIAL — Name/price readback and add-to-cart work; description/details/reviews from Rye API are stubbed/placeholder
+•	When a 'Catalog Number' is entered, system repeats the product name and price. User can select to hear its description, full details and reviews. After confirmation, product gets added to cart with the Qty selected by user.. ⚠️ PARTIAL — Name/price readback and add-to-cart work; description now auto-fetched from Rye at product-add time and readable via "More Details"; reviews still stubbed
 •	User can access cart and hear a total of how many product types are in cart, total QTY of products and total cart price (ex:  5 products with total qty of 13 and a total cart price of $150). User can listen to all the products found in cart. He can delete products and edit their Qty. ✅ DONE
 •	User can then move to checkout, where he can select one of his saved addresses or add a new one. He can select a saved credit card or add a new one. ✅ DONE
 •	User can complete the checkout. If order is not eligible for free Prime shipping, it will tell him the shipping cost and the updated cart total. ⚠️ PARTIAL — Checkout works; shipping cost is applied by Rye in background but NOT communicated to user in voice summary before placing order
@@ -35,7 +35,7 @@ o	Can spell things out like emails  j o h n d o e @gmail.com ❌ PENDING — Ema
 o	Allows us to pass a markup to product price. It will charge card for the marked up price but only sends Amazon their price. ✅ DONE (markup logic in shared package)
 o	Allows checkout of multiple products and quantities ⚠️ PARTIAL — Each cart item processed as separate Rye checkout intent (not single multi-item order)
 o	Includes free shipping from Amazon Prime ✅ DONE (Rye handles this)
-o	Can pass over description, full details and reviews of any given product ❌ PENDING — Rye API not called for product details/reviews; stubbed in catalog flow
+o	Can pass over description, full details and reviews of any given product ⚠️ PARTIAL — Product name/description/price auto-fetched from Rye via products.lookup at admin add time and stored in DB; "More Details" IVR option reads stored description; reviews still stubbed
 o	If an order is not eligible for free Prime shipping, it should pass over the shipping amount. ⚠️ PARTIAL — Shipping stored on order after Rye processes, but not communicated to user before order placement
 o	Can pass status of existing orders ✅ DONE (order status stored and readable)
 
@@ -57,7 +57,7 @@ b.	Can have parent/child categories up to 3 levels deep ✅ DONE (depth constrai
 a.	Add/edit/delete products ✅ DONE
 b.	Set category (or multiple categories) ✅ DONE
 c.	Set VoiceX ID for each item (Can also be auto generated) ✅ DONE
-d.	Set Amazon link/asin for each product for passing to RYE API ✅ DONE
+d.	Set Amazon link/asin for each product for passing to RYE API ✅ DONE (ASIN auto-fetches name, description, price, URL from Rye products.lookup)
 e.	Can override product name and description with custom. If empty it will use Amazon data. ✅ DONE (shared getProductDisplayName helper)
 f.	Can see lifetime purchase total for each product ✅ DONE (total_sold column + increment RPC)
 g.	Product price auto generates using Amazon price plus the default markup % from Settings, but can overwrite to a custom price. ✅ DONE (shared getProductPriceCents helper)
@@ -138,11 +138,11 @@ Step 1: Catalog ID Input
 
 Confirmation:
 o	Press 1 or say Add to Cart ✅ DONE
-o	Press 2 or say More Details ⚠️ PARTIAL — Option exists but Rye API not called for real details
+o	Press 2 or say More Details ✅ DONE (description auto-fetched from Rye at product-add time, stored in amazon_description, read back on call)
 o	Press 3 or say Get Reviews ⚠️ PARTIAL — Option exists but Rye API not called for real reviews
 o	Press 4 or say Another Product ✅ DONE
 o	Press * or say Back to Main Menu ✅ DONE
-•	Product Lookup API called (we already called the VoiceX API to get the product name. Can now call the RYE API to get details and reviews if requested) ⚠️ PARTIAL — VoiceX lookup works; Rye lookup for details/reviews not implemented
+•	Product Lookup API called (we already called the VoiceX API to get the product name. Can now call the RYE API to get details and reviews if requested) ⚠️ PARTIAL — VoiceX lookup works; Rye product data (name, description, price) auto-fetched at admin add time via products.lookup; reviews not implemented
 If not found:
 •	Retry Catalog ID input ✅ DONE
 ________________________________________
@@ -255,14 +255,16 @@ After repeated failures:
 STATUS SUMMARY
 ========================================
 
-FULLY DONE (✅):  ~70% of spec items
+FULLY DONE (✅):  ~72% of spec items
 - React + Node + Supabase stack
 - Twilio phone integration (inbound calls, DTMF + speech input)
-- Rye API integration for checkout
+- Rye API integration for checkout + product data lookup
 - Google Address Validation API
 - Admin portal (users, products, categories, orders, settings, reports)
 - User management (CRUD, PIN, login history, whitelist)
 - Catalog management (categories, products, VoiceX IDs, pricing)
+- ASIN auto-fetch: admin enters ASIN, system pulls name/description/price/URL from Rye
+- Product "More Details" on IVR reads real Amazon description (auto-fetched at add time)
 - Settings (markup %)
 - Call initiation & user identification (active/frozen/new)
 - PIN validation flow
@@ -276,9 +278,9 @@ FULLY DONE (✅):  ~70% of spec items
 - Reports (date range + Excel export)
 - Timeout handling & graceful termination
 
-PARTIALLY DONE (⚠️):  ~20% of spec items
+PARTIALLY DONE (⚠️):  ~19% of spec items
 - Registration missing Email, Address, Credit Card collection
-- Product details/reviews from Rye API stubbed (menu options exist but don't call Rye)
+- Product reviews from Rye API still stubbed (description now works)
 - Shipping cost not communicated to user before order confirmation
 - IVR flow admin DB schema + UI exists but does NOT drive live calls (hardcoded handlers)
 - Order filtering by product is in-memory (pagination issues)
@@ -288,9 +290,9 @@ PARTIALLY DONE (⚠️):  ~20% of spec items
 - Multi-item orders processed as separate Rye intents (not single multi-item checkout)
 - Name readback letter-by-letter during registration not confirmed
 
-NOT STARTED (❌):  ~10% of spec items
+NOT STARTED (❌):  ~9% of spec items
 - Stock/availability check via Rye API before adding to cart
 - Partial availability messaging ("only 3 available")
 - Shipping cost shown to user before placing order
-- Product details & reviews fetched from Rye API
+- Product reviews fetched from Rye API
 - Email collection during registration

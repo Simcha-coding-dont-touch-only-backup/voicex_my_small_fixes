@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { ryeClient } from '../../lib/rye.js';
 
 export const catalogRouter = Router();
 
@@ -151,6 +152,43 @@ catalogRouter.get('/products/:id', async (req, res) => {
   }
 
   res.json({ success: true, data });
+});
+
+catalogRouter.post('/products/lookup-asin', async (req, res) => {
+  const { asin } = req.body;
+
+  if (!asin || typeof asin !== 'string' || !/^[A-Z0-9]{10}$/.test(asin.trim().toUpperCase())) {
+    res.status(400).json({ success: false, error: 'Please provide a valid 10-character Amazon ASIN.' });
+    return;
+  }
+
+  const url = `https://www.amazon.com/dp/${asin.trim().toUpperCase()}`;
+
+  try {
+    const product = await ryeClient.products.lookup({ url });
+    res.json({
+      success: true,
+      data: {
+        asin: asin.trim().toUpperCase(),
+        url,
+        name: product.name || null,
+        description: product.description || null,
+        price_cents: product.price?.amountSubunits ?? null,
+        currency: product.price?.currencyCode || 'USD',
+        availability: product.availability || 'unknown',
+        is_purchasable: product.isPurchasable ?? false,
+        images: product.images?.map((img: any) => ({ url: img.url, is_featured: img.isFeatured })) || [],
+        brand: product.brand || null,
+      },
+    });
+  } catch (err: any) {
+    const status = err.status || 500;
+    const message =
+      status === 404 ? `Product with ASIN "${asin}" was not found on Amazon.`
+      : status === 401 ? 'Rye API authentication failed. Check your API key.'
+      : `Failed to look up product: ${err.message || 'Unknown error'}`;
+    res.status(status >= 500 ? 502 : status).json({ success: false, error: message });
+  }
 });
 
 catalogRouter.post('/products', async (req, res) => {

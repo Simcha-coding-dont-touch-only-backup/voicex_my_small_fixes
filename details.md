@@ -7,3 +7,8 @@ Point your Twilio phone number webhook to POST https://your-domain/api/twilio/vo
 Admin   simcha@targetjump.com   /   VoiceX@246
 Create new admin npm run create-admin -- <email> <password> [displayName]
 Twillio  (845) 535-4028
+
+RYE
+Staging	- https://staging.api.rye.com/api/v1/
+Production	 -  https://api.rye.com/api/v1/
+
