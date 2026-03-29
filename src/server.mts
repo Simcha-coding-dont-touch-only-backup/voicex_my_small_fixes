@@ -8,6 +8,7 @@ import { config } from '../apps/api/src/config.js';
 import { twilioRouter } from '../apps/api/src/modules/twilio/routes.js';
 import { adminRouter } from '../apps/api/src/modules/admin/routes.js';
 import { webhookRouter } from '../apps/api/src/modules/orders/webhook-routes.js';
+import '../apps/api/src/modules/ivr/init-handlers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const adminDist = path.join(__dirname, '..', 'apps', 'admin-web', 'dist');
