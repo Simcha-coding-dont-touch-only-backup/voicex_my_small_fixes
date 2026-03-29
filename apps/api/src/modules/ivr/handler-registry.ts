@@ -18,16 +18,23 @@ export interface HandlerResult {
 
 export type IvrHandler = (ctx: HandlerContext) => Promise<HandlerResult>;
 
-const registry = new Map<string, IvrHandler>();
+let registry: Map<string, IvrHandler> | undefined;
+
+function getRegistry(): Map<string, IvrHandler> {
+  if (!registry) {
+    registry = new Map();
+  }
+  return registry;
+}
 
 export function registerHandler(name: string, handler: IvrHandler): void {
-  registry.set(name, handler);
+  getRegistry().set(name, handler);
 }
 
 export function getHandler(name: string): IvrHandler | undefined {
-  return registry.get(name);
+  return getRegistry().get(name);
 }
 
 export function getHandlerNames(): string[] {
-  return Array.from(registry.keys());
+  return Array.from(getRegistry().keys());
 }
