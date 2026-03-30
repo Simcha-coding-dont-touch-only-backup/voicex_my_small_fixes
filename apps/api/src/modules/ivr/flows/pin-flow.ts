@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { buildGather, buildSay, buildHangup } from '../../twilio/twiml-builder.js';
+import { buildGather as buildTeltechGather } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 export async function handlePinEntry(req: Request, res: Response) {
@@ -107,6 +108,15 @@ export async function handlePinEntry(req: Request, res: Response) {
   res.type('text/xml').send(
     buildMainMenuTwiml(callSid, userId)
   );
+}
+
+export function buildMainMenuResponse(callSid: string, userId: string) {
+  return buildTeltechGather({
+    prompt: 'Main Menu. Press 1 or say Catalog to browse products. Press 2 or say Cart to view your cart. Press 3 or say Orders to check order status.',
+    actionPath: '/api/ivr/voice/gather',
+    timeout: 8,
+    sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
+  });
 }
 
 export function buildMainMenuTwiml(callSid: string, userId: string): string {
