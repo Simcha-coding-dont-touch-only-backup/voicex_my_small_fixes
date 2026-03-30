@@ -1,21 +1,20 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildSay, formatCurrency } from '../../twilio/twiml-builder.js';
-import { normalizeInput } from '../../twilio/speech-normalizer.js';
+import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
+import { normalizeInput } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName, getProductPriceCents } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('lookup_product', async (ctx) => {
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
   const userId = ctx.sessionData.user_id;
 
   if (!digits) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: ctx.node.prompt_text || 'Please enter the catalog number followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
@@ -32,11 +31,10 @@ registerHandler('lookup_product', async (ctx) => {
 
   if (!product) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: `Product with catalog number ${digits.split('').join(' ')} was not found. Please enter a different catalog number.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
@@ -63,17 +61,13 @@ registerHandler('lookup_product', async (ctx) => {
   const priceStr = priceCents ? formatCurrency(priceCents) : 'price unavailable';
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'found');
-  const intents = nextNode?.config.intents || [];
-  const hints = intents.flatMap((i: any) => i.speech_phrases);
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
+    type: 'actions',
+    response: buildGather({
       prompt: `${displayName}, priced at ${priceStr}. ${nextNode?.prompt_text || 'Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.'}`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 10,
-      hints,
       sessionData: {
         call_sid: ctx.callSid,
         user_id: userId,
@@ -89,12 +83,10 @@ registerHandler('catalog_action', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const productId = ctx.sessionData.product_id;
   const voicexId = ctx.sessionData.voicex_id;
-  const digits = ctx.req.body.Digits;
-  const speechResult = ctx.req.body.SpeechResult;
-  const confidence = ctx.req.body.Confidence;
+  const digits = ctx.req.body.digits;
 
   const intents = ctx.node.config.intents || [];
-  const input = normalizeInput(digits, speechResult, confidence, intents);
+  const input = normalizeInput(digits, intents);
 
   if (input.matchedIntent === 'more_details') {
     const { data: product } = await supabaseAdmin
@@ -106,13 +98,11 @@ registerHandler('catalog_action', async (ctx) => {
     const description = product?.voice_description || product?.amazon_description || 'No description available.';
 
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: `${description}. Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
-        hints: ['add to cart', 'another product', 'main menu'],
         sessionData: {
           call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
           product_id: productId, voicex_id: voicexId,
@@ -123,13 +113,11 @@ registerHandler('catalog_action', async (ctx) => {
 
   if (input.matchedIntent === 'reviews') {
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: 'Reviews are currently being loaded from Amazon. This feature will be available shortly. Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
-        hints: ['add to cart', 'another product', 'main menu'],
         sessionData: {
           call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
           product_id: productId, voicex_id: voicexId,
@@ -144,11 +132,10 @@ registerHandler('catalog_action', async (ctx) => {
       const targetNode = await ivrRuntime.getNodeByKey(ctx.flowVersionId, targetNodeKey);
       if (targetNode) {
         return {
-          type: 'twiml',
-          twiml: buildGather({
+          type: 'actions',
+          response: buildGather({
             prompt: targetNode.prompt_text || 'Please continue.',
-            actionPath: '/api/twilio/voice/gather',
-            inputType: (targetNode.config.input_type as any)?.replace('_', ' ') || 'dtmf speech',
+            actionPath: '/api/ivr/voice/gather',
             numDigits: targetNode.config.num_digits,
             timeout: targetNode.config.timeout_seconds || 10,
             finishOnKey: targetNode.config.finish_on_key,
@@ -163,11 +150,10 @@ registerHandler('catalog_action', async (ctx) => {
   }
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
+    type: 'actions',
+    response: buildGather({
       prompt: ctx.node.prompt_text || 'Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 8,
       sessionData: {
         call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
@@ -181,16 +167,15 @@ registerHandler('enter_qty', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const productId = ctx.sessionData.product_id;
   const voicexId = ctx.sessionData.voicex_id;
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
 
   const qty = parseInt(digits || '0', 10);
   if (!qty || qty <= 0) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: 'Please enter a valid quantity.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: {
@@ -204,11 +189,10 @@ registerHandler('enter_qty', async (ctx) => {
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
+    type: 'actions',
+    response: buildGather({
       prompt: `You entered a quantity of ${qty}. Press 1 to confirm, or press 2 to re-enter.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 10,
       finishOnKey: '',
@@ -226,16 +210,15 @@ registerHandler('confirm_qty', async (ctx) => {
   const productId = ctx.sessionData.product_id;
   const voicexId = ctx.sessionData.voicex_id;
   const qty = parseInt(ctx.sessionData.qty, 10);
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
 
   if (digits === '2') {
     const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: 'Enter the quantity.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: {
@@ -316,17 +299,13 @@ registerHandler('confirm_qty', async (ctx) => {
 
     const displayName = getProductDisplayName(product);
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'confirmed');
-    const nextIntents = nextNode?.config.intents || [];
-    const hints = nextIntents.flatMap((i: any) => i.speech_phrases);
 
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: `${qty} of ${displayName} has been added to your cart. ${nextNode?.prompt_text || 'Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.'}`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 8,
-        hints,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId,
           node_key: nextNode?.node_key || 'catalog_after_add',
@@ -336,10 +315,10 @@ registerHandler('confirm_qty', async (ctx) => {
   } catch (error) {
     console.error('Add to cart error:', error);
     return {
-      type: 'twiml',
-      twiml: buildSay(
+      type: 'actions',
+      response: buildSay(
         'There was an error adding the product to your cart. Please try again.',
-        `/api/twilio/voice/gather?node_key=catalog_input&user_id=${userId}&call_sid=${ctx.callSid}`
+        `/api/ivr/voice/gather?node_key=catalog_input&user_id=${userId}&call_sid=${ctx.callSid}`
       ),
     };
   }

@@ -2,12 +2,12 @@ import type { Request, Response } from 'express';
 import { ivrRuntime } from '../../ivr/runtime.js';
 
 export async function handleCallStatus(req: Request, res: Response) {
-  const callSid = req.body.CallSid;
-  const callStatus = req.body.CallStatus;
+  const callId = req.body.call_id;
+  const event = req.body.event;
 
-  if (callStatus === 'completed' || callStatus === 'failed' || callStatus === 'busy' || callStatus === 'no-answer') {
+  if (event === 'hangup' && callId) {
     try {
-      await ivrRuntime.endSession(callSid);
+      await ivrRuntime.endSession(callId);
     } catch (err) {
       console.error('Failed to end session:', err);
     }

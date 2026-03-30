@@ -5,7 +5,7 @@ import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '../apps/api/src/config.js';
-import { twilioRouter } from '../apps/api/src/modules/twilio/routes.js';
+import { teltechRouter } from '../apps/api/src/modules/teltech/routes.js';
 import { adminRouter } from '../apps/api/src/modules/admin/routes.js';
 import { webhookRouter } from '../apps/api/src/modules/orders/webhook-routes.js';
 import '../apps/api/src/modules/ivr/init-handlers.js';
@@ -19,7 +19,7 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(morgan('combined'));
 app.use(cors({ origin: config.adminUrl, credentials: true }));
 
-app.use('/api/twilio', express.urlencoded({ extended: false }), twilioRouter);
+app.use('/api/ivr', express.json(), teltechRouter);
 
 app.use('/api/webhooks', express.json(), webhookRouter);
 

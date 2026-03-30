@@ -1,19 +1,18 @@
 import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabase.js';
-import { buildGather, buildSay, buildHangup } from '../../twilio/twiml-builder.js';
+import { buildGather, buildSay, buildHangup } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
-import { buildMainMenuTwiml } from './pin-flow.js';
+import { buildMainMenuResponse } from './pin-flow.js';
 
 export async function handleRegistration(req: Request, res: Response) {
   const step = req.query.step as string;
   const callSid = req.query.call_sid as string;
-  const digits = req.body.Digits;
-  const speechResult = req.body.SpeechResult;
+  const digits = req.body.digits;
 
   switch (step) {
     case 'register_name':
-      return handleNameCapture(req, res, callSid, speechResult);
+      return handleNameCapture(req, res, callSid, digits);
     case 'register_name_confirm':
       return handleNameConfirm(req, res, callSid, digits);
     case 'register_pin':
@@ -21,7 +20,7 @@ export async function handleRegistration(req: Request, res: Response) {
     case 'register_pin_confirm':
       return handlePinConfirm(req, res, callSid, digits);
     default:
-      res.type('text/xml').send(
+      res.json(
         buildHangup('An error occurred during registration.')
       );
   }
@@ -31,14 +30,13 @@ async function handleNameCapture(
   req: Request,
   res: Response,
   callSid: string,
-  speechResult: string | undefined
+  digits: string | undefined
 ) {
-  if (!speechResult || speechResult.trim().length < 2) {
-    res.type('text/xml').send(
+  if (!digits || digits.trim().length < 2) {
+    res.json(
       buildGather({
-        prompt: 'I didn\'t catch that. Please say your full name followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'speech',
+        prompt: 'I didn\'t catch that. Please enter your name using the keypad followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: { call_sid: callSid, step: 'register_name' },
@@ -47,21 +45,19 @@ async function handleNameCapture(
     return;
   }
 
-  const name = speechResult.trim();
+  const name = digits.trim();
   const spelled = name.split('').join(', ');
 
   await ivrRuntime.updateSession(callSid, {
     state_data: { registration_name: name },
   });
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
-      prompt: `I heard your name as: ${name}. That is spelled: ${spelled}. Press 1 to confirm, or press 2 to re-enter your name.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      prompt: `Your name is: ${name}. That is spelled: ${spelled}. Press 1 to confirm, or press 2 to re-enter your name.`,
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 10,
-      hints: ['confirm', 'reenter', 'yes', 'no', 'one', 'two'],
       sessionData: { call_sid: callSid, step: 'register_name_confirm', name },
     })
   );
@@ -76,11 +72,10 @@ async function handleNameConfirm(
   const name = req.query.name as string;
 
   if (digits === '2' || !digits) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
-        prompt: 'Please say your full name followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'speech',
+        prompt: 'Please enter your name using the keypad followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: { call_sid: callSid, step: 'register_name' },
@@ -89,11 +84,10 @@ async function handleNameConfirm(
     return;
   }
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
       prompt: 'Please enter a 4 digit PIN that you will use to access your account.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 4,
       timeout: 15,
       finishOnKey: '',
@@ -111,11 +105,10 @@ async function handlePinCapture(
   const name = req.query.name as string;
 
   if (!digits || digits.length !== 4) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: 'The PIN must be exactly 4 digits. Please try again.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 4,
         timeout: 15,
         finishOnKey: '',
@@ -127,11 +120,10 @@ async function handlePinCapture(
 
   const spelled = digits.split('').join(', ');
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
       prompt: `Your PIN is: ${spelled}. Press 1 to confirm, or press 2 to re-enter.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 10,
       finishOnKey: '',
@@ -155,11 +147,10 @@ async function handlePinConfirm(
   const pin = req.query.pin as string;
 
   if (digits === '2' || !digits) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: 'Please enter a 4 digit PIN.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 4,
         timeout: 15,
         finishOnKey: '',
@@ -171,7 +162,7 @@ async function handlePinConfirm(
 
   try {
     const session = await ivrRuntime.getSession(callSid);
-    const phoneNumber = session?.phone_number || req.body.From || '';
+    const phoneNumber = session?.phone_number || req.body.caller_id || '';
 
     const pinHash = await bcrypt.hash(pin, 10);
 
@@ -200,12 +191,12 @@ async function handlePinConfirm(
       retry_count: 0,
     });
 
-    res.type('text/xml').send(
-      buildMainMenuTwiml(callSid, user.id)
+    res.json(
+      buildMainMenuResponse(callSid, user.id)
     );
   } catch (error) {
     console.error('Registration error:', error);
-    res.type('text/xml').send(
+    res.json(
       buildHangup('We had trouble creating your account. Please try again later.')
     );
   }

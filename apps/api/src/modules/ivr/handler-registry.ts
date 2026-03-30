@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import type { IvrNode } from '@voicex/shared';
+import type { TeltechResponse } from '../../lib/teltech.js';
 
 export interface HandlerContext {
   req: Request;
@@ -12,8 +13,8 @@ export interface HandlerContext {
 }
 
 export interface HandlerResult {
-  type: 'twiml';
-  twiml: string;
+  type: 'actions';
+  response: TeltechResponse;
 }
 
 export type IvrHandler = (ctx: HandlerContext) => Promise<HandlerResult>;

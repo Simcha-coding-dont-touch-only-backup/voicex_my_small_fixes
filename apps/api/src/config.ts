@@ -12,11 +12,8 @@ export const config = {
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
   },
 
-  twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID!,
-    authToken: process.env.TWILIO_AUTH_TOKEN!,
-    phoneNumber: process.env.TWILIO_PHONE_NUMBER!,
-    payConnector: process.env.TWILIO_PAY_CONNECTOR || 'Default',
+  teltech: {
+    apiAuth: process.env.TELTECH_API_AUTH || '',
   },
 
   stripe: {

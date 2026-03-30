@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../../../lib/supabase.js';
-import { buildGather, buildSay, formatCurrency } from '../../twilio/twiml-builder.js';
-import { buildMainMenuTwiml } from './pin-flow.js';
+import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
+import { buildMainMenuResponse } from './pin-flow.js';
 
 export async function handleOrdersFlow(req: Request, res: Response) {
   const step = req.query.step as string;
@@ -27,11 +27,10 @@ async function handleOrdersList(
     .limit(5);
 
   if (!orders || orders.length === 0) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: 'You have no orders. Press star for the Main Menu.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 8,
         sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
       })
@@ -45,11 +44,10 @@ async function handleOrdersList(
     return `Order ${idx + 1}: number ${shortId}, placed on ${date}, status ${o.status}, total ${formatCurrency(o.total_cents)}`;
   });
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
       prompt: `${lines.join('. ')}. To hear details about an order, enter the order number from 1 to ${orders.length}. Press star for Main Menu.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 10,
       sessionData: {
@@ -65,20 +63,20 @@ async function handleOrdersList(
 async function handleOrderDetail(
   req: Request, res: Response, userId: string, callSid: string
 ) {
-  const digits = req.body.Digits;
+  const digits = req.body.digits;
   const orderIds = (req.query.order_ids as string || '').split(',');
 
   if (digits === '*') {
-    res.type('text/xml').send(buildMainMenuTwiml(callSid, userId));
+    res.json(buildMainMenuResponse(callSid, userId));
     return;
   }
 
   const idx = parseInt(digits || '0', 10) - 1;
   if (idx < 0 || idx >= orderIds.length) {
-    res.type('text/xml').send(
+    res.json(
       buildSay(
         'Invalid selection.',
-        `/api/twilio/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
+        `/api/ivr/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
       )
     );
     return;
@@ -93,10 +91,10 @@ async function handleOrderDetail(
     .single();
 
   if (!order) {
-    res.type('text/xml').send(
+    res.json(
       buildSay(
         'Order not found.',
-        `/api/twilio/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
+        `/api/ivr/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
       )
     );
     return;
@@ -108,11 +106,10 @@ async function handleOrderDetail(
 
   const shortId = order.id.slice(-6).toUpperCase();
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
       prompt: `Order ${shortId}. Status: ${order.status}. Total: ${formatCurrency(order.total_cents)}. Items: ${itemLines.join('. ')}. Press star for Main Menu, or press 0 to go back to the orders list.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 10,
       sessionData: { call_sid: callSid, user_id: userId, step: 'orders_list' },

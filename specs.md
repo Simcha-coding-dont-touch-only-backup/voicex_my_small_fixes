@@ -1,7 +1,7 @@
 BS"D
 Intro create a system where a user can call in on a phone number and order products via phone from Amazon and at a later stage also from other sites and marketplaces.
 Site should be built using React and Node and use Supabase for the data base ✅ DONE
-For the phone system integration we will use Twillio https://www.twilio.com/docs ✅ DONE
+For the phone system integration we originally used Twilio, later migrated to TelTech (JSON webhook API, better pricing) ✅ DONE
 For the getting product details and placing orders through Amazon we will not use the Amazon Api directly, rather we will do so through RYE  https://docs.rye.com/api-v2/introduction ✅ DONE
 Should use google address api to validate address when they are being entered ✅ DONE (validate-after-entry; no autocomplete/suggestions on phone)
 
@@ -9,14 +9,14 @@ Goal: Create a simple minimal version #1 MVP that can be launched to production 
 
 Plan:
 •	Users will be using Kosher Phones with audio only. ✅ DONE
-•	They will be verbally interacting with the 'Twillio Audio Frontend'  which will receive and pass data to/from the 'VoiceX Server' ✅ DONE
+•	They will be interacting via DTMF keypad with the TelTech IVR which will receive and pass data to/from the 'VoiceX Server' ✅ DONE (migrated from Twilio to TelTech)
 •	'VoiceX Server' will pass and receive data to/from the 'RYE API' ✅ DONE
 •	'RYE API' will complete the order on Amazon ✅ DONE
 •	All admin edits and configurations will be done on the 'VoiceX Server Admin Portal'. ✅ DONE
 
 Flow:
 •	User will call in to the main 'VoiceX Phone Number' ✅ DONE
-•	Twillio will pass user's phone number to 'VoiceX Server' to check if there is an active account. ✅ DONE
+•	TelTech will pass user's phone number (caller_id) to 'VoiceX Server' to check if there is an active account. ✅ DONE
 •	If there is an active account user is redirected to 'Password Stage'. ✅ DONE (PIN-based)
 •	If there is no active account, user is redirected to 'Create Account Stage'. User has to provide; Name, Email, Password, At least one address, At least one credit card ⚠️ PARTIAL — Name and PIN captured; Email, Address, and Credit Card are NOT collected during registration
 •	Once logged in, user can add a product to the cart using a 'Catalog Number' ✅ DONE
@@ -27,10 +27,10 @@ Flow:
 •	User can access a simple history of his orders. For now just order ID, order date and current order status. ✅ DONE (uses index-based selection instead of Order ID entry)
 
 Assumptions
-•	Twillio can handle the following..
-o	Voice detection (user can say options instead of pressing numbers) ✅ DONE (speech hints configured in gathers)
-o	Voice matching (if user says 'buy products', it should know he meant 'shopping' ✅ DONE (speech-normalizer.ts maps synonyms)
-o	Can spell things out like emails  j o h n d o e @gmail.com ❌ PENDING — Email not collected during registration
+•	TelTech IVR handles DTMF input (keypad only). Speech recognition was removed during migration from Twilio.
+o	Voice detection — ❌ REMOVED (TelTech does not support speech input; DTMF-only)
+o	Voice matching — ❌ REMOVED (was Twilio speech-normalizer; replaced with DTMF digit-to-intent matching)
+o	Can spell things out like emails — ❌ PENDING — Email not collected during registration
 •	Rye
 o	Allows us to pass a markup to product price. It will charge card for the marked up price but only sends Amazon their price. ✅ DONE (markup logic in shared package)
 o	Allows checkout of multiple products and quantities ⚠️ PARTIAL — Each cart item processed as separate Rye checkout intent (not single multi-item order)
@@ -75,15 +75,15 @@ ii.	Addresses can be added at registration or at checkout ⚠️ PARTIAL — Onl
 iii.	For each address can enter: Address, Apt, Street, City, State, Zip ✅ DONE
 d.	Credit Cards
 i.	User can save multiple credit cards ✅ DONE
-ii.	Cards can be entered  at registration or at checkout ⚠️ PARTIAL — Only at checkout via Twilio <Pay>, NOT during registration
-iii.	For each have to enter: CC number, date, cvv ✅ DONE (via Twilio <Pay> gather)
+ii.	Cards can be entered  at registration or at checkout ⚠️ PARTIAL — Only at checkout with saved cards; phone-based card entry stubbed pending TelTech payment docs
+iii.	For each have to enter: CC number, date, cvv ⚠️ STUBBED — Was done via Twilio Pay; TelTech payment integration pending
 e.	Detect Product Availability on Amazon at time it is added to VoiceX cart, with a fallback if out of stock. ❌ PENDING — No stock check via Rye API before adding to cart
 f.	Order Status
 i.	Can check the status of an existing order ✅ DONE
 Here is the IVR Flow
 
 IVR should not be hard coded, rather we should have a management in admin to be able to easily edit the IVR flow so later we can easily add things and make changes…. ⚠️ PARTIAL — DB schema for IVR flows/nodes/edges exists + admin UI for editing, BUT live calls use hardcoded TypeScript handlers (admin-edited flows do NOT execute at runtime)
-In all places should either be able to enter option pressing the physical phone key, by saying that number, or by saying that option. So for example  if say either 'One' or say 'Catalog' or press the digit 1, then will go to catalog " ✅ DONE (speech + DTMF input configured)
+Input is via DTMF keypad only (speech recognition removed during TelTech migration). Press the digit for each option. ✅ DONE (DTMF input)
 
 1. Call Initiation & User Identification
 When a user calls the hotline, the system triggers the Check User API using the caller ID.
@@ -208,17 +208,17 @@ o	Press 2 to restart address entry ✅ DONE
 ________________________________________
 Step 2: Payment Method (Sequential Input)
 All card inputs are manual (DTMF only)
-1.	Enter Card Number ✅ DONE (via Twilio <Pay>)
-o	Confirm (1 / 2) ✅ DONE
-2.	Enter Expiry Date ✅ DONE (via Twilio <Pay>)
-o	Confirm (1 / 2) ✅ DONE
-3.	Enter CVV ✅ DONE (via Twilio <Pay>)
-o	Confirm (1 / 2) ✅ DONE
+1.	Enter Card Number ⚠️ STUBBED — Was via Twilio Pay; TelTech payment integration pending
+o	Confirm (1 / 2) ⚠️ STUBBED
+2.	Enter Expiry Date ⚠️ STUBBED
+o	Confirm (1 / 2) ⚠️ STUBBED
+3.	Enter CVV ⚠️ STUBBED
+o	Confirm (1 / 2) ⚠️ STUBBED
 •	System reads masked card ✅ DONE
 •	Final confirmation:
 o	Press 1 to confirm ✅ DONE
 o	Press 2 to re-enter ✅ DONE
-•	Tokenization API called ✅ DONE (Stripe via Twilio <Pay>)
+•	Tokenization API called ⚠️ STUBBED — Was Stripe via Twilio Pay; TelTech payment integration pending
 •	
 ________________________________________
 Step 3: Order Summary
@@ -255,9 +255,10 @@ After repeated failures:
 STATUS SUMMARY
 ========================================
 
-FULLY DONE (✅):  ~72% of spec items
+FULLY DONE (✅):  ~70% of spec items
 - React + Node + Supabase stack
-- Twilio phone integration (inbound calls, DTMF + speech input)
+- TelTech IVR integration (inbound calls, DTMF input via JSON webhook API)
+  (migrated from Twilio TwiML; speech recognition removed, DTMF-only)
 - Rye API integration for checkout + product data lookup
 - Google Address Validation API
 - Admin portal (users, products, categories, orders, settings, reports)
@@ -269,16 +270,16 @@ FULLY DONE (✅):  ~72% of spec items
 - Call initiation & user identification (active/frozen/new)
 - PIN validation flow
 - Registration flow (name + PIN only)
-- Main menu with speech + DTMF routing
+- Main menu with DTMF routing
 - Catalog ID lookup from VoiceX DB
 - Add to cart with qty selection
 - Full cart flow (summary, list items, change qty, remove)
-- Full checkout flow (address entry, payment via Twilio <Pay>, order placement)
+- Checkout flow (address entry, order placement with saved cards)
 - Orders flow (list + detail view)
 - Reports (date range + Excel export)
 - Timeout handling & graceful termination
 
-PARTIALLY DONE (⚠️):  ~19% of spec items
+PARTIALLY DONE / STUBBED (⚠️):  ~20% of spec items
 - Registration missing Email, Address, Credit Card collection
 - Product reviews from Rye API still stubbed (description now works)
 - Shipping cost not communicated to user before order confirmation
@@ -289,10 +290,21 @@ PARTIALLY DONE (⚠️):  ~19% of spec items
 - Delivery estimate not populated in order summary
 - Multi-item orders processed as separate Rye intents (not single multi-item checkout)
 - Name readback letter-by-letter during registration not confirmed
+- Phone-based new card entry STUBBED (was Twilio Pay; pending TelTech payment docs)
+- Card tokenization STUBBED (was Stripe via Twilio Pay; pending TelTech payment docs)
 
-NOT STARTED (❌):  ~9% of spec items
+NOT STARTED (❌):  ~10% of spec items
 - Stock/availability check via Rye API before adding to cart
 - Partial availability messaging ("only 3 available")
 - Shipping cost shown to user before placing order
 - Product reviews fetched from Rye API
 - Email collection during registration
+- Speech recognition (removed during TelTech migration; TelTech does not support it)
+
+MIGRATION NOTE: Twilio -> TelTech (completed)
+- Twilio TwiML XML replaced with TelTech JSON actions API
+- All speech recognition removed; DTMF-only input
+- Twilio <Pay> (PCI-compliant card collection) removed; payment stubbed pending TelTech docs
+- Routes changed: /api/twilio/voice/* -> /api/ivr/voice/*
+- Request params: CallSid -> call_id, From -> caller_id, Digits -> digits
+- twilio npm package removed; no external telephony SDK dependency

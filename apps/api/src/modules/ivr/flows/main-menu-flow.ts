@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
-import { normalizeInput } from '../../twilio/speech-normalizer.js';
-import { buildGather, buildSay } from '../../twilio/twiml-builder.js';
+import { normalizeInput } from '../../teltech/input-normalizer.js';
+import { buildGather, buildSay } from '../../teltech/teltech-builder.js';
 import type { IvrIntent } from '@voicex/shared';
 
 const MAIN_MENU_INTENTS: IvrIntent[] = [
@@ -33,20 +33,16 @@ const MAIN_MENU_INTENTS: IvrIntent[] = [
 export async function handleMainMenu(req: Request, res: Response) {
   const userId = req.query.user_id as string;
   const callSid = req.query.call_sid as string;
-  const digits = req.body.Digits;
-  const speechResult = req.body.SpeechResult;
-  const confidence = req.body.Confidence;
+  const digits = req.body.digits;
 
-  const input = normalizeInput(digits, speechResult, confidence, MAIN_MENU_INTENTS);
+  const input = normalizeInput(digits, MAIN_MENU_INTENTS);
 
   if (!input.matchedIntent) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: 'I didn\'t understand. Press 1 for Catalog, 2 for Cart, 3 for Orders.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 8,
-        hints: ['catalog', 'cart', 'orders'],
         sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
       })
     );
@@ -59,11 +55,10 @@ export async function handleMainMenu(req: Request, res: Response) {
 
   switch (targetStep) {
     case 'catalog_input':
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'Please enter the catalog number for the product you would like to look up.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 10,
           finishOnKey: '#',
           sessionData: { call_sid: callSid, user_id: userId, step: 'catalog_input' },
@@ -72,44 +67,40 @@ export async function handleMainMenu(req: Request, res: Response) {
       break;
 
     case 'cart_menu':
-      res.type('text/xml').send(
+      res.json(
         buildSay(
           'Loading your cart.',
-          `/api/twilio/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+          `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
         )
       );
       break;
 
     case 'orders_list':
-      res.type('text/xml').send(
+      res.json(
         buildSay(
           'Loading your orders.',
-          `/api/twilio/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
+          `/api/ivr/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
         )
       );
       break;
 
     case 'main_menu':
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'Returns are not yet available. Press 1 for Catalog, 2 for Cart, 3 for Orders.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf speech',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 8,
-          hints: ['catalog', 'cart', 'orders'],
           sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
         })
       );
       break;
 
     default:
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'Press 1 for Catalog, 2 for Cart, 3 for Orders.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf speech',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 8,
-          hints: ['catalog', 'cart', 'orders'],
           sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
         })
       );

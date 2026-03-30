@@ -1,19 +1,18 @@
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildHangup } from '../../twilio/twiml-builder.js';
+import { buildGather, buildHangup } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('capture_name', async (ctx) => {
-  const speechResult = ctx.req.body.SpeechResult;
+  const digits = ctx.req.body.digits;
 
-  if (!speechResult || speechResult.trim().length < 2) {
+  if (!digits || digits.trim().length < 2) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
-        prompt: 'I didn\'t catch that. Please say your full name followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'speech',
+      type: 'actions',
+      response: buildGather({
+        prompt: 'I didn\'t catch that. Please enter your name using the keypad followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, node_key: ctx.node.node_key },
@@ -21,7 +20,7 @@ registerHandler('capture_name', async (ctx) => {
     };
   }
 
-  const name = speechResult.trim();
+  const name = digits.trim();
   const spelled = name.split('').join(', ');
 
   await ivrRuntime.updateSession(ctx.callSid, {
@@ -30,31 +29,28 @@ registerHandler('capture_name', async (ctx) => {
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
   return {
-    type: 'twiml',
-    twiml: buildGather({
-      prompt: `I heard your name as: ${name}. That is spelled: ${spelled}. Press 1 to confirm, or press 2 to re-enter your name.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+    type: 'actions',
+    response: buildGather({
+      prompt: `Your name is: ${name}. That is spelled: ${spelled}. Press 1 to confirm, or press 2 to re-enter your name.`,
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 10,
-      hints: ['confirm', 'reenter', 'yes', 'no', 'one', 'two'],
       sessionData: { call_sid: ctx.callSid, node_key: nextNode?.node_key || 'register_name_confirm', name },
     }),
   };
 });
 
 registerHandler('confirm_name', async (ctx) => {
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
   const name = ctx.sessionData.name;
 
   if (digits === '2' || !digits) {
     const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
     return {
-      type: 'twiml',
-      twiml: buildGather({
-        prompt: 'Please say your full name followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'speech',
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter your name using the keypad followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, node_key: retryNode?.node_key || 'register_name' },
@@ -64,11 +60,10 @@ registerHandler('confirm_name', async (ctx) => {
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'confirmed');
   return {
-    type: 'twiml',
-    twiml: buildGather({
+    type: 'actions',
+    response: buildGather({
       prompt: nextNode?.prompt_text || 'Please enter a 4 digit PIN that you will use to access your account.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 4,
       timeout: 15,
       finishOnKey: '',
@@ -78,16 +73,15 @@ registerHandler('confirm_name', async (ctx) => {
 });
 
 registerHandler('capture_pin', async (ctx) => {
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
   const name = ctx.sessionData.name;
 
   if (!digits || digits.length !== 4) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: 'The PIN must be exactly 4 digits. Please try again.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 4,
         timeout: 15,
         finishOnKey: '',
@@ -100,11 +94,10 @@ registerHandler('capture_pin', async (ctx) => {
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
+    type: 'actions',
+    response: buildGather({
       prompt: `Your PIN is: ${spelled}. Press 1 to confirm, or press 2 to re-enter.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 10,
       finishOnKey: '',
@@ -119,18 +112,17 @@ registerHandler('capture_pin', async (ctx) => {
 });
 
 registerHandler('confirm_pin_register', async (ctx) => {
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
   const name = ctx.sessionData.name;
   const pin = ctx.sessionData.pin;
 
   if (digits === '2' || !digits) {
     const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: 'Please enter a 4 digit PIN.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 4,
         timeout: 15,
         finishOnKey: '',
@@ -141,7 +133,7 @@ registerHandler('confirm_pin_register', async (ctx) => {
 
   try {
     const session = await ivrRuntime.getSession(ctx.callSid);
-    const phoneNumber = session?.phone_number || ctx.req.body.From || '';
+    const phoneNumber = session?.phone_number || ctx.req.body.caller_id || '';
     const pinHash = await bcrypt.hash(pin, 10);
 
     const { data: user } = await supabaseAdmin
@@ -171,24 +163,20 @@ registerHandler('confirm_pin_register', async (ctx) => {
 
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'confirmed');
     if (nextNode) {
-      const intents = nextNode.config.intents || [];
-      const hints = intents.flatMap((i: any) => i.speech_phrases);
       return {
-        type: 'twiml',
-        twiml: buildGather({
+        type: 'actions',
+        response: buildGather({
           prompt: nextNode.prompt_text || 'Main Menu.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf speech',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 8,
-          hints,
           sessionData: { call_sid: ctx.callSid, user_id: user.id, node_key: nextNode.node_key },
         }),
       };
     }
 
-    return { type: 'twiml', twiml: buildHangup('Account created. Please call back.') };
+    return { type: 'actions', response: buildHangup('Account created. Please call back.') };
   } catch (error) {
     console.error('Registration error:', error);
-    return { type: 'twiml', twiml: buildHangup('We had trouble creating your account. Please try again later.') };
+    return { type: 'actions', response: buildHangup('We had trouble creating your account. Please try again later.') };
   }
 });

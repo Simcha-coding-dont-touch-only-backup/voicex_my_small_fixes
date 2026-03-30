@@ -91,9 +91,10 @@ export async function handlePinEntry(req: Request, res: Response) {
     return;
   }
 
+  const session = await ivrRuntime.getSession(callSid);
   await supabaseAdmin.from('login_events').insert({
     user_id: userId,
-    phone_number: req.body.From || '',
+    phone_number: session?.phone_number || '',
     success: true,
     failure_reason: null,
   });

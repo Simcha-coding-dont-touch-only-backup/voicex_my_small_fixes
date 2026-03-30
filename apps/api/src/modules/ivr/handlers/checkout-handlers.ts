@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildSay, buildHangup, formatCurrency } from '../../twilio/twiml-builder.js';
+import { buildGather, buildSay, buildHangup, formatCurrency } from '../../teltech/teltech-builder.js';
 import { validateAddress } from '../../../lib/google-address.js';
 import { ryeClient } from '../../../lib/rye.js';
 import { getProductDisplayName } from '@voicex/shared';
@@ -21,14 +21,12 @@ registerHandler('address_choice', async (ctx) => {
     const addrStr = `${defaultAddr.address1}, ${defaultAddr.address2 || ''}, ${defaultAddr.city}, ${defaultAddr.state} ${defaultAddr.zip_code}`.replace(/, ,/g, ',');
 
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: `Your saved address is: ${addrStr}. Press 1 to use this address, or press 2 to enter a new address.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
-        hints: ['use this address', 'new address'],
         sessionData: {
           call_sid: ctx.callSid, user_id: userId,
           node_key: 'checkout_address_confirm',
@@ -41,11 +39,10 @@ registerHandler('address_choice', async (ctx) => {
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'new_address');
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
-      prompt: nextNode?.prompt_text || 'Please enter your street number and name. Say it followed by the pound key.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+    type: 'actions',
+    response: buildGather({
+      prompt: nextNode?.prompt_text || 'Please enter your street number and name followed by the pound key.',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 15,
       finishOnKey: '#',
       sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: nextNode?.node_key || 'checkout_address_line1' },
@@ -55,17 +52,15 @@ registerHandler('address_choice', async (ctx) => {
 
 registerHandler('address_line1', async (ctx) => {
   const userId = ctx.sessionData.user_id;
-  const speechResult = ctx.req.body.SpeechResult;
-  const digits = ctx.req.body.Digits;
-  const line1 = speechResult || digits || '';
+  const digits = ctx.req.body.digits;
+  const line1 = digits || '';
 
   if (!line1.trim()) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
-        prompt: 'Please say or enter your street address.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter your street address.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 15,
         finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
@@ -76,11 +71,10 @@ registerHandler('address_line1', async (ctx) => {
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
+    type: 'actions',
+    response: buildGather({
       prompt: nextNode?.prompt_text || 'Enter apartment or unit number, or press pound to skip.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 10,
       finishOnKey: '#',
       sessionData: {
@@ -95,18 +89,16 @@ registerHandler('address_line1', async (ctx) => {
 registerHandler('address_line2', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const line1 = ctx.sessionData.addr_line1;
-  const speechResult = ctx.req.body.SpeechResult;
-  const digits = ctx.req.body.Digits;
-  const line2 = speechResult || digits || '';
+  const digits = ctx.req.body.digits;
+  const line2 = digits || '';
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
-      prompt: nextNode?.prompt_text || 'Say or enter your city name.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+    type: 'actions',
+    response: buildGather({
+      prompt: nextNode?.prompt_text || 'Enter your city name.',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 15,
       finishOnKey: '#',
       sessionData: {
@@ -122,16 +114,14 @@ registerHandler('address_city', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const line1 = ctx.sessionData.addr_line1;
   const line2 = ctx.sessionData.addr_line2;
-  const speechResult = ctx.req.body.SpeechResult;
-  const city = speechResult || ctx.req.body.Digits || '';
+  const city = ctx.req.body.digits || '';
 
   if (!city.trim()) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
-        prompt: 'Please say your city name.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'speech',
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter your city name.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
@@ -144,11 +134,10 @@ registerHandler('address_city', async (ctx) => {
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
-      prompt: nextNode?.prompt_text || 'Say or enter your 2-letter state code.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+    type: 'actions',
+    response: buildGather({
+      prompt: nextNode?.prompt_text || 'Enter your 2-letter state code.',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 10,
       sessionData: {
         call_sid: ctx.callSid, user_id: userId,
@@ -164,16 +153,14 @@ registerHandler('address_state', async (ctx) => {
   const line1 = ctx.sessionData.addr_line1;
   const line2 = ctx.sessionData.addr_line2;
   const city = ctx.sessionData.addr_city;
-  const speechResult = ctx.req.body.SpeechResult;
-  const state = (speechResult || ctx.req.body.Digits || '').trim().toUpperCase().slice(0, 2);
+  const state = (ctx.req.body.digits || '').trim().toUpperCase().slice(0, 2);
 
   if (!state) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
-        prompt: 'Please say your state.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'speech',
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter your state code.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
@@ -186,11 +173,10 @@ registerHandler('address_state', async (ctx) => {
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
+    type: 'actions',
+    response: buildGather({
       prompt: nextNode?.prompt_text || 'Enter your 5-digit ZIP code.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 5,
       timeout: 10,
       finishOnKey: '',
@@ -209,15 +195,14 @@ registerHandler('address_zip', async (ctx) => {
   const line2 = ctx.sessionData.addr_line2;
   const city = ctx.sessionData.addr_city;
   const state = ctx.sessionData.addr_state;
-  const zip = ctx.req.body.Digits || '';
+  const zip = ctx.req.body.digits || '';
 
   if (zip.length !== 5) {
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: 'Please enter a valid 5-digit ZIP code.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 5,
         timeout: 10,
         finishOnKey: '',
@@ -235,11 +220,10 @@ registerHandler('address_zip', async (ctx) => {
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: `Your address is: ${fullAddress}. ${validation.isValid ? '' : 'Note: we detected some issues with this address. '}Press 1 to confirm, or press 2 to re-enter.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
         sessionData: {
@@ -259,11 +243,10 @@ registerHandler('address_zip', async (ctx) => {
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: `Your address is: ${fullAddress}. Press 1 to confirm, or press 2 to re-enter.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
         sessionData: {
@@ -278,26 +261,25 @@ registerHandler('address_zip', async (ctx) => {
 
 registerHandler('address_confirm', async (ctx) => {
   const userId = ctx.sessionData.user_id;
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
   const addressId = ctx.sessionData.address_id;
   const useSaved = ctx.sessionData.use_saved;
 
   if (useSaved === 'pending') {
     if (digits === '1' && addressId) {
       return {
-        type: 'twiml',
-        twiml: buildSay(
+        type: 'actions',
+        response: buildSay(
           'Address confirmed.',
-          `/api/twilio/voice/gather?node_key=checkout_payment_choice&user_id=${userId}&call_sid=${ctx.callSid}&address_id=${addressId}`
+          `/api/ivr/voice/gather?node_key=checkout_payment_choice&user_id=${userId}&call_sid=${ctx.callSid}&address_id=${addressId}`
         ),
       };
     }
     return {
-      type: 'twiml',
-      twiml: buildGather({
-        prompt: 'Please say your street address followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter your street address followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 15,
         finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_address_line1' },
@@ -308,11 +290,10 @@ registerHandler('address_confirm', async (ctx) => {
   if (digits === '2') {
     const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
     return {
-      type: 'twiml',
-      twiml: buildGather({
-        prompt: 'Please say your street address followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter your street address followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 15,
         finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: retryNode?.node_key || 'checkout_address_line1' },
@@ -342,15 +323,15 @@ registerHandler('address_confirm', async (ctx) => {
     await supabaseAdmin.from('addresses').update({ is_default: false }).eq('user_id', userId).neq('id', addr.id);
 
     return {
-      type: 'twiml',
-      twiml: buildSay(
+      type: 'actions',
+      response: buildSay(
         'Address saved.',
-        `/api/twilio/voice/gather?node_key=checkout_payment_choice&user_id=${userId}&call_sid=${ctx.callSid}&address_id=${addr.id}`
+        `/api/ivr/voice/gather?node_key=checkout_payment_choice&user_id=${userId}&call_sid=${ctx.callSid}&address_id=${addr.id}`
       ),
     };
   } catch (error) {
     console.error('Address save error:', error);
-    return { type: 'twiml', twiml: buildHangup('Error saving your address. Please try again later.') };
+    return { type: 'actions', response: buildHangup('Error saving your address. Please try again later.') };
   }
 });
 
@@ -367,11 +348,10 @@ registerHandler('payment_choice', async (ctx) => {
   if (methods && methods.length > 0) {
     const defaultCard = methods[0];
     return {
-      type: 'twiml',
-      twiml: buildGather({
+      type: 'actions',
+      response: buildGather({
         prompt: `Your saved card ending in ${defaultCard.card_last4}. Press 1 to use this card, or press 2 to enter a new card.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
         sessionData: {
@@ -383,19 +363,13 @@ registerHandler('payment_choice', async (ctx) => {
     };
   }
 
-  const { TwiML: TwiMLModule } = await import('../../../lib/twilio.js');
-  const response = new TwiMLModule.VoiceResponse();
-  response.say({ voice: 'Polly.Matthew' }, 'Please enter your credit card information.');
-  (response as any).pay({
-    chargeAmount: '0',
-    paymentConnector: 'Default',
-    action: `${config.apiBaseUrl}/api/twilio/voice/payment?user_id=${userId}&call_sid=${ctx.callSid}&address_id=${addressId}`,
-    method: 'POST',
-    tokenType: 'reusable',
-    postalCode: false as any,
-  });
-
-  return { type: 'twiml', twiml: response.toString() };
+  return {
+    type: 'actions',
+    response: buildSay(
+      'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
+      `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`
+    ),
+  };
 });
 
 registerHandler('order_summary', async (ctx) => {
@@ -403,48 +377,41 @@ registerHandler('order_summary', async (ctx) => {
   const addressId = ctx.sessionData.address_id;
   const paymentMethodId = ctx.sessionData.payment_method_id;
   const useSavedCard = ctx.sessionData.use_saved_card;
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
 
   if (useSavedCard === 'pending' && digits === '2') {
-    const { TwiML: TwiMLModule } = await import('../../../lib/twilio.js');
-    const response = new TwiMLModule.VoiceResponse();
-    response.say({ voice: 'Polly.Matthew' }, 'Please enter your credit card information.');
-    (response as any).pay({
-      chargeAmount: '0',
-      paymentConnector: 'Default',
-      action: `${config.apiBaseUrl}/api/twilio/voice/payment?user_id=${userId}&call_sid=${ctx.callSid}&address_id=${addressId}`,
-      method: 'POST',
-      tokenType: 'reusable',
-      postalCode: false as any,
-    });
-    return { type: 'twiml', twiml: response.toString() };
+    return {
+      type: 'actions',
+      response: buildSay(
+        'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
+        `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`
+      ),
+    };
   }
 
   const { data: cart } = await supabaseAdmin
     .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
 
   if (!cart) {
-    return { type: 'twiml', twiml: buildSay('Your cart is empty.', `/api/twilio/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`) };
+    return { type: 'actions', response: buildSay('Your cart is empty.', `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`) };
   }
 
   const { data: items } = await supabaseAdmin
     .from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
 
   if (!items || items.length === 0) {
-    return { type: 'twiml', twiml: buildSay('Your cart is empty.', `/api/twilio/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`) };
+    return { type: 'actions', response: buildSay('Your cart is empty.', `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`) };
   }
 
   const subtotal = items.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
 
   return {
-    type: 'twiml',
-    twiml: buildGather({
+    type: 'actions',
+    response: buildGather({
       prompt: `Your order total is ${formatCurrency(subtotal)}. Shipping and tax will be calculated at final confirmation. Press 1 to place the order, or press 2 to go back to your cart.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 15,
-      hints: ['place order', 'cancel', 'go back'],
       sessionData: {
         call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_confirm',
         address_id: addressId, payment_method_id: paymentMethodId,
@@ -455,14 +422,14 @@ registerHandler('order_summary', async (ctx) => {
 
 registerHandler('order_confirm', async (ctx) => {
   const userId = ctx.sessionData.user_id;
-  const digits = ctx.req.body.Digits;
+  const digits = ctx.req.body.digits;
   const addressId = ctx.sessionData.address_id;
   const paymentMethodId = ctx.sessionData.payment_method_id;
 
   if (digits === '2') {
     return {
-      type: 'twiml',
-      twiml: buildSay('Order cancelled. Returning to cart.', `/api/twilio/voice/gather?node_key=cart_menu&user_id=${userId}&call_sid=${ctx.callSid}`),
+      type: 'actions',
+      response: buildSay('Order cancelled. Returning to cart.', `/api/ivr/voice/gather?node_key=cart_menu&user_id=${userId}&call_sid=${ctx.callSid}`),
     };
   }
 
@@ -505,15 +472,15 @@ registerHandler('order_confirm', async (ctx) => {
     );
 
     return {
-      type: 'twiml',
-      twiml: buildSay(
+      type: 'actions',
+      response: buildSay(
         `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. You will receive updates on the status of your order. Thank you for shopping with VoiceX!`,
-        `/api/twilio/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`
+        `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`
       ),
     };
   } catch (error) {
     console.error('Order placement error:', error);
-    return { type: 'twiml', twiml: buildHangup('We had trouble placing your order. Please try again later.') };
+    return { type: 'actions', response: buildHangup('We had trouble placing your order. Please try again later.') };
   }
 });
 

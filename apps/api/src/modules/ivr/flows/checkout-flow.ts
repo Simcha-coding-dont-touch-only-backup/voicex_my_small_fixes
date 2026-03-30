@@ -1,10 +1,10 @@
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../../../lib/supabase.js';
-import { buildGather, buildSay, buildPayGather, buildHangup, formatCurrency } from '../../twilio/twiml-builder.js';
+import { buildGather, buildSay, buildHangup, formatCurrency } from '../../teltech/teltech-builder.js';
 import { validateAddress } from '../../../lib/google-address.js';
 import { ryeClient } from '../../../lib/rye.js';
 import { getProductDisplayName } from '@voicex/shared';
-import { buildMainMenuTwiml } from './pin-flow.js';
+import { buildMainMenuResponse } from './pin-flow.js';
 
 export async function handleCheckoutFlow(req: Request, res: Response) {
   const step = req.query.step as string;
@@ -48,14 +48,12 @@ async function handleAddressChoice(
     const defaultAddr = addresses[0];
     const addrStr = `${defaultAddr.address1}, ${defaultAddr.address2 || ''}, ${defaultAddr.city}, ${defaultAddr.state} ${defaultAddr.zip_code}`.replace(/, ,/g, ',');
 
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: `Your saved address is: ${addrStr}. Press 1 to use this address, or press 2 to enter a new address.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
-        hints: ['use this address', 'new address'],
         sessionData: {
           call_sid: callSid,
           user_id: userId,
@@ -66,11 +64,10 @@ async function handleAddressChoice(
       })
     );
   } else {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
-        prompt: 'Please enter your street number and name. Say it followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        prompt: 'Please enter your street number and name followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 15,
         finishOnKey: '#',
         sessionData: { call_sid: callSid, user_id: userId, step: 'checkout_address_line1' },
@@ -82,16 +79,14 @@ async function handleAddressChoice(
 async function handleAddressLine1(
   req: Request, res: Response, userId: string, callSid: string
 ) {
-  const speechResult = req.body.SpeechResult;
-  const digits = req.body.Digits;
-  const line1 = speechResult || digits || '';
+  const digits = req.body.digits;
+  const line1 = digits || '';
 
   if (!line1.trim()) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
-        prompt: 'Please say or enter your street address.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        prompt: 'Please enter your street address.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 15,
         finishOnKey: '#',
         sessionData: { call_sid: callSid, user_id: userId, step: 'checkout_address_line1' },
@@ -100,11 +95,10 @@ async function handleAddressLine1(
     return;
   }
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
       prompt: 'Enter apartment or unit number, or press pound to skip.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 10,
       finishOnKey: '#',
       sessionData: {
@@ -121,15 +115,13 @@ async function handleAddressLine2(
   req: Request, res: Response, userId: string, callSid: string
 ) {
   const line1 = req.query.addr_line1 as string;
-  const speechResult = req.body.SpeechResult;
-  const digits = req.body.Digits;
-  const line2 = speechResult || digits || '';
+  const digits = req.body.digits;
+  const line2 = digits || '';
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
-      prompt: 'Say or enter your city name.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      prompt: 'Enter your city name.',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 15,
       finishOnKey: '#',
       sessionData: {
@@ -148,15 +140,13 @@ async function handleAddressCity(
 ) {
   const line1 = req.query.addr_line1 as string;
   const line2 = req.query.addr_line2 as string;
-  const speechResult = req.body.SpeechResult;
-  const city = speechResult || req.body.Digits || '';
+  const city = req.body.digits || '';
 
   if (!city.trim()) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
-        prompt: 'Please say your city name.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'speech',
+        prompt: 'Please enter your city name.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         sessionData: {
           call_sid: callSid,
@@ -170,11 +160,10 @@ async function handleAddressCity(
     return;
   }
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
-      prompt: 'Say or enter your 2-letter state code.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      prompt: 'Enter your 2-letter state code.',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 10,
       sessionData: {
         call_sid: callSid,
@@ -194,15 +183,13 @@ async function handleAddressState(
   const line1 = req.query.addr_line1 as string;
   const line2 = req.query.addr_line2 as string;
   const city = req.query.addr_city as string;
-  const speechResult = req.body.SpeechResult;
-  const state = (speechResult || req.body.Digits || '').trim().toUpperCase().slice(0, 2);
+  const state = (req.body.digits || '').trim().toUpperCase().slice(0, 2);
 
   if (!state) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
-        prompt: 'Please say your state.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'speech',
+        prompt: 'Please enter your state code.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         sessionData: {
           call_sid: callSid,
@@ -217,11 +204,10 @@ async function handleAddressState(
     return;
   }
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
       prompt: 'Enter your 5-digit ZIP code.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 5,
       timeout: 10,
       finishOnKey: '',
@@ -245,14 +231,13 @@ async function handleAddressZip(
   const line2 = req.query.addr_line2 as string;
   const city = req.query.addr_city as string;
   const state = req.query.addr_state as string;
-  const zip = req.body.Digits || '';
+  const zip = req.body.digits || '';
 
   if (zip.length !== 5) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: 'Please enter a valid 5-digit ZIP code.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 5,
         timeout: 10,
         finishOnKey: '',
@@ -281,11 +266,10 @@ async function handleAddressZip(
 
     const fullAddress = validation.formattedAddress || `${line1}, ${line2 ? line2 + ', ' : ''}${city}, ${state} ${zip}`;
 
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: `Your address is: ${fullAddress}. ${validation.isValid ? '' : 'Note: we detected some issues with this address. '}Press 1 to confirm, or press 2 to re-enter.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
         sessionData: {
@@ -305,11 +289,10 @@ async function handleAddressZip(
     console.error('Address validation error:', error);
     const fullAddress = `${line1}, ${line2 ? line2 + ', ' : ''}${city}, ${state} ${zip}`;
 
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: `Your address is: ${fullAddress}. Press 1 to confirm, or press 2 to re-enter.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
         sessionData: {
@@ -331,25 +314,24 @@ async function handleAddressZip(
 async function handleAddressConfirm(
   req: Request, res: Response, userId: string, callSid: string
 ) {
-  const digits = req.body.Digits;
+  const digits = req.body.digits;
   const addressId = req.query.address_id as string;
   const useSaved = req.query.use_saved as string;
 
   if (useSaved === 'pending') {
     if (digits === '1' && addressId) {
-      res.type('text/xml').send(
+      res.json(
         buildSay(
           'Address confirmed.',
-          `/api/twilio/voice/gather?step=checkout_payment_choice&user_id=${userId}&call_sid=${callSid}&address_id=${addressId}`
+          `/api/ivr/voice/gather?step=checkout_payment_choice&user_id=${userId}&call_sid=${callSid}&address_id=${addressId}`
         )
       );
       return;
     }
-    res.type('text/xml').send(
+    res.json(
       buildGather({
-        prompt: 'Please say your street address followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        prompt: 'Please enter your street address followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 15,
         finishOnKey: '#',
         sessionData: { call_sid: callSid, user_id: userId, step: 'checkout_address_line1' },
@@ -359,11 +341,10 @@ async function handleAddressConfirm(
   }
 
   if (digits === '2') {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
-        prompt: 'Please say your street address followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        prompt: 'Please enter your street address followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 15,
         finishOnKey: '#',
         sessionData: { call_sid: callSid, user_id: userId, step: 'checkout_address_line1' },
@@ -404,15 +385,15 @@ async function handleAddressConfirm(
       .eq('user_id', userId)
       .neq('id', addr.id);
 
-    res.type('text/xml').send(
+    res.json(
       buildSay(
         'Address saved.',
-        `/api/twilio/voice/gather?step=checkout_payment_choice&user_id=${userId}&call_sid=${callSid}&address_id=${addr.id}`
+        `/api/ivr/voice/gather?step=checkout_payment_choice&user_id=${userId}&call_sid=${callSid}&address_id=${addr.id}`
       )
     );
   } catch (error) {
     console.error('Address save error:', error);
-    res.type('text/xml').send(
+    res.json(
       buildHangup('Error saving your address. Please try again later.')
     );
   }
@@ -431,11 +412,10 @@ async function handlePaymentChoice(
 
   if (methods && methods.length > 0) {
     const defaultCard = methods[0];
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: `Your saved card ending in ${defaultCard.card_last4}. Press 1 to use this card, or press 2 to enter a new card.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
         sessionData: {
@@ -449,21 +429,12 @@ async function handlePaymentChoice(
       })
     );
   } else {
-    const { TwiML: TwiMLModule } = await import('../../../lib/twilio.js');
-    const response = new TwiMLModule.VoiceResponse();
-    response.say({ voice: 'Polly.Matthew' }, 'Please enter your credit card information.');
-
-    const payAttrs: any = {
-      chargeAmount: '0',
-      paymentConnector: 'Default',
-      action: `${(await import('../../../config.js')).config.apiBaseUrl}/api/twilio/voice/payment?user_id=${userId}&call_sid=${callSid}&address_id=${addressId}`,
-      method: 'POST',
-      tokenType: 'reusable',
-      postalCode: false as any,
-    };
-    (response as any).pay(payAttrs);
-
-    res.type('text/xml').send(response.toString());
+    res.json(
+      buildSay(
+        'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
+        `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`
+      )
+    );
   }
 }
 
@@ -473,22 +444,15 @@ async function handleOrderSummary(
   const addressId = req.query.address_id as string;
   const paymentMethodId = req.query.payment_method_id as string;
   const useSavedCard = req.query.use_saved_card as string;
-  const digits = req.body.Digits;
+  const digits = req.body.digits;
 
   if (useSavedCard === 'pending' && digits === '2') {
-    const { TwiML: TwiMLModule } = await import('../../../lib/twilio.js');
-    const response = new TwiMLModule.VoiceResponse();
-    response.say({ voice: 'Polly.Matthew' }, 'Please enter your credit card information.');
-    const payAttrs: any = {
-      chargeAmount: '0',
-      paymentConnector: 'Default',
-      action: `${(await import('../../../config.js')).config.apiBaseUrl}/api/twilio/voice/payment?user_id=${userId}&call_sid=${callSid}&address_id=${addressId}`,
-      method: 'POST',
-      tokenType: 'reusable',
-      postalCode: false as any,
-    };
-    (response as any).pay(payAttrs);
-    res.type('text/xml').send(response.toString());
+    res.json(
+      buildSay(
+        'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
+        `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`
+      )
+    );
     return;
   }
 
@@ -500,8 +464,8 @@ async function handleOrderSummary(
     .single();
 
   if (!cart) {
-    res.type('text/xml').send(
-      buildSay('Your cart is empty.', `/api/twilio/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`)
+    res.json(
+      buildSay('Your cart is empty.', `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`)
     );
     return;
   }
@@ -512,8 +476,8 @@ async function handleOrderSummary(
     .eq('cart_id', cart.id);
 
   if (!items || items.length === 0) {
-    res.type('text/xml').send(
-      buildSay('Your cart is empty.', `/api/twilio/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`)
+    res.json(
+      buildSay('Your cart is empty.', `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`)
     );
     return;
   }
@@ -522,14 +486,12 @@ async function handleOrderSummary(
     (sum, i) => sum + i.unit_price_cents * i.quantity, 0
   );
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
       prompt: `Your order total is ${formatCurrency(subtotal)}. Shipping and tax will be calculated at final confirmation. Press 1 to place the order, or press 2 to go back to your cart.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 15,
-      hints: ['place order', 'cancel', 'go back'],
       sessionData: {
         call_sid: callSid,
         user_id: userId,
@@ -544,15 +506,15 @@ async function handleOrderSummary(
 async function handleOrderConfirm(
   req: Request, res: Response, userId: string, callSid: string
 ) {
-  const digits = req.body.Digits;
+  const digits = req.body.digits;
   const addressId = req.query.address_id as string;
   const paymentMethodId = req.query.payment_method_id as string;
 
   if (digits === '2') {
-    res.type('text/xml').send(
+    res.json(
       buildSay(
         'Order cancelled. Returning to cart.',
-        `/api/twilio/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+        `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
       )
     );
     return;
@@ -642,15 +604,15 @@ async function handleOrderConfirm(
       console.error('Rye checkout background error:', err)
     );
 
-    res.type('text/xml').send(
+    res.json(
       buildSay(
         `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. You will receive updates on the status of your order. Thank you for shopping with VoiceX!`,
-        `/api/twilio/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`
+        `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`
       )
     );
   } catch (error) {
     console.error('Order placement error:', error);
-    res.type('text/xml').send(
+    res.json(
       buildHangup('We had trouble placing your order. Please try again later.')
     );
   }

@@ -1,10 +1,10 @@
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../../../lib/supabase.js';
-import { buildGather, buildSay, buildHangup, formatCurrency } from '../../twilio/twiml-builder.js';
-import { normalizeInput } from '../../twilio/speech-normalizer.js';
+import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
+import { normalizeInput } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName, getProductPriceCents } from '@voicex/shared';
 import { ryeClient } from '../../../lib/rye.js';
-import { buildMainMenuTwiml } from './pin-flow.js';
+import { buildMainMenuResponse } from './pin-flow.js';
 import type { IvrIntent } from '@voicex/shared';
 
 const CATALOG_ACTION_INTENTS: IvrIntent[] = [
@@ -43,14 +43,13 @@ export async function handleCatalogFlow(req: Request, res: Response) {
 async function handleCatalogInput(
   req: Request, res: Response, userId: string, callSid: string
 ) {
-  const digits = req.body.Digits;
+  const digits = req.body.digits;
 
   if (!digits) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: 'Please enter the catalog number followed by the pound key.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: { call_sid: callSid, user_id: userId, step: 'catalog_input' },
@@ -67,11 +66,10 @@ async function handleCatalogInput(
     .single();
 
   if (!product) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: `Product with catalog number ${digits.split('').join(' ')} was not found. Please enter a different catalog number.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: { call_sid: callSid, user_id: userId, step: 'catalog_input' },
@@ -99,13 +97,11 @@ async function handleCatalogInput(
   const priceCents = getProductPriceCents(product, markupPercent, isWhitelisted);
   const priceStr = priceCents ? formatCurrency(priceCents) : 'price unavailable';
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
-      prompt: `${displayName}, priced at ${priceStr}. Press 1 or say Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star to go back to the Main Menu.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+      prompt: `${displayName}, priced at ${priceStr}. Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star to go back to the Main Menu.`,
+      actionPath: '/api/ivr/voice/gather',
       timeout: 10,
-      hints: ['add to cart', 'more details', 'reviews', 'another product', 'main menu'],
       sessionData: {
         call_sid: callSid,
         user_id: userId,
@@ -122,19 +118,16 @@ async function handleCatalogAction(
 ) {
   const productId = req.query.product_id as string;
   const voicexId = req.query.voicex_id as string;
-  const digits = req.body.Digits;
-  const speechResult = req.body.SpeechResult;
-  const confidence = req.body.Confidence;
+  const digits = req.body.digits;
 
-  const input = normalizeInput(digits, speechResult, confidence, CATALOG_ACTION_INTENTS);
+  const input = normalizeInput(digits, CATALOG_ACTION_INTENTS);
 
   switch (input.matchedIntent) {
     case 'add_to_cart':
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'How many would you like to add? Enter the quantity.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 10,
           finishOnKey: '#',
           sessionData: {
@@ -157,13 +150,11 @@ async function handleCatalogAction(
 
       const description = product?.voice_description || product?.amazon_description || 'No description available.';
 
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: `${description}. Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.`,
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf speech',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 10,
-          hints: ['add to cart', 'another product', 'main menu'],
           sessionData: {
             call_sid: callSid,
             user_id: userId,
@@ -177,13 +168,11 @@ async function handleCatalogAction(
     }
 
     case 'reviews':
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'Reviews are currently being loaded from Amazon. This feature will be available shortly. Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf speech',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 10,
-          hints: ['add to cart', 'another product', 'main menu'],
           sessionData: {
             call_sid: callSid,
             user_id: userId,
@@ -196,11 +185,10 @@ async function handleCatalogAction(
       break;
 
     case 'another':
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'Enter the catalog number for the next product.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 10,
           finishOnKey: '#',
           sessionData: { call_sid: callSid, user_id: userId, step: 'catalog_input' },
@@ -209,15 +197,14 @@ async function handleCatalogAction(
       break;
 
     case 'main_menu':
-      res.type('text/xml').send(buildMainMenuTwiml(callSid, userId));
+      res.json(buildMainMenuResponse(callSid, userId));
       break;
 
     default:
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf speech',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 8,
           sessionData: {
             call_sid: callSid,
@@ -236,15 +223,14 @@ async function handleCatalogQty(
 ) {
   const productId = req.query.product_id as string;
   const voicexId = req.query.voicex_id as string;
-  const digits = req.body.Digits;
+  const digits = req.body.digits;
 
   const qty = parseInt(digits || '0', 10);
   if (!qty || qty <= 0) {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: 'Please enter a valid quantity.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: {
@@ -259,11 +245,10 @@ async function handleCatalogQty(
     return;
   }
 
-  res.type('text/xml').send(
+  res.json(
     buildGather({
       prompt: `You entered a quantity of ${qty}. Press 1 to confirm, or press 2 to re-enter.`,
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf',
+      actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 10,
       finishOnKey: '',
@@ -285,14 +270,13 @@ async function handleCatalogQtyConfirm(
   const productId = req.query.product_id as string;
   const voicexId = req.query.voicex_id as string;
   const qty = parseInt(req.query.qty as string, 10);
-  const digits = req.body.Digits;
+  const digits = req.body.digits;
 
   if (digits === '2') {
-    res.type('text/xml').send(
+    res.json(
       buildGather({
         prompt: 'Enter the quantity.',
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf',
+        actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
         sessionData: {
@@ -376,13 +360,11 @@ async function handleCatalogQtyConfirm(
 
     const displayName = getProductDisplayName(product);
 
-    res.type('text/xml').send(
+    res.json(
       buildGather({
-        prompt: `${qty} of ${displayName} has been added to your cart. Press 1 or say Another Product to add more. Press 2 or say Checkout to proceed to your cart. Press star for Main Menu.`,
-        actionPath: '/api/twilio/voice/gather',
-        inputType: 'dtmf speech',
+        prompt: `${qty} of ${displayName} has been added to your cart. Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.`,
+        actionPath: '/api/ivr/voice/gather',
         timeout: 8,
-        hints: ['another product', 'checkout', 'main menu', 'another'],
         sessionData: {
           call_sid: callSid,
           user_id: userId,
@@ -392,10 +374,10 @@ async function handleCatalogQtyConfirm(
     );
   } catch (error) {
     console.error('Add to cart error:', error);
-    res.type('text/xml').send(
+    res.json(
       buildSay(
         'There was an error adding the product to your cart. Please try again.',
-        `/api/twilio/voice/gather?step=catalog_input&user_id=${userId}&call_sid=${callSid}`
+        `/api/ivr/voice/gather?step=catalog_input&user_id=${userId}&call_sid=${callSid}`
       )
     );
   }
@@ -404,19 +386,16 @@ async function handleCatalogQtyConfirm(
 async function handleAfterAdd(
   req: Request, res: Response, userId: string, callSid: string
 ) {
-  const digits = req.body.Digits;
-  const speechResult = req.body.SpeechResult;
-  const confidence = req.body.Confidence;
+  const digits = req.body.digits;
 
-  const input = normalizeInput(digits, speechResult, confidence, AFTER_ADD_INTENTS);
+  const input = normalizeInput(digits, AFTER_ADD_INTENTS);
 
   switch (input.matchedIntent) {
     case 'another':
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'Enter the catalog number for the next product.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 10,
           finishOnKey: '#',
           sessionData: { call_sid: callSid, user_id: userId, step: 'catalog_input' },
@@ -425,24 +404,23 @@ async function handleAfterAdd(
       break;
 
     case 'checkout':
-      res.type('text/xml').send(
+      res.json(
         buildSay(
           'Loading your cart.',
-          `/api/twilio/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+          `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
         )
       );
       break;
 
     case 'main_menu':
-      res.type('text/xml').send(buildMainMenuTwiml(callSid, userId));
+      res.json(buildMainMenuResponse(callSid, userId));
       break;
 
     default:
-      res.type('text/xml').send(
+      res.json(
         buildGather({
           prompt: 'Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf speech',
+          actionPath: '/api/ivr/voice/gather',
           timeout: 8,
           sessionData: { call_sid: callSid, user_id: userId, step: 'catalog_after_add' },
         })

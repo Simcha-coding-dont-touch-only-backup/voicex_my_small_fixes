@@ -1,10 +1,10 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildHangup } from '../../twilio/twiml-builder.js';
+import { buildGather, buildHangup } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('check_user', async (ctx) => {
-  const callerNumber = ctx.req.body.From;
+  const callerNumber = ctx.req.body.caller_id;
 
   const { data: phones } = await supabaseAdmin
     .from('user_phones')
@@ -22,15 +22,15 @@ registerHandler('check_user', async (ctx) => {
       .single();
 
     if (!user) {
-      return { type: 'twiml', twiml: buildHangup('We could not find your account. Please contact support.') };
+      return { type: 'actions', response: buildHangup('We could not find your account. Please contact support.') };
     }
 
     if (user.status === 'frozen') {
-      return { type: 'twiml', twiml: buildHangup('Your account is currently restricted. Please contact support.') };
+      return { type: 'actions', response: buildHangup('Your account is currently restricted. Please contact support.') };
     }
 
     if (user.status === 'deleted') {
-      return { type: 'twiml', twiml: buildHangup('This account is no longer active. Please contact support.') };
+      return { type: 'actions', response: buildHangup('This account is no longer active. Please contact support.') };
     }
 
     await ivrRuntime.updateSession(ctx.callSid, { user_id: user.id });
@@ -38,11 +38,10 @@ registerHandler('check_user', async (ctx) => {
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'existing_user');
     if (nextNode) {
       return {
-        type: 'twiml',
-        twiml: buildGather({
+        type: 'actions',
+        response: buildGather({
           prompt: nextNode.prompt_text || 'Please enter your 4 digit PIN.',
-          actionPath: '/api/twilio/voice/gather',
-          inputType: 'dtmf',
+          actionPath: '/api/ivr/voice/gather',
           numDigits: 4,
           timeout: 10,
           finishOnKey: '',
@@ -60,11 +59,10 @@ registerHandler('check_user', async (ctx) => {
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'new_user');
   return {
-    type: 'twiml',
-    twiml: buildGather({
-      prompt: nextNode?.prompt_text || 'Welcome to VoiceX! Please say your full name followed by the pound key.',
-      actionPath: '/api/twilio/voice/gather',
-      inputType: 'dtmf speech',
+    type: 'actions',
+    response: buildGather({
+      prompt: nextNode?.prompt_text || 'Welcome to VoiceX! Please enter your name using the keypad followed by the pound key.',
+      actionPath: '/api/ivr/voice/gather',
       timeout: 10,
       finishOnKey: '#',
       sessionData: {
