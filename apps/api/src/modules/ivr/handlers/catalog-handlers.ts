@@ -4,6 +4,7 @@ import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-bui
 import { normalizeInput } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName, getProductPriceCents } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
+import { fetchAmazonProductReviews } from '../../../lib/rye.js';
 
 registerHandler('lookup_product', async (ctx) => {
   const digits = ctx.req.body.digits;
@@ -112,10 +113,24 @@ registerHandler('catalog_action', async (ctx) => {
   }
 
   if (input.matchedIntent === 'reviews') {
+    const { data: product } = await supabaseAdmin
+      .from('catalog_products')
+      .select('amazon_asin')
+      .eq('id', productId)
+      .single();
+
+    let reviewPrompt = 'Review information is not available for this product.';
+    if (product?.amazon_asin) {
+      const reviews = await fetchAmazonProductReviews(product.amazon_asin);
+      if (reviews && reviews.ratingsTotal > 0) {
+        reviewPrompt = `This product has a rating of ${reviews.rating} based on ${reviews.ratingsTotal.toLocaleString()} reviews.`;
+      }
+    }
+
     return {
       type: 'actions',
       response: buildGather({
-        prompt: 'Reviews are currently being loaded from Amazon. This feature will be available shortly. Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.',
+        prompt: `${reviewPrompt} Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.`,
         actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         sessionData: {

@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../../../lib/supabase.js';
 import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
 import { normalizeInput } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName, getProductPriceCents } from '@voicex/shared';
-import { ryeClient } from '../../../lib/rye.js';
+import { fetchAmazonProductReviews } from '../../../lib/rye.js';
 import { buildMainMenuResponse } from './pin-flow.js';
 import type { IvrIntent } from '@voicex/shared';
 
@@ -167,10 +167,24 @@ async function handleCatalogAction(
       break;
     }
 
-    case 'reviews':
+    case 'reviews': {
+      const { data: reviewProduct } = await supabaseAdmin
+        .from('catalog_products')
+        .select('amazon_asin')
+        .eq('id', productId)
+        .single();
+
+      let reviewPrompt = 'Review information is not available for this product.';
+      if (reviewProduct?.amazon_asin) {
+        const reviews = await fetchAmazonProductReviews(reviewProduct.amazon_asin);
+        if (reviews && reviews.ratingsTotal > 0) {
+          reviewPrompt = `This product has a rating of ${reviews.rating} based on ${reviews.ratingsTotal.toLocaleString()} reviews.`;
+        }
+      }
+
       res.json(
         buildGather({
-          prompt: 'Reviews are currently being loaded from Amazon. This feature will be available shortly. Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.',
+          prompt: `${reviewPrompt} Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.`,
           actionPath: '/api/ivr/voice/gather',
           timeout: 10,
           sessionData: {
@@ -183,6 +197,7 @@ async function handleCatalogAction(
         })
       );
       break;
+    }
 
     case 'another':
       res.json(
