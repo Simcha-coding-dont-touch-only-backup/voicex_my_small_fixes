@@ -85,16 +85,16 @@ RETURNING id INTO n_pin_entry;
 -- Registration: name
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'register_name', 'input', 'capture_name',
-  'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name followed by the pound key.',
-  '{"input_type":"dtmf_speech","timeout_seconds":10,"finish_on_key":"#"}',
+  'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
+  '{"input_type":"dtmf","timeout_seconds":10,"finish_on_key":"#"}',
   550, 150)
 RETURNING id INTO n_register_name;
 
 -- Registration: name confirm
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'register_name_confirm', 'input', 'confirm_name',
-  'Press 1 to confirm, or press 2 to re-enter your name.',
-  '{"input_type":"dtmf_speech","num_digits":1,"timeout_seconds":10,"speech_hints":["confirm","reenter","yes","no","one","two"]}',
+  'Press 1 to confirm your name, or press 2 to re-enter.',
+  '{"input_type":"dtmf","num_digits":1,"timeout_seconds":10}',
   550, 300)
 RETURNING id INTO n_register_name_confirm;
 
@@ -117,8 +117,8 @@ RETURNING id INTO n_register_pin_confirm;
 -- Main menu
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'main_menu', 'menu', NULL,
-  'Main Menu. Press 1 or say Catalog to browse products. Press 2 or say Cart to view your cart. Press 3 or say Orders to check order status.',
-  '{"input_type":"dtmf_speech","timeout_seconds":8,"speech_hints":["catalog","cart","orders","one","two","three","shopping","buy products","order status"],"intents":[{"name":"catalog","dtmf_key":"1","speech_phrases":["catalog","one","shopping","buy products","browse","products","shop"],"target_node_key":"catalog_input"},{"name":"cart","dtmf_key":"2","speech_phrases":["cart","two","my cart","view cart","shopping cart"],"target_node_key":"cart_menu"},{"name":"orders","dtmf_key":"3","speech_phrases":["orders","three","order status","my orders","track order"],"target_node_key":"orders_list"},{"name":"returns","dtmf_key":"4","speech_phrases":["returns","four","return"],"target_node_key":"main_menu"}]}',
+  'Main Menu. Press 1 for Catalog to browse products. Press 2 for Cart to view your cart. Press 3 for Orders to check order status.',
+  '{"input_type":"dtmf","timeout_seconds":8,"intents":[{"name":"catalog","dtmf_key":"1","speech_phrases":[],"target_node_key":"catalog_input"},{"name":"cart","dtmf_key":"2","speech_phrases":[],"target_node_key":"cart_menu"},{"name":"orders","dtmf_key":"3","speech_phrases":[],"target_node_key":"orders_list"},{"name":"returns","dtmf_key":"4","speech_phrases":[],"target_node_key":"main_menu"}]}',
   400, 300)
 RETURNING id INTO n_main_menu;
 
@@ -133,8 +133,8 @@ RETURNING id INTO n_catalog_input;
 -- Catalog: action menu
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'catalog_action', 'menu', 'catalog_action',
-  'Press 1 or say Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star to go back to the Main Menu.',
-  '{"input_type":"dtmf_speech","timeout_seconds":10,"speech_hints":["add to cart","more details","reviews","another product","main menu"],"intents":[{"name":"add_to_cart","dtmf_key":"1","speech_phrases":["add to cart","add","one","buy"],"target_node_key":"catalog_qty"},{"name":"more_details","dtmf_key":"2","speech_phrases":["more details","details","two","description"],"target_node_key":"catalog_action"},{"name":"reviews","dtmf_key":"3","speech_phrases":["reviews","three","get reviews"],"target_node_key":"catalog_action"},{"name":"another","dtmf_key":"4","speech_phrases":["another product","four","another"],"target_node_key":"catalog_input"},{"name":"main_menu","dtmf_key":"*","speech_phrases":["main menu","back","menu","star"],"target_node_key":"main_menu"}]}',
+  'Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.',
+  '{"input_type":"dtmf","timeout_seconds":10,"intents":[{"name":"add_to_cart","dtmf_key":"1","speech_phrases":[],"target_node_key":"catalog_qty"},{"name":"more_details","dtmf_key":"2","speech_phrases":[],"target_node_key":"catalog_action"},{"name":"reviews","dtmf_key":"3","speech_phrases":[],"target_node_key":"catalog_action"},{"name":"another","dtmf_key":"4","speech_phrases":[],"target_node_key":"catalog_input"},{"name":"main_menu","dtmf_key":"*","speech_phrases":[],"target_node_key":"main_menu"}]}',
   100, 600)
 RETURNING id INTO n_catalog_action;
 
@@ -157,8 +157,8 @@ RETURNING id INTO n_catalog_qty_confirm;
 -- Catalog: after add
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'catalog_after_add', 'menu', NULL,
-  'Press 1 or say Another Product to add more. Press 2 or say Checkout to proceed to your cart. Press star for Main Menu.',
-  '{"input_type":"dtmf_speech","timeout_seconds":8,"speech_hints":["another product","checkout","main menu","another"],"intents":[{"name":"another","dtmf_key":"1","speech_phrases":["another","one","add another","another product"],"target_node_key":"catalog_input"},{"name":"checkout","dtmf_key":"2","speech_phrases":["checkout","two","cart"],"target_node_key":"cart_menu"},{"name":"main_menu","dtmf_key":"*","speech_phrases":["main menu","star","back"],"target_node_key":"main_menu"}]}',
+  'Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.',
+  '{"input_type":"dtmf","timeout_seconds":8,"intents":[{"name":"another","dtmf_key":"1","speech_phrases":[],"target_node_key":"catalog_input"},{"name":"checkout","dtmf_key":"2","speech_phrases":[],"target_node_key":"cart_menu"},{"name":"main_menu","dtmf_key":"*","speech_phrases":[],"target_node_key":"main_menu"}]}',
   100, 1050)
 RETURNING id INTO n_catalog_after_add;
 
@@ -166,7 +166,7 @@ RETURNING id INTO n_catalog_after_add;
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'cart_menu', 'menu', 'cart_summary',
   'Press 1 to hear all items. Press 2 to checkout. Press 3 to change an item. Press 4 to remove an item. Press star for Main Menu.',
-  '{"input_type":"dtmf_speech","timeout_seconds":10,"speech_hints":["list items","checkout","change item","remove item","main menu"],"intents":[{"name":"list_items","dtmf_key":"1","speech_phrases":["list","one","list items","hear items"],"target_node_key":"cart_list"},{"name":"checkout","dtmf_key":"2","speech_phrases":["checkout","two","proceed"],"target_node_key":"checkout_address_choice"},{"name":"change_item","dtmf_key":"3","speech_phrases":["change","three","change item","edit","modify"],"target_node_key":"cart_change_id"},{"name":"remove_item","dtmf_key":"4","speech_phrases":["remove","four","remove item","delete"],"target_node_key":"cart_remove_id"},{"name":"main_menu","dtmf_key":"*","speech_phrases":["main menu","back","star"],"target_node_key":"main_menu"}]}',
+  '{"input_type":"dtmf","timeout_seconds":10,"intents":[{"name":"list_items","dtmf_key":"1","speech_phrases":[],"target_node_key":"cart_list"},{"name":"checkout","dtmf_key":"2","speech_phrases":[],"target_node_key":"checkout_address_choice"},{"name":"change_item","dtmf_key":"3","speech_phrases":[],"target_node_key":"cart_change_id"},{"name":"remove_item","dtmf_key":"4","speech_phrases":[],"target_node_key":"cart_remove_id"},{"name":"main_menu","dtmf_key":"*","speech_phrases":[],"target_node_key":"main_menu"}]}',
   400, 450)
 RETURNING id INTO n_cart_menu;
 
@@ -174,7 +174,7 @@ RETURNING id INTO n_cart_menu;
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'cart_list', 'action', 'cart_list',
   'Reading cart items.',
-  '{"input_type":"dtmf_speech","timeout_seconds":10}',
+  '{"input_type":"dtmf","timeout_seconds":10}',
   400, 600)
 RETURNING id INTO n_cart_list;
 
@@ -222,15 +222,15 @@ RETURNING id INTO n_cart_remove_confirm;
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_choice', 'action', 'address_choice',
   'Checking for saved addresses.',
-  '{"input_type":"dtmf_speech","timeout_seconds":10}',
+  '{"input_type":"dtmf","timeout_seconds":10}',
   700, 450)
 RETURNING id INTO n_checkout_address_choice;
 
 -- Checkout: address line1
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_line1', 'input', 'address_line1',
-  'Please enter your street number and name. Say it followed by the pound key.',
-  '{"input_type":"dtmf_speech","timeout_seconds":15,"finish_on_key":"#"}',
+  'Please enter your street number and name followed by the pound key.',
+  '{"input_type":"dtmf","timeout_seconds":15,"finish_on_key":"#"}',
   700, 600)
 RETURNING id INTO n_checkout_address_line1;
 
@@ -238,23 +238,23 @@ RETURNING id INTO n_checkout_address_line1;
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_line2', 'input', 'address_line2',
   'Enter apartment or unit number, or press pound to skip.',
-  '{"input_type":"dtmf_speech","timeout_seconds":10,"finish_on_key":"#"}',
+  '{"input_type":"dtmf","timeout_seconds":10,"finish_on_key":"#"}',
   700, 750)
 RETURNING id INTO n_checkout_address_line2;
 
 -- Checkout: address city
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_city', 'input', 'address_city',
-  'Say or enter your city name.',
-  '{"input_type":"dtmf_speech","timeout_seconds":15,"finish_on_key":"#"}',
+  'Enter your city name followed by the pound key.',
+  '{"input_type":"dtmf","timeout_seconds":15,"finish_on_key":"#"}',
   700, 900)
 RETURNING id INTO n_checkout_address_city;
 
 -- Checkout: address state
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_state', 'input', 'address_state',
-  'Say or enter your 2-letter state code.',
-  '{"input_type":"dtmf_speech","timeout_seconds":10}',
+  'Enter your 2-letter state code.',
+  '{"input_type":"dtmf","timeout_seconds":10}',
   700, 1050)
 RETURNING id INTO n_checkout_address_state;
 
@@ -286,7 +286,7 @@ RETURNING id INTO n_checkout_payment_choice;
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_summary', 'action', 'order_summary',
   'Calculating your order total.',
-  '{"input_type":"dtmf_speech","num_digits":1,"timeout_seconds":15,"speech_hints":["place order","cancel","go back"]}',
+  '{"input_type":"dtmf","num_digits":1,"timeout_seconds":15}',
   700, 1650)
 RETURNING id INTO n_checkout_summary;
 
@@ -294,7 +294,7 @@ RETURNING id INTO n_checkout_summary;
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_confirm', 'action', 'order_confirm',
   'Press 1 to place the order, or press 2 to go back to your cart.',
-  '{"input_type":"dtmf_speech","num_digits":1,"timeout_seconds":15}',
+  '{"input_type":"dtmf","num_digits":1,"timeout_seconds":15}',
   700, 1800)
 RETURNING id INTO n_checkout_confirm;
 
@@ -542,7 +542,7 @@ VALUES (v_version_id, n_checkout_address_confirm, n_checkout_address_line1, 'mat
 INSERT INTO ivr_edges (flow_version_id, source_node_id, target_node_id, condition_type, condition_value, priority)
 VALUES (v_version_id, n_checkout_payment_choice, n_checkout_summary, 'match', 'card_ready', 0);
 
--- Payment choice -> self (new card - Twilio Pay then returns here)
+-- Payment choice -> self (new card - payment pending TelTech integration)
 INSERT INTO ivr_edges (flow_version_id, source_node_id, target_node_id, condition_type, condition_value, priority)
 VALUES (v_version_id, n_checkout_payment_choice, n_checkout_payment_choice, 'match', 'new_card', 1);
 

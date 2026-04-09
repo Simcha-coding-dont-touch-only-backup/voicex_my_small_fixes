@@ -7,7 +7,8 @@ import { ivrRuntime } from '../runtime.js';
 registerHandler('capture_name', async (ctx) => {
   const fieldTranscript = ctx.req.body.field_transcript;
   const fieldValue = ctx.req.body.field_value;
-  const name = fieldTranscript || fieldValue;
+  const digits = ctx.req.body.digits;
+  const name = fieldTranscript || fieldValue || digits;
 
   if (!name || name.trim().length < 2) {
     return {

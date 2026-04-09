@@ -103,7 +103,7 @@ export function buildCollect(options: {
     action: 'collect' as const,
     type: options.type,
     id: options.id,
-    prompt: options.prompt,
+    prompt: { action: 'say', text: options.prompt },
     confirm: options.confirm ?? true,
     retry: options.retry ?? 3,
     action_url: actionUrl,
