@@ -18,8 +18,9 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import IvrNodeComponent from '../components/ivr/IvrNodeComponent';
 import {
   Plus, Play, Copy, Save, X, ChevronDown,
-  Trash2, ArrowLeft,
+  Trash2, ArrowLeft, Map, List,
 } from 'lucide-react';
+import IvrRowView from '../components/ivr/IvrRowView';
 
 interface IvrNodeData {
   id: string;
@@ -106,7 +107,36 @@ export function IvrFlowsPage() {
   const [createForm, setCreateForm] = useState({ name: '', description: '' });
   const [showAddNode, setShowAddNode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'map' | 'rows'>('rows');
   const positionsDirty = useRef(false);
+  const [panelWidth, setPanelWidth] = useState(320);
+  const isDragging = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = containerRect.right - ev.clientX;
+      setPanelWidth(Math.max(200, Math.min(newWidth, containerRect.width - 300)));
+    };
+
+    const onMouseUp = () => {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, []);
 
   const isDraft = selectedVersion?.status === 'draft';
 
@@ -469,6 +499,23 @@ export function IvrFlowsPage() {
           >
             {selectedVersion.status}
           </span>
+
+          <div className="flex items-center rounded-lg border p-0.5 ml-3">
+            <button
+              onClick={() => setViewMode('map')}
+              className={`rounded p-1.5 transition-colors ${viewMode === 'map' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Map View"
+            >
+              <Map size={16} />
+            </button>
+            <button
+              onClick={() => setViewMode('rows')}
+              className={`rounded p-1.5 transition-colors ${viewMode === 'rows' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Row View"
+            >
+              <List size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -480,13 +527,15 @@ export function IvrFlowsPage() {
               <Plus size={14} /> Add Node
             </button>
           )}
-          <button
-            onClick={savePositions}
-            disabled={saving}
-            className="flex items-center gap-1 rounded border px-3 py-1.5 text-xs hover:bg-gray-50"
-          >
-            <Save size={14} /> {saving ? 'Saving...' : 'Save Layout'}
-          </button>
+          {viewMode === 'map' && (
+            <button
+              onClick={savePositions}
+              disabled={saving}
+              className="flex items-center gap-1 rounded border px-3 py-1.5 text-xs hover:bg-gray-50"
+            >
+              <Save size={14} /> {saving ? 'Saving...' : 'Save Layout'}
+            </button>
+          )}
           <button
             onClick={handleClone}
             className="flex items-center gap-1 rounded border px-3 py-1.5 text-xs hover:bg-gray-50"
@@ -504,64 +553,89 @@ export function IvrFlowsPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 border-x border-b rounded-b-xl overflow-hidden">
-        {/* Canvas */}
-        <div className="flex-1">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={isDraft ? onNodesChange : undefined}
-            onEdgesChange={isDraft ? onEdgesChange : undefined}
-            onConnect={isDraft ? onConnect : undefined}
-            onNodeClick={onNodeClick}
-            onEdgeClick={onEdgeClick}
-            onPaneClick={onPaneClick}
-            onNodeDragStop={isDraft ? onNodeDragStop : undefined}
-            nodesDraggable={isDraft}
-            nodesConnectable={isDraft}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
-            defaultEdgeOptions={{
-              style: EDGE_STYLE,
-              markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
-            }}
-          >
-            <Controls />
-            <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-            <MiniMap
-              nodeStrokeWidth={3}
-              pannable
-              zoomable
-              className="!bg-gray-50"
+      <div ref={containerRef} className="flex flex-1 border-x border-b rounded-b-xl overflow-hidden">
+        {/* Canvas / Row View */}
+        <div className="flex-1 min-w-0">
+          {viewMode === 'map' ? (
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={isDraft ? onNodesChange : undefined}
+              onEdgesChange={isDraft ? onEdgesChange : undefined}
+              onConnect={isDraft ? onConnect : undefined}
+              onNodeClick={onNodeClick}
+              onEdgeClick={onEdgeClick}
+              onPaneClick={onPaneClick}
+              onNodeDragStop={isDraft ? onNodeDragStop : undefined}
+              nodesDraggable={isDraft}
+              nodesConnectable={isDraft}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              defaultEdgeOptions={{
+                style: EDGE_STYLE,
+                markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+              }}
+            >
+              <Controls />
+              <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+              <MiniMap
+                nodeStrokeWidth={3}
+                pannable
+                zoomable
+                className="!bg-gray-50"
+              />
+            </ReactFlow>
+          ) : (
+            <IvrRowView
+              nodes={rawNodes}
+              edges={rawEdges}
+              selectedNodeId={selectedNode?.id ?? null}
+              selectedEdgeId={selectedEdge?.id ?? null}
+              onNodeClick={(nodeId) => {
+                const raw = rawNodes.find((n) => n.id === nodeId);
+                setSelectedNode(raw || null);
+                setSelectedEdge(null);
+              }}
+              onEdgeClick={(edgeId) => {
+                const raw = rawEdges.find((e) => e.id === edgeId);
+                setSelectedEdge(raw || null);
+                setSelectedNode(null);
+              }}
             />
-          </ReactFlow>
+          )}
         </div>
 
-        {/* Right Panel */}
+        {/* Draggable divider + Right Panel */}
         {(selectedNode || selectedEdge) && (
-          <div className="w-80 bg-white border-l overflow-y-auto">
-            {selectedNode && (
-              <NodeEditPanel
-                node={selectedNode}
-                handlerNames={handlerNames}
-                isDraft={isDraft}
-                onUpdate={handleUpdateNode}
-                onDelete={handleDeleteNode}
-                onClose={() => setSelectedNode(null)}
-              />
-            )}
-            {selectedEdge && (
-              <EdgeEditPanel
-                edge={selectedEdge}
-                isDraft={isDraft}
-                nodes={rawNodes}
-                onUpdate={handleUpdateEdge}
-                onDelete={handleDeleteEdge}
-                onClose={() => setSelectedEdge(null)}
-              />
-            )}
-          </div>
+          <>
+            <div
+              onMouseDown={handleDragStart}
+              className="w-1 cursor-col-resize bg-gray-200 hover:bg-indigo-400 active:bg-indigo-500 transition-colors shrink-0"
+            />
+            <div className="bg-white overflow-y-auto shrink-0" style={{ width: panelWidth }}>
+              {selectedNode && (
+                <NodeEditPanel
+                  node={selectedNode}
+                  handlerNames={handlerNames}
+                  isDraft={isDraft}
+                  onUpdate={handleUpdateNode}
+                  onDelete={handleDeleteNode}
+                  onClose={() => setSelectedNode(null)}
+                />
+              )}
+              {selectedEdge && (
+                <EdgeEditPanel
+                  edge={selectedEdge}
+                  isDraft={isDraft}
+                  nodes={rawNodes}
+                  onUpdate={handleUpdateEdge}
+                  onDelete={handleDeleteEdge}
+                  onClose={() => setSelectedEdge(null)}
+                />
+              )}
+            </div>
+          </>
         )}
       </div>
 
