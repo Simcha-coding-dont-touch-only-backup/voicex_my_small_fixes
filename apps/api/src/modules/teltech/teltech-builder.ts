@@ -11,28 +11,27 @@ export function buildGather(options: {
   timeout?: number;
   finishOnKey?: string;
   retryPrompt?: string;
+  tries?: number;
   sessionData?: Record<string, string>;
 }): TeltechResponse {
   const queryParams = new URLSearchParams(options.sessionData || {});
   const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
 
-  const actions: TeltechResponse['actions'] = [];
-
-  actions.push({
+  const gather: any = {
     action: 'gather',
     min_digits: options.numDigits || 1,
     max_digits: options.numDigits || 20,
     timeout: (options.timeout || 5) * 1000,
-    terminator: options.finishOnKey ?? '#',
+    tries: options.tries ?? 3,
     prompt: { action: 'say', text: options.prompt },
     action_url: actionUrl,
-  });
+  };
 
-  if (options.retryPrompt) {
-    actions.push({ action: 'say', text: options.retryPrompt });
+  if (options.finishOnKey !== undefined && options.finishOnKey !== '') {
+    gather.terminator = options.finishOnKey;
   }
 
-  return { actions };
+  return { actions: [gather] };
 }
 
 export function buildSay(message: string, redirectPath?: string): TeltechResponse {
