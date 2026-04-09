@@ -1,6 +1,6 @@
 import { config } from '../../config.js';
 import type { IvrNode, IvrIntent } from '@voicex/shared';
-import type { TeltechResponse, TeltechCollectAction } from '../../lib/teltech.js';
+import type { TeltechResponse, TeltechCollectAction, TeltechGatherAction } from '../../lib/teltech.js';
 
 const BASE = config.apiBaseUrl;
 
@@ -17,7 +17,7 @@ export function buildGather(options: {
   const queryParams = new URLSearchParams(options.sessionData || {});
   const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
 
-  const gather: any = {
+  const gather: TeltechGatherAction = {
     action: 'gather',
     min_digits: options.numDigits || 1,
     max_digits: options.numDigits || 20,
@@ -25,11 +25,8 @@ export function buildGather(options: {
     tries: options.tries ?? 3,
     prompt: { action: 'say', text: options.prompt },
     action_url: actionUrl,
+    terminator: (options.finishOnKey !== undefined && options.finishOnKey !== '') ? options.finishOnKey : undefined,
   };
-
-  if (options.finishOnKey !== undefined && options.finishOnKey !== '') {
-    gather.terminator = options.finishOnKey;
-  }
 
   return { actions: [gather] };
 }
