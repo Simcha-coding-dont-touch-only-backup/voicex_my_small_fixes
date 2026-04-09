@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiGet } from '../lib/api';
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { apiGet, apiDelete } from '../lib/api';
+import { Search, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 
 export function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -9,7 +9,25 @@ export function UsersPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const perPage = 20;
+
+  const handleHardDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await apiDelete(`/users/${deleteTarget.id}/hard`);
+      setDeleteTarget(null);
+      loadUsers();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete user');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const loadUsers = () => {
     const params = new URLSearchParams({
@@ -78,6 +96,7 @@ export function UsersPage() {
               <th className="px-6 py-3 font-medium">Status</th>
               <th className="px-6 py-3 font-medium">Whitelisted</th>
               <th className="px-6 py-3 font-medium">Joined</th>
+              <th className="px-6 py-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
@@ -103,10 +122,19 @@ export function UsersPage() {
                 </td>
                 <td className="px-6 py-4">{user.is_whitelisted ? 'Yes' : 'No'}</td>
                 <td className="px-6 py-4 text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
+                <td className="px-6 py-4">
+                  <button
+                    onClick={() => setDeleteTarget({ id: user.id, name: user.name })}
+                    className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                    title="Delete user"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
               </tr>
             ))}
             {users.length === 0 && (
-              <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">No users found</td></tr>
+              <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">No users found</td></tr>
             )}
           </tbody>
         </table>
@@ -132,6 +160,36 @@ export function UsersPage() {
           </div>
         </div>
       </div>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900">Delete User</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Are you sure you want to permanently delete <strong>{deleteTarget.name}</strong>? This will remove all their data (phones, addresses, payment methods, etc.) and cannot be undone.
+            </p>
+            {deleteError && (
+              <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{deleteError}</p>
+            )}
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteError(''); }}
+                disabled={deleting}
+                className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleHardDelete}
+                disabled={deleting}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

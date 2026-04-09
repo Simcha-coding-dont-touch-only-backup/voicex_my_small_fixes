@@ -37,11 +37,15 @@ export interface TeltechRecordAction {
 
 export interface TeltechCollectAction {
   action: 'collect';
-  type: 'number' | 'phone' | 'date' | 'time' | 'amount' | 'email' | 'text' | 'digits' | 'yes_no' | 'confirm' | 'name' | 'address' | 'custom';
+  type: 'number' | 'phone' | 'date' | 'time' | 'amount' | 'email' | 'text' | 'recording' | 'voice' | 'choice' | 'yes_no' | 'id_number' | 'credit_card';
   id?: string;
-  prompt?: TeltechSayAction | TeltechPlayAction;
+  prompt?: TeltechSayAction | TeltechPlayAction | string;
   confirm?: boolean;
+  confirm_method?: 'playback' | 'transcribe' | 'both';
+  transcribe?: boolean;
   retry?: number;
+  required?: boolean;
+  max_duration?: number;
   action_url?: string;
 }
 

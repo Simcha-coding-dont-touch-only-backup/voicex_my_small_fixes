@@ -178,6 +178,49 @@ usersRouter.delete('/:id', async (req, res) => {
   res.json({ success: true, message: 'User deleted' });
 });
 
+usersRouter.delete('/:id/hard', async (req, res) => {
+  const userId = req.params.id;
+
+  const { count: orderCount } = await supabaseAdmin
+    .from('orders')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  if (orderCount && orderCount > 0) {
+    res.status(409).json({
+      success: false,
+      error: `Cannot delete user: they have ${orderCount} order(s). Remove or reassign orders first.`,
+    });
+    return;
+  }
+
+  // Nullify call_sessions references (no CASCADE on that FK)
+  await supabaseAdmin
+    .from('call_sessions')
+    .update({ user_id: null })
+    .eq('user_id', userId);
+
+  const { error } = await supabaseAdmin
+    .from('users')
+    .delete()
+    .eq('id', userId);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'hard_delete_user',
+    entity_type: 'user',
+    entity_id: userId,
+    changes: null,
+  });
+
+  res.json({ success: true, message: 'User permanently deleted' });
+});
+
 usersRouter.patch('/:id/addresses/:addressId', async (req, res) => {
   const { label, address1, address2, city, state, zip_code, country, is_default } = req.body;
 

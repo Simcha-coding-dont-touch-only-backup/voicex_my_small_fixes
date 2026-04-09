@@ -5,19 +5,22 @@ import { buildGather, buildCollect, buildHangup } from '../../teltech/teltech-bu
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('capture_name', async (ctx) => {
+  const fieldTranscript = ctx.req.body.field_transcript;
   const fieldValue = ctx.req.body.field_value;
-  const digits = ctx.req.body.digits;
-  const name = fieldValue || digits;
+  const name = fieldTranscript || fieldValue;
 
   if (!name || name.trim().length < 2) {
     return {
       type: 'actions',
       response: buildCollect({
-        type: 'name',
+        type: 'recording',
         id: 'caller_name',
-        prompt: 'Please say your full name after the beep.',
+        prompt: 'Please say your full name after the beep, then press pound.',
         confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
         retry: 3,
+        maxDuration: 10,
         actionPath: '/api/ivr/voice/gather',
         sessionData: { call_sid: ctx.callSid, node_key: ctx.node.node_key },
       }),
@@ -53,11 +56,14 @@ registerHandler('confirm_name', async (ctx) => {
     return {
       type: 'actions',
       response: buildCollect({
-        type: 'name',
+        type: 'recording',
         id: 'caller_name',
-        prompt: 'Please say your full name after the beep.',
+        prompt: 'Please say your full name after the beep, then press pound.',
         confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
         retry: 3,
+        maxDuration: 10,
         actionPath: '/api/ivr/voice/gather',
         sessionData: { call_sid: ctx.callSid, node_key: retryNode?.node_key || 'register_name' },
       }),

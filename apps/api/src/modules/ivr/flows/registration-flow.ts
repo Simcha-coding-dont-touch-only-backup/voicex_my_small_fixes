@@ -32,17 +32,21 @@ async function handleNameCapture(
   callSid: string,
   digits: string | undefined
 ) {
+  const fieldTranscript = req.body.field_transcript;
   const fieldValue = req.body.field_value;
-  const name = fieldValue || digits;
+  const name = fieldTranscript || fieldValue || digits;
 
   if (!name || name.trim().length < 2) {
     res.json(
       buildCollect({
-        type: 'name',
+        type: 'recording',
         id: 'caller_name',
-        prompt: 'Please say your full name after the beep.',
+        prompt: 'Please say your full name after the beep, then press pound.',
         confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
         retry: 3,
+        maxDuration: 10,
         actionPath: '/api/ivr/voice/gather',
         sessionData: { call_sid: callSid, step: 'register_name' },
       })
@@ -79,11 +83,14 @@ async function handleNameConfirm(
   if (digits === '2' || !digits) {
     res.json(
       buildCollect({
-        type: 'name',
+        type: 'recording',
         id: 'caller_name',
-        prompt: 'Please say your full name after the beep.',
+        prompt: 'Please say your full name after the beep, then press pound.',
         confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
         retry: 3,
+        maxDuration: 10,
         actionPath: '/api/ivr/voice/gather',
         sessionData: { call_sid: callSid, step: 'register_name' },
       })
