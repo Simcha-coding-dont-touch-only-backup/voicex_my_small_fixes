@@ -63,6 +63,7 @@ export async function dispatchNode(
             const targetNode = await ivrRuntime.getNodeByKey(flowVersionId, targetNodeKey);
             if (targetNode) {
               if (targetNode.handler_name) {
+                req.body.digits = undefined;
                 return dispatchNode(req, res, targetNodeKey, callSid, flowVersionId, {
                   ...sessionData,
                   node_key: targetNodeKey,
