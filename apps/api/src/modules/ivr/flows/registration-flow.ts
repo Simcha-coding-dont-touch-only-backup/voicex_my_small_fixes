@@ -34,7 +34,8 @@ async function handleNameCapture(
 ) {
   const fieldTranscript = req.body.field_transcript;
   const fieldValue = req.body.field_value;
-  const name = fieldTranscript || fieldValue || digits;
+  const variables = req.body.variables || {};
+  const name = fieldTranscript || fieldValue || variables.caller_name_text || variables.caller_name || digits;
 
   if (!name || name.trim().length < 2) {
     res.json(

@@ -7,8 +7,8 @@ import { ivrRuntime } from '../runtime.js';
 registerHandler('capture_name', async (ctx) => {
   const fieldTranscript = ctx.req.body.field_transcript;
   const fieldValue = ctx.req.body.field_value;
-  const digits = ctx.req.body.digits;
-  const name = fieldTranscript || fieldValue || digits;
+  const variables = ctx.req.body.variables || {};
+  const name = fieldTranscript || fieldValue || variables.caller_name_text || variables.caller_name;
 
   if (!name || name.trim().length < 2) {
     return {
@@ -34,16 +34,18 @@ registerHandler('capture_name', async (ctx) => {
     state_data: { registration_name: trimmedName },
   });
 
-  const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
+  // TelTech's collect with confirm:true already handled confirmation,
+  // so skip register_name_confirm and go straight to register_pin.
+  const pinNode = await ivrRuntime.getNodeByKey(ctx.flowVersionId, 'register_pin');
   return {
     type: 'actions',
     response: buildGather({
-      prompt: nextNode?.prompt_text || 'Please enter a 4 digit PIN that you will use to access your account.',
+      prompt: pinNode?.prompt_text || 'Please enter a 4 digit PIN that you will use to access your account.',
       actionPath: '/api/ivr/voice/gather',
       numDigits: 4,
       timeout: 15,
       finishOnKey: '',
-      sessionData: { call_sid: ctx.callSid, node_key: nextNode?.node_key || 'register_pin', name: trimmedName },
+      sessionData: { call_sid: ctx.callSid, node_key: 'register_pin', name: trimmedName },
     }),
   };
 });
