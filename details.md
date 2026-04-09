@@ -11,6 +11,13 @@ Configure in TelTech extension config.json with type "api" and api_auth Bearer t
 Admin   simcha@targetjump.com   /   VoiceX@246
 Create new admin npm run create-admin -- <email> <password> [displayName]
 
+TelTech
+AI Version
+https://ivr2.teltech.info/login/
+sneuman840@gmail.com 
+sneuman840@gmail.com 
+845-422-4025
+
 RYE
 Staging	- https://staging.api.rye.com/api/v1/
 Production	 -  https://api.rye.com/api/v1/

@@ -11,3 +11,4 @@ public/*
 coverage/
 .supabase/
 supabase/.temp/
+.details.md

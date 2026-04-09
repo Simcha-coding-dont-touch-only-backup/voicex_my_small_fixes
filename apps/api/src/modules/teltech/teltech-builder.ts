@@ -88,6 +88,33 @@ export function buildMenuFromNode(
   });
 }
 
+export function buildCollect(options: {
+  type: 'name' | 'phone' | 'email' | 'date' | 'number' | 'amount' | 'text' | 'digits' | 'yes_no' | 'confirm' | 'address' | 'time' | 'custom';
+  id: string;
+  prompt: string;
+  confirm?: boolean;
+  retry?: number;
+  actionPath: string;
+  sessionData?: Record<string, string>;
+}): TeltechResponse {
+  const queryParams = new URLSearchParams(options.sessionData || {});
+  const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
+
+  return {
+    actions: [
+      {
+        action: 'collect',
+        type: options.type,
+        id: options.id,
+        prompt: { action: 'say', text: options.prompt },
+        confirm: options.confirm ?? true,
+        retry: options.retry ?? 3,
+        action_url: actionUrl,
+      },
+    ],
+  };
+}
+
 export function formatCurrency(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }

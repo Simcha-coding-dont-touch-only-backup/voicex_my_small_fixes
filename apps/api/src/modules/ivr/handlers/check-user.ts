@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildHangup } from '../../teltech/teltech-builder.js';
+import { buildGather, buildCollect, buildHangup } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('check_user', async (ctx) => {
@@ -60,11 +60,13 @@ registerHandler('check_user', async (ctx) => {
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'new_user');
   return {
     type: 'actions',
-    response: buildGather({
-      prompt: nextNode?.prompt_text || 'Welcome to VoiceX! Please enter your name using the keypad followed by the pound key.',
+    response: buildCollect({
+      type: 'name',
+      id: 'caller_name',
+      prompt: 'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep.',
+      confirm: true,
+      retry: 3,
       actionPath: '/api/ivr/voice/gather',
-      timeout: 10,
-      finishOnKey: '#',
       sessionData: {
         call_sid: ctx.callSid,
         node_key: nextNode?.node_key || 'register_name',

@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabase.js';
-import { buildGather, buildSay, buildHangup } from '../../teltech/teltech-builder.js';
+import { buildGather, buildCollect, buildSay, buildHangup } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 import { buildMainMenuResponse } from './pin-flow.js';
 
@@ -32,33 +32,38 @@ async function handleNameCapture(
   callSid: string,
   digits: string | undefined
 ) {
-  if (!digits || digits.trim().length < 2) {
+  const fieldValue = req.body.field_value;
+  const name = fieldValue || digits;
+
+  if (!name || name.trim().length < 2) {
     res.json(
-      buildGather({
-        prompt: 'I didn\'t catch that. Please enter your name using the keypad followed by the pound key.',
+      buildCollect({
+        type: 'name',
+        id: 'caller_name',
+        prompt: 'Please say your full name after the beep.',
+        confirm: true,
+        retry: 3,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 10,
-        finishOnKey: '#',
         sessionData: { call_sid: callSid, step: 'register_name' },
       })
     );
     return;
   }
 
-  const name = digits.trim();
-  const spelled = name.split('').join(', ');
+  const trimmedName = name.trim();
 
   await ivrRuntime.updateSession(callSid, {
-    state_data: { registration_name: name },
+    state_data: { registration_name: trimmedName },
   });
 
   res.json(
     buildGather({
-      prompt: `Your name is: ${name}. That is spelled: ${spelled}. Press 1 to confirm, or press 2 to re-enter your name.`,
+      prompt: 'Please enter a 4 digit PIN that you will use to access your account.',
       actionPath: '/api/ivr/voice/gather',
-      numDigits: 1,
-      timeout: 10,
-      sessionData: { call_sid: callSid, step: 'register_name_confirm', name },
+      numDigits: 4,
+      timeout: 15,
+      finishOnKey: '',
+      sessionData: { call_sid: callSid, step: 'register_pin', name: trimmedName },
     })
   );
 }
@@ -73,11 +78,13 @@ async function handleNameConfirm(
 
   if (digits === '2' || !digits) {
     res.json(
-      buildGather({
-        prompt: 'Please enter your name using the keypad followed by the pound key.',
+      buildCollect({
+        type: 'name',
+        id: 'caller_name',
+        prompt: 'Please say your full name after the beep.',
+        confirm: true,
+        retry: 3,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 10,
-        finishOnKey: '#',
         sessionData: { call_sid: callSid, step: 'register_name' },
       })
     );

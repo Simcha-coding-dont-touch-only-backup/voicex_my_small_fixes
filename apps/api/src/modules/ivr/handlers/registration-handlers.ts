@@ -1,41 +1,45 @@
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildHangup } from '../../teltech/teltech-builder.js';
+import { buildGather, buildCollect, buildHangup } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('capture_name', async (ctx) => {
+  const fieldValue = ctx.req.body.field_value;
   const digits = ctx.req.body.digits;
+  const name = fieldValue || digits;
 
-  if (!digits || digits.trim().length < 2) {
+  if (!name || name.trim().length < 2) {
     return {
       type: 'actions',
-      response: buildGather({
-        prompt: 'I didn\'t catch that. Please enter your name using the keypad followed by the pound key.',
+      response: buildCollect({
+        type: 'name',
+        id: 'caller_name',
+        prompt: 'Please say your full name after the beep.',
+        confirm: true,
+        retry: 3,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 10,
-        finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, node_key: ctx.node.node_key },
       }),
     };
   }
 
-  const name = digits.trim();
-  const spelled = name.split('').join(', ');
+  const trimmedName = name.trim();
 
   await ivrRuntime.updateSession(ctx.callSid, {
-    state_data: { registration_name: name },
+    state_data: { registration_name: trimmedName },
   });
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
   return {
     type: 'actions',
     response: buildGather({
-      prompt: `Your name is: ${name}. That is spelled: ${spelled}. Press 1 to confirm, or press 2 to re-enter your name.`,
+      prompt: nextNode?.prompt_text || 'Please enter a 4 digit PIN that you will use to access your account.',
       actionPath: '/api/ivr/voice/gather',
-      numDigits: 1,
-      timeout: 10,
-      sessionData: { call_sid: ctx.callSid, node_key: nextNode?.node_key || 'register_name_confirm', name },
+      numDigits: 4,
+      timeout: 15,
+      finishOnKey: '',
+      sessionData: { call_sid: ctx.callSid, node_key: nextNode?.node_key || 'register_pin', name: trimmedName },
     }),
   };
 });
@@ -48,11 +52,13 @@ registerHandler('confirm_name', async (ctx) => {
     const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
     return {
       type: 'actions',
-      response: buildGather({
-        prompt: 'Please enter your name using the keypad followed by the pound key.',
+      response: buildCollect({
+        type: 'name',
+        id: 'caller_name',
+        prompt: 'Please say your full name after the beep.',
+        confirm: true,
+        retry: 3,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 10,
-        finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, node_key: retryNode?.node_key || 'register_name' },
       }),
     };
