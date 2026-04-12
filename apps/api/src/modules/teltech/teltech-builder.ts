@@ -4,6 +4,24 @@ import type { TeltechResponse, TeltechCollectAction, TeltechGatherAction } from 
 
 const BASE = config.apiBaseUrl;
 
+/**
+ * Sanitize text for TelTech TTS (FreeSWITCH say action).
+ * Strips characters that can break or silence TTS output:
+ * - Double quotes / smart quotes (e.g. 12" Melamine)
+ * - Ampersands, angle brackets, backslashes
+ * - Truncates to 500 chars (TelTech hard limit)
+ */
+function sanitizeForTTS(text: string): string {
+  return text
+    .replace(/(\d)[""\u201C\u201D]/g, '$1 inch')  // 12" → 12 inch
+    .replace(/[""\u201C\u201D''\u2018\u2019]/g, '') // strip remaining quotes
+    .replace(/&/g, ' and ')
+    .replace(/[<>\\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, 500);
+}
+
 export function buildGather(options: {
   prompt: string;
   actionPath: string;
@@ -23,7 +41,7 @@ export function buildGather(options: {
     max_digits: options.numDigits || 20,
     timeout: (options.timeout || 5) * 1000,
     tries: options.tries ?? 3,
-    prompt: { action: 'say', text: options.prompt },
+    prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
     action_url: actionUrl,
     terminator: (options.finishOnKey !== undefined && options.finishOnKey !== '') ? options.finishOnKey : undefined,
   };
@@ -33,7 +51,7 @@ export function buildGather(options: {
 
 export function buildSay(message: string, redirectPath?: string): TeltechResponse {
   const actions: TeltechResponse['actions'] = [
-    { action: 'say', text: message },
+    { action: 'say', text: sanitizeForTTS(message) },
   ];
   if (redirectPath) {
     actions.push({ action: 'redirect', url: `${BASE}${redirectPath}` });
@@ -59,7 +77,7 @@ export function buildPayGather(_options: {
 export function buildHangup(message?: string): TeltechResponse {
   const actions: TeltechResponse['actions'] = [];
   if (message) {
-    actions.push({ action: 'say', text: message });
+    actions.push({ action: 'say', text: sanitizeForTTS(message) });
   }
   actions.push({ action: 'hangup' });
   return { actions };
@@ -103,7 +121,7 @@ export function buildCollect(options: {
     action: 'collect' as const,
     type: options.type,
     id: options.id,
-    prompt: { action: 'say', text: options.prompt },
+    prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
     confirm: options.confirm ?? true,
     retry: options.retry ?? 3,
     action_url: actionUrl,

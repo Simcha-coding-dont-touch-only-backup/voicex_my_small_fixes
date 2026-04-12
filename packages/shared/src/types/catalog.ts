@@ -33,7 +33,7 @@ export interface CatalogProductCategory {
 }
 
 export function getProductDisplayName(product: CatalogProduct): string {
-  return product.voice_name || product.amazon_name || 'Unknown Product';
+  return product.voice_name?.trim() || product.amazon_name || 'Unknown Product';
 }
 
 export function getProductDisplayDescription(product: CatalogProduct): string | null {
