@@ -35,6 +35,9 @@ export function buildGather(options: {
   const queryParams = new URLSearchParams(options.sessionData || {});
   const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
 
+  const hasExplicitTerminator = options.finishOnKey !== undefined && options.finishOnKey !== '';
+  const hasFixedDigits = options.numDigits !== undefined && options.numDigits > 0;
+
   const gather: TeltechGatherAction = {
     action: 'gather',
     min_digits: options.numDigits || 1,
@@ -43,7 +46,7 @@ export function buildGather(options: {
     tries: options.tries ?? 3,
     prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
     action_url: actionUrl,
-    terminator: (options.finishOnKey !== undefined && options.finishOnKey !== '') ? options.finishOnKey : undefined,
+    terminator: hasExplicitTerminator ? options.finishOnKey : (hasFixedDigits ? '' : undefined),
     regex: '[0-9*#]+',
   };
 
