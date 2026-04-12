@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
-import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2, ExternalLink } from 'lucide-react';
+import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
 
 interface AsinLookupData {
   asin: string;
@@ -47,18 +47,20 @@ export function ProductsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const perPage = 20;
 
-  const load = () => {
+  const load = useCallback(() => {
     const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
     if (search) params.set('search', search);
     apiGet<any>(`/catalog/products?${params}`).then((r) => {
       setProducts(r.data || []);
       setTotal(r.total || 0);
     });
-  };
+  }, [page, search]);
 
-  useEffect(() => { load(); }, [page]);
+  useEffect(() => { load(); }, [load]);
   useEffect(() => {
     apiGet<any>('/catalog/categories').then((r) => setCategories(r.data || []));
   }, []);
@@ -130,10 +132,11 @@ export function ProductsPage() {
     if (!editingId) return;
     setSaving(true);
     try {
+      const currentForm = { ...editForm };
       await apiPatch(`/catalog/products/${editingId}`, {
-        ...editForm,
-        amazon_price_cents: editForm.amazon_price_cents !== '' ? parseInt(editForm.amazon_price_cents) : null,
-        custom_price_cents: editForm.custom_price_cents !== '' ? parseInt(editForm.custom_price_cents) : null,
+        ...currentForm,
+        amazon_price_cents: currentForm.amazon_price_cents !== '' ? parseInt(currentForm.amazon_price_cents) : null,
+        custom_price_cents: currentForm.custom_price_cents !== '' ? parseInt(currentForm.custom_price_cents) : null,
       });
       setEditingId(null);
       setEditForm({});
@@ -143,11 +146,18 @@ export function ProductsPage() {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"?`)) return;
-    await apiDelete(`/catalog/products/${id}`);
-    if (editingId === id) cancelEdit();
-    load();
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      await apiDelete(`/catalog/products/${deleteConfirm.id}`);
+      if (editingId === deleteConfirm.id) cancelEdit();
+      setProducts((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
+      setTotal((prev) => prev - 1);
+    } finally {
+      setDeleting(false);
+      setDeleteConfirm(null);
+    }
   };
 
   return (
@@ -236,7 +246,7 @@ export function ProductsPage() {
                       <label className="text-xs font-medium text-gray-500">Custom Name</label>
                       <input
                         value={createOverrides.voice_name}
-                        onChange={(e) => setCreateOverrides({ ...createOverrides, voice_name: e.target.value })}
+                        onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, voice_name: v })); }}
                         placeholder={lookupData.name || 'Leave blank to use Amazon name'}
                         className="mt-1 w-full rounded border px-3 py-2 text-sm"
                       />
@@ -245,7 +255,7 @@ export function ProductsPage() {
                       <label className="text-xs font-medium text-gray-500">Custom Description</label>
                       <textarea
                         value={createOverrides.voice_description}
-                        onChange={(e) => setCreateOverrides({ ...createOverrides, voice_description: e.target.value })}
+                        onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, voice_description: v })); }}
                         placeholder="Leave blank to use Amazon description"
                         rows={3}
                         className="mt-1 w-full rounded border px-3 py-2 text-sm"
@@ -256,9 +266,10 @@ export function ProductsPage() {
                       <input
                         type="number"
                         value={createOverrides.custom_price_cents}
-                        onChange={(e) => setCreateOverrides({ ...createOverrides, custom_price_cents: e.target.value })}
+                        onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, custom_price_cents: v })); }}
+                        onWheel={(e) => (e.target as HTMLInputElement).blur()}
                         placeholder={lookupData.price_cents != null ? `${lookupData.price_cents} (Amazon + markup)` : 'Leave blank for auto-markup'}
-                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </div>
                     <p className="text-xs text-gray-400">If left blank, calls will use the Amazon data shown on the left.</p>
@@ -356,7 +367,7 @@ export function ProductsPage() {
                           <Pencil size={16} />
                         </button>
                       )}
-                      <button onClick={() => handleDelete(p.id, p.voice_name || p.amazon_name || p.voicex_id)} title="Delete product"
+                      <button onClick={() => setDeleteConfirm({ id: p.id, name: p.voice_name || p.amazon_name || p.voicex_id })} title="Delete product"
                         className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600">
                         <Trash2 size={16} />
                       </button>
@@ -371,60 +382,61 @@ export function ProductsPage() {
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                           <div>
                             <label className="text-sm font-medium text-gray-600">VoiceX ID</label>
-                            <input value={editForm.voicex_id} onChange={(e) => setEditForm({ ...editForm, voicex_id: e.target.value })}
+                            <input value={editForm.voicex_id} onChange={(e) => { const v = e.target.value; setEditForm(prev => ({ ...prev, voicex_id: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Amazon ASIN</label>
-                            <input value={editForm.amazon_asin} onChange={(e) => setEditForm({ ...editForm, amazon_asin: e.target.value })}
-                              className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                            <input value={editForm.amazon_asin} readOnly
+                              className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Amazon URL</label>
-                            <input value={editForm.amazon_url} onChange={(e) => setEditForm({ ...editForm, amazon_url: e.target.value })}
-                              className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                            <input value={editForm.amazon_url} readOnly
+                              className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Amazon Name</label>
-                            <input value={editForm.amazon_name} onChange={(e) => setEditForm({ ...editForm, amazon_name: e.target.value })}
-                              className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                            <input value={editForm.amazon_name} readOnly
+                              className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Amazon Description</label>
-                            <input value={editForm.amazon_description} onChange={(e) => setEditForm({ ...editForm, amazon_description: e.target.value })}
-                              className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                            <input value={editForm.amazon_description} readOnly
+                              className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Amazon Price (cents)</label>
-                            <input type="number" value={editForm.amazon_price_cents} onChange={(e) => setEditForm({ ...editForm, amazon_price_cents: e.target.value })}
-                              className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                            <input type="number" value={editForm.amazon_price_cents} readOnly
+                              className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Voice Name (override)</label>
-                            <input value={editForm.voice_name} onChange={(e) => setEditForm({ ...editForm, voice_name: e.target.value })}
+                            <input value={editForm.voice_name} onChange={(e) => { const v = e.target.value; setEditForm(prev => ({ ...prev, voice_name: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Voice Description (override)</label>
-                            <input value={editForm.voice_description} onChange={(e) => setEditForm({ ...editForm, voice_description: e.target.value })}
+                            <input value={editForm.voice_description} onChange={(e) => { const v = e.target.value; setEditForm(prev => ({ ...prev, voice_description: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Custom Price (cents)</label>
-                            <input type="number" value={editForm.custom_price_cents} onChange={(e) => setEditForm({ ...editForm, custom_price_cents: e.target.value })}
-                              className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                            <input type="number" value={editForm.custom_price_cents} onChange={(e) => { const v = e.target.value; setEditForm(prev => ({ ...prev, custom_price_cents: v })); }}
+                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                              className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
                           </div>
                           <div className="flex items-end pb-1">
                             <label className="flex items-center gap-2 text-sm">
                               <input type="checkbox" checked={editForm.is_active}
-                                onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })} />
+                                onChange={(e) => { const v = e.target.checked; setEditForm(prev => ({ ...prev, is_active: v })); }} />
                               Active
                             </label>
                           </div>
                           <div className="sm:col-span-2 lg:col-span-3">
                             <label className="text-sm font-medium text-gray-600">Categories</label>
                             <select multiple value={editForm.category_ids}
-                              onChange={(e) => setEditForm({ ...editForm, category_ids: Array.from(e.target.selectedOptions, (o) => o.value) })}
+                              onChange={(e) => { const v = Array.from(e.target.selectedOptions, (o) => o.value); setEditForm(prev => ({ ...prev, category_ids: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm h-24">
                               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
@@ -455,6 +467,38 @@ export function ProductsPage() {
           </div>
         </div>
       </div>
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <AlertTriangle size={20} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Delete Product</h3>
+            </div>
+            <p className="mb-6 text-sm text-gray-600">
+              Are you sure you want to delete <span className="font-medium text-gray-900">"{deleteConfirm.name}"</span>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleting}
+                className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
