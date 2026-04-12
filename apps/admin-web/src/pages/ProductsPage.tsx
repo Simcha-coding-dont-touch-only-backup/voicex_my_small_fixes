@@ -382,7 +382,7 @@ export function ProductsPage() {
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                           <div>
                             <label className="text-sm font-medium text-gray-600">VoiceX ID</label>
-                            <input value={editForm.voicex_id} onChange={(e) => { const v = e.target.value; setEditForm(prev => ({ ...prev, voicex_id: v })); }}
+                            <input value={editForm.voicex_id} onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, voicex_id: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                           </div>
                           <div>
@@ -412,31 +412,31 @@ export function ProductsPage() {
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Voice Name (override)</label>
-                            <input value={editForm.voice_name} onChange={(e) => { const v = e.target.value; setEditForm(prev => ({ ...prev, voice_name: v })); }}
+                            <input value={editForm.voice_name} onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, voice_name: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Voice Description (override)</label>
-                            <input value={editForm.voice_description} onChange={(e) => { const v = e.target.value; setEditForm(prev => ({ ...prev, voice_description: v })); }}
+                            <input value={editForm.voice_description} onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, voice_description: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Custom Price (cents)</label>
-                            <input type="number" value={editForm.custom_price_cents} onChange={(e) => { const v = e.target.value; setEditForm(prev => ({ ...prev, custom_price_cents: v })); }}
+                            <input type="number" value={editForm.custom_price_cents} onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, custom_price_cents: v })); }}
                               onWheel={(e) => (e.target as HTMLInputElement).blur()}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
                           </div>
                           <div className="flex items-end pb-1">
                             <label className="flex items-center gap-2 text-sm">
                               <input type="checkbox" checked={editForm.is_active}
-                                onChange={(e) => { const v = e.target.checked; setEditForm(prev => ({ ...prev, is_active: v })); }} />
+                                onChange={(e) => { const v = e.target.checked; setEditForm((prev: any) => ({ ...prev, is_active: v })); }} />
                               Active
                             </label>
                           </div>
                           <div className="sm:col-span-2 lg:col-span-3">
                             <label className="text-sm font-medium text-gray-600">Categories</label>
                             <select multiple value={editForm.category_ids}
-                              onChange={(e) => { const v = Array.from(e.target.selectedOptions, (o) => o.value); setEditForm(prev => ({ ...prev, category_ids: v })); }}
+                              onChange={(e) => { const v = Array.from(e.target.selectedOptions, (o) => o.value); setEditForm((prev: any) => ({ ...prev, category_ids: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm h-24">
                               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
