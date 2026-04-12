@@ -124,15 +124,16 @@ registerHandler('catalog_action', async (ctx) => {
     let starRating = product?.amazon_star_rating;
     let ratingsTotal = product?.amazon_ratings_total;
 
-    if (product?.amazon_asin && !ratingsTotal) {
+    if (product?.amazon_asin) {
       const reviews = await fetchAmazonProductReviews(product.amazon_asin);
       if (reviews) {
-        starRating = reviews.rating;
+        starRating = reviews.rating ?? starRating;
         ratingsTotal = reviews.ratingsTotal;
-        await supabaseAdmin
+        supabaseAdmin
           .from('catalog_products')
-          .update({ amazon_star_rating: reviews.rating, amazon_ratings_total: reviews.ratingsTotal })
-          .eq('id', productId);
+          .update({ amazon_star_rating: starRating, amazon_ratings_total: ratingsTotal })
+          .eq('id', productId)
+          .then();
       }
     }
 

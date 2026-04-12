@@ -179,15 +179,16 @@ async function handleCatalogAction(
       let starRating = reviewProduct?.amazon_star_rating;
       let ratingsTotal = reviewProduct?.amazon_ratings_total;
 
-      if (reviewProduct?.amazon_asin && !ratingsTotal) {
+      if (reviewProduct?.amazon_asin) {
         const reviews = await fetchAmazonProductReviews(reviewProduct.amazon_asin);
         if (reviews) {
-          starRating = reviews.rating;
+          starRating = reviews.rating ?? starRating;
           ratingsTotal = reviews.ratingsTotal;
-          await supabaseAdmin
+          supabaseAdmin
             .from('catalog_products')
-            .update({ amazon_star_rating: reviews.rating, amazon_ratings_total: reviews.ratingsTotal })
-            .eq('id', productId);
+            .update({ amazon_star_rating: starRating, amazon_ratings_total: ratingsTotal })
+            .eq('id', productId)
+            .then();
         }
       }
 
