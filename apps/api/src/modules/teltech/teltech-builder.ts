@@ -51,7 +51,7 @@ export function buildGather(options: {
     regex: '[0-9*#]+',
   };
 
-  console.log('[buildGather]', JSON.stringify({ numDigits: options.numDigits, hasFixedDigits, terminator: gather.terminator, digit_timeout: gather.digit_timeout, min_digits: gather.min_digits, max_digits: gather.max_digits }));
+  console.log('[buildGather]', JSON.stringify({ prompt: options.prompt?.slice(0, 40), numDigits: options.numDigits, hasFixedDigits, terminator: gather.terminator, digit_timeout: gather.digit_timeout, min_digits: gather.min_digits, max_digits: gather.max_digits }));
 
   return { actions: [gather] };
 }
