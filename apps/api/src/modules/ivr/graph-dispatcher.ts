@@ -86,7 +86,9 @@ export async function dispatchNode(
         }
       }
 
-      res.json(buildMenuFromNode(node, { ...sessionData, node_key: nodeKey }));
+      const menuResponse = buildMenuFromNode(node, { ...sessionData, node_key: nodeKey });
+      console.log(`[dispatchNode] menu response for ${nodeKey}:`, JSON.stringify(menuResponse));
+      res.json(menuResponse);
       return;
     }
 

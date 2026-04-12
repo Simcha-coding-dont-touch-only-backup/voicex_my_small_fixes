@@ -43,12 +43,15 @@ export function buildGather(options: {
     min_digits: options.numDigits || 1,
     max_digits: options.numDigits || 20,
     timeout: (options.timeout || 5) * 1000,
+    digit_timeout: hasFixedDigits ? 500 : undefined,
     tries: options.tries ?? 3,
     prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
     action_url: actionUrl,
     terminator: hasExplicitTerminator ? options.finishOnKey : (hasFixedDigits ? '' : undefined),
     regex: '[0-9*#]+',
   };
+
+  console.log('[buildGather]', JSON.stringify({ numDigits: options.numDigits, hasFixedDigits, terminator: gather.terminator, digit_timeout: gather.digit_timeout, min_digits: gather.min_digits, max_digits: gather.max_digits }));
 
   return { actions: [gather] };
 }
