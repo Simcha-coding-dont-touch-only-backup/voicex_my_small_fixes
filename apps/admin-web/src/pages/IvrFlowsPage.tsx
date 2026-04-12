@@ -18,7 +18,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import IvrNodeComponent from '../components/ivr/IvrNodeComponent';
 import {
   Plus, Play, Copy, Save, X, ChevronDown,
-  Trash2, ArrowLeft, Map, List, Check, Loader2,
+  Trash2, ArrowLeft, Map, List, Check, Loader2, Pencil, PencilOff,
 } from 'lucide-react';
 import IvrRowView from '../components/ivr/IvrRowView';
 
@@ -139,6 +139,9 @@ export function IvrFlowsPage() {
   }, []);
 
   const isDraft = selectedVersion?.status === 'draft';
+  const isPublished = selectedVersion?.status === 'published';
+  const [editing, setEditing] = useState(false);
+  const canEdit = isDraft || editing;
 
   const loadFlows = useCallback(async () => {
     try {
@@ -168,6 +171,7 @@ export function IvrFlowsPage() {
     setSelectedVersion(version);
     setSelectedNode(null);
     setSelectedEdge(null);
+    setEditing(false);
 
     const res = await apiGet<any>(`/ivr/flows/${flow.id}/versions/${version.id}`);
     const vNodes: IvrNodeData[] = res.data.nodes || [];
@@ -213,8 +217,13 @@ export function IvrFlowsPage() {
     );
   }, [setEdges]);
 
+  const invalidateRuntimeCache = useCallback(async () => {
+    if (!selectedFlow || !selectedVersion) return;
+    await apiPost(`/ivr/flows/${selectedFlow.id}/versions/${selectedVersion.id}/invalidate-cache`, {});
+  }, [selectedFlow, selectedVersion]);
+
   const onConnect = useCallback(async (connection: Connection) => {
-    if (!selectedVersion || !isDraft) return;
+    if (!selectedVersion || !canEdit) return;
     const res = await apiPost<any>('/ivr/edges', {
       flow_version_id: selectedVersion.id,
       source_node_id: connection.source,
@@ -239,8 +248,9 @@ export function IvrFlowsPage() {
           eds
         )
       );
+      if (isPublished && editing) await invalidateRuntimeCache();
     }
-  }, [selectedVersion, isDraft, setEdges]);
+  }, [selectedVersion, canEdit, isPublished, editing, invalidateRuntimeCache, setEdges]);
 
   const onNodeDragStop = useCallback((_: any, node: RFNode) => {
     setRawNodes((prev) =>
@@ -300,6 +310,7 @@ export function IvrFlowsPage() {
     setRawEdges((prev) => prev.filter((e) => e.id !== selectedEdge.id));
     setEdges((eds) => eds.filter((e) => e.id !== selectedEdge.id));
     setSelectedEdge(null);
+    if (isPublished && editing) await invalidateRuntimeCache();
   };
 
   const handleDeleteNode = async (nodeId: string) => {
@@ -309,6 +320,7 @@ export function IvrFlowsPage() {
     setNodes((nds) => nds.filter((n) => n.id !== nodeId));
     setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
     setSelectedNode(null);
+    if (isPublished && editing) await invalidateRuntimeCache();
   };
 
   const handleUpdateNode = async (nodeId: string, updates: Partial<IvrNodeData>) => {
@@ -334,6 +346,7 @@ export function IvrFlowsPage() {
         )
       );
       setSelectedNode(res.data);
+      if (isPublished && editing) await invalidateRuntimeCache();
     }
   };
 
@@ -353,6 +366,7 @@ export function IvrFlowsPage() {
         )
       );
       setSelectedEdge(res.data);
+      if (isPublished && editing) await invalidateRuntimeCache();
     }
   };
 
@@ -366,6 +380,7 @@ export function IvrFlowsPage() {
       setRawNodes((prev) => [...prev, res.data]);
       setNodes((nds) => [...nds, ...toRFNodes([res.data])]);
       setShowAddNode(false);
+      if (isPublished && editing) await invalidateRuntimeCache();
     }
   };
 
@@ -452,7 +467,7 @@ export function IvrFlowsPage() {
                           onClick={() => loadVersion(flow, ver)}
                           className="rounded bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700"
                         >
-                          Open Editor
+                          View
                         </button>
                       </div>
                     ))}
@@ -490,14 +505,16 @@ export function IvrFlowsPage() {
           <span className="text-sm text-gray-500">v{selectedVersion.version_number}</span>
           <span
             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-              selectedVersion.status === 'published'
+              isPublished && editing
+                ? 'bg-amber-100 text-amber-700'
+                : selectedVersion.status === 'published'
                 ? 'bg-green-100 text-green-700'
                 : selectedVersion.status === 'draft'
                 ? 'bg-blue-100 text-blue-700'
                 : 'bg-gray-100 text-gray-500'
             }`}
           >
-            {selectedVersion.status}
+            {isPublished && editing ? 'editing live' : selectedVersion.status}
           </span>
 
           <div className="flex items-center rounded-lg border p-0.5 ml-3">
@@ -519,7 +536,23 @@ export function IvrFlowsPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {isDraft && (
+          {isPublished && !editing && (
+            <button
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-100"
+            >
+              <Pencil size={14} /> Edit Live Version
+            </button>
+          )}
+          {isPublished && editing && (
+            <button
+              onClick={() => setEditing(false)}
+              className="flex items-center gap-1 rounded border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+            >
+              <PencilOff size={14} /> Stop Editing
+            </button>
+          )}
+          {canEdit && (
             <button
               onClick={() => setShowAddNode(true)}
               className="flex items-center gap-1 rounded border px-3 py-1.5 text-xs hover:bg-gray-50"
@@ -561,15 +594,15 @@ export function IvrFlowsPage() {
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
-              onNodesChange={isDraft ? onNodesChange : undefined}
-              onEdgesChange={isDraft ? onEdgesChange : undefined}
-              onConnect={isDraft ? onConnect : undefined}
+              onNodesChange={canEdit ? onNodesChange : undefined}
+              onEdgesChange={canEdit ? onEdgesChange : undefined}
+              onConnect={canEdit ? onConnect : undefined}
               onNodeClick={onNodeClick}
               onEdgeClick={onEdgeClick}
               onPaneClick={onPaneClick}
-              onNodeDragStop={isDraft ? onNodeDragStop : undefined}
-              nodesDraggable={isDraft}
-              nodesConnectable={isDraft}
+              onNodeDragStop={canEdit ? onNodeDragStop : undefined}
+              nodesDraggable={canEdit}
+              nodesConnectable={canEdit}
               fitView
               fitViewOptions={{ padding: 0.2 }}
               defaultEdgeOptions={{
@@ -618,7 +651,7 @@ export function IvrFlowsPage() {
                 <NodeEditPanel
                   node={selectedNode}
                   handlerNames={handlerNames}
-                  isDraft={isDraft}
+                  canEdit={canEdit}
                   onUpdate={handleUpdateNode}
                   onDelete={handleDeleteNode}
                   onClose={() => setSelectedNode(null)}
@@ -627,7 +660,7 @@ export function IvrFlowsPage() {
               {selectedEdge && (
                 <EdgeEditPanel
                   edge={selectedEdge}
-                  isDraft={isDraft}
+                  canEdit={canEdit}
                   nodes={rawNodes}
                   onUpdate={handleUpdateEdge}
                   onDelete={handleDeleteEdge}
@@ -640,7 +673,7 @@ export function IvrFlowsPage() {
       </div>
 
       {/* Add Node Modal */}
-      {showAddNode && isDraft && (
+      {showAddNode && canEdit && (
         <AddNodeModal
           handlerNames={handlerNames}
           onAdd={handleAddNode}
@@ -654,14 +687,14 @@ export function IvrFlowsPage() {
 function NodeEditPanel({
   node,
   handlerNames,
-  isDraft,
+  canEdit,
   onUpdate,
   onDelete,
   onClose,
 }: {
   node: IvrNodeData;
   handlerNames: string[];
-  isDraft: boolean;
+  canEdit: boolean;
   onUpdate: (id: string, updates: Partial<IvrNodeData>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
@@ -736,12 +769,12 @@ function NodeEditPanel({
 
       <div className="space-y-3">
         <Field label="Key">
-          <input disabled={!isDraft} value={form.node_key} onChange={(e) => setForm({ ...form, node_key: e.target.value })}
+          <input disabled={!canEdit} value={form.node_key} onChange={(e) => setForm({ ...form, node_key: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm font-mono" />
         </Field>
 
         <Field label="Type">
-          <select disabled={!isDraft} value={form.node_type} onChange={(e) => setForm({ ...form, node_type: e.target.value })}
+          <select disabled={!canEdit} value={form.node_type} onChange={(e) => setForm({ ...form, node_type: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm">
             {['entry', 'menu', 'input', 'action', 'branch', 'hangup', 'submenu', 'transfer'].map((t) => (
               <option key={t} value={t}>{t}</option>
@@ -750,7 +783,7 @@ function NodeEditPanel({
         </Field>
 
         <Field label="Handler">
-          <select disabled={!isDraft} value={form.handler_name} onChange={(e) => setForm({ ...form, handler_name: e.target.value })}
+          <select disabled={!canEdit} value={form.handler_name} onChange={(e) => setForm({ ...form, handler_name: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm">
             <option value="">(none)</option>
             {handlerNames.map((h) => (
@@ -760,12 +793,12 @@ function NodeEditPanel({
         </Field>
 
         <Field label="Prompt Text">
-          <textarea disabled={!isDraft} value={form.prompt_text} onChange={(e) => setForm({ ...form, prompt_text: e.target.value })}
+          <textarea disabled={!canEdit} value={form.prompt_text} onChange={(e) => setForm({ ...form, prompt_text: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm" rows={4} />
         </Field>
 
         <Field label="Input Type">
-          <select disabled={!isDraft} value={form.input_type} onChange={(e) => setForm({ ...form, input_type: e.target.value })}
+          <select disabled={!canEdit} value={form.input_type} onChange={(e) => setForm({ ...form, input_type: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm">
             <option value="dtmf">DTMF</option>
             <option value="speech">Speech</option>
@@ -775,31 +808,31 @@ function NodeEditPanel({
 
         <div className="grid grid-cols-2 gap-2">
           <Field label="Timeout (s)">
-            <input disabled={!isDraft} type="number" value={form.timeout} onChange={(e) => setForm({ ...form, timeout: e.target.value })}
+            <input disabled={!canEdit} type="number" value={form.timeout} onChange={(e) => setForm({ ...form, timeout: e.target.value })}
               className="w-full rounded border px-2 py-1.5 text-sm" />
           </Field>
           <Field label="Num Digits">
-            <input disabled={!isDraft} type="number" value={form.num_digits} onChange={(e) => setForm({ ...form, num_digits: e.target.value })}
+            <input disabled={!canEdit} type="number" value={form.num_digits} onChange={(e) => setForm({ ...form, num_digits: e.target.value })}
               className="w-full rounded border px-2 py-1.5 text-sm" />
           </Field>
         </div>
 
         <Field label="Finish On Key">
-          <input disabled={!isDraft} value={form.finish_on_key} onChange={(e) => setForm({ ...form, finish_on_key: e.target.value })}
+          <input disabled={!canEdit} value={form.finish_on_key} onChange={(e) => setForm({ ...form, finish_on_key: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm" placeholder="# or empty" />
         </Field>
 
         <Field label="Speech Hints (comma-separated)">
-          <input disabled={!isDraft} value={form.speech_hints} onChange={(e) => setForm({ ...form, speech_hints: e.target.value })}
+          <input disabled={!canEdit} value={form.speech_hints} onChange={(e) => setForm({ ...form, speech_hints: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm" />
         </Field>
 
         <Field label="Intents (JSON)">
-          <textarea disabled={!isDraft} value={form.intents_json} onChange={(e) => setForm({ ...form, intents_json: e.target.value })}
+          <textarea disabled={!canEdit} value={form.intents_json} onChange={(e) => setForm({ ...form, intents_json: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm font-mono" rows={6} />
         </Field>
 
-        {isDraft && (
+        {canEdit && (
           <div className="flex gap-2 pt-2">
             <button
               onClick={handleSave}
@@ -829,14 +862,14 @@ function NodeEditPanel({
 
 function EdgeEditPanel({
   edge,
-  isDraft,
+  canEdit,
   nodes,
   onUpdate,
   onDelete,
   onClose,
 }: {
   edge: IvrEdgeData;
-  isDraft: boolean;
+  canEdit: boolean;
   nodes: IvrNodeData[];
   onUpdate: (id: string, updates: Partial<IvrEdgeData>) => Promise<void>;
   onDelete: () => Promise<void>;
@@ -872,7 +905,7 @@ function EdgeEditPanel({
 
       <div className="space-y-3">
         <Field label="Condition Type">
-          <select disabled={!isDraft} value={form.condition_type} onChange={(e) => setForm({ ...form, condition_type: e.target.value })}
+          <select disabled={!canEdit} value={form.condition_type} onChange={(e) => setForm({ ...form, condition_type: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm">
             {['intent', 'default', 'timeout', 'error', 'match'].map((t) => (
               <option key={t} value={t}>{t}</option>
@@ -881,16 +914,16 @@ function EdgeEditPanel({
         </Field>
 
         <Field label="Condition Value">
-          <input disabled={!isDraft} value={form.condition_value} onChange={(e) => setForm({ ...form, condition_value: e.target.value })}
+          <input disabled={!canEdit} value={form.condition_value} onChange={(e) => setForm({ ...form, condition_value: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm font-mono" placeholder="e.g. catalog, confirmed" />
         </Field>
 
         <Field label="Priority">
-          <input disabled={!isDraft} type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}
+          <input disabled={!canEdit} type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm" />
         </Field>
 
-        {isDraft && (
+        {canEdit && (
           <div className="flex gap-2 pt-2">
             <button
               onClick={() => onUpdate(edge.id, {

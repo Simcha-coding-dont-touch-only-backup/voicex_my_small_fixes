@@ -114,6 +114,11 @@ ivrRouter.post('/flows/:flowId/versions/:versionId/publish', async (req, res) =>
   res.json({ success: true, data });
 });
 
+ivrRouter.post('/flows/:flowId/versions/:versionId/invalidate-cache', async (_req, res) => {
+  ivrRuntime.invalidateCache();
+  res.json({ success: true, message: 'Cache invalidated' });
+});
+
 ivrRouter.post('/flows/:flowId/versions/:versionId/clone', async (req, res) => {
   const sourceVersionId = req.params.versionId;
   const flowId = req.params.flowId;
