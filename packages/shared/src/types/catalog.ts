@@ -19,6 +19,8 @@ export interface CatalogProduct {
   voice_name: string | null;
   voice_description: string | null;
   custom_price_cents: number | null;
+  amazon_star_rating: number | null;
+  amazon_ratings_total: number | null;
   is_active: boolean;
   lifetime_qty_sold: number;
   created_at: string;

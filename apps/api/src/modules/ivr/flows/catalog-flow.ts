@@ -170,15 +170,32 @@ async function handleCatalogAction(
     case 'reviews': {
       const { data: reviewProduct } = await supabaseAdmin
         .from('catalog_products')
-        .select('amazon_asin')
+        .select('amazon_asin, amazon_star_rating, amazon_ratings_total')
         .eq('id', productId)
         .single();
 
       let reviewPrompt = 'Review information is not available for this product.';
-      if (reviewProduct?.amazon_asin) {
+
+      let starRating = reviewProduct?.amazon_star_rating;
+      let ratingsTotal = reviewProduct?.amazon_ratings_total;
+
+      if (reviewProduct?.amazon_asin && !ratingsTotal) {
         const reviews = await fetchAmazonProductReviews(reviewProduct.amazon_asin);
-        if (reviews && reviews.ratingsTotal > 0) {
-          reviewPrompt = `This product has a rating of ${reviews.rating} based on ${reviews.ratingsTotal.toLocaleString()} reviews.`;
+        if (reviews) {
+          starRating = reviews.rating;
+          ratingsTotal = reviews.ratingsTotal;
+          await supabaseAdmin
+            .from('catalog_products')
+            .update({ amazon_star_rating: reviews.rating, amazon_ratings_total: reviews.ratingsTotal })
+            .eq('id', productId);
+        }
+      }
+
+      if (ratingsTotal && ratingsTotal > 0) {
+        if (starRating) {
+          reviewPrompt = `This product has a rating of ${starRating} based on ${ratingsTotal.toLocaleString()} reviews.`;
+        } else {
+          reviewPrompt = `This product has ${ratingsTotal.toLocaleString()} reviews.`;
         }
       }
 

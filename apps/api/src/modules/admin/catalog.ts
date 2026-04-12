@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
-import { ryeClient } from '../../lib/rye.js';
+import { ryeClient, fetchAmazonProductReviews } from '../../lib/rye.js';
 
 export const catalogRouter = Router();
 
@@ -165,7 +165,10 @@ catalogRouter.post('/products/lookup-asin', async (req, res) => {
   const url = `https://www.amazon.com/dp/${asin.trim().toUpperCase()}`;
 
   try {
-    const product = await ryeClient.products.lookup({ url });
+    const [product, reviews] = await Promise.all([
+      ryeClient.products.lookup({ url }),
+      fetchAmazonProductReviews(asin.trim().toUpperCase()),
+    ]);
     res.json({
       success: true,
       data: {
@@ -179,6 +182,8 @@ catalogRouter.post('/products/lookup-asin', async (req, res) => {
         is_purchasable: product.isPurchasable ?? false,
         images: product.images?.map((img: any) => ({ url: img.url, is_featured: img.isFeatured })) || [],
         brand: product.brand || null,
+        star_rating: reviews?.rating ?? null,
+        ratings_total: reviews?.ratingsTotal ?? null,
       },
     });
   } catch (err: any) {
@@ -199,6 +204,8 @@ catalogRouter.post('/products', async (req, res) => {
     amazon_name,
     amazon_description,
     amazon_price_cents,
+    amazon_star_rating,
+    amazon_ratings_total,
     voice_name,
     voice_description,
     custom_price_cents,
@@ -223,6 +230,8 @@ catalogRouter.post('/products', async (req, res) => {
       amazon_name,
       amazon_description,
       amazon_price_cents,
+      amazon_star_rating: amazon_star_rating ?? null,
+      amazon_ratings_total: amazon_ratings_total ?? null,
       voice_name,
       voice_description,
       custom_price_cents,
@@ -258,7 +267,8 @@ catalogRouter.post('/products', async (req, res) => {
 catalogRouter.patch('/products/:id', async (req, res) => {
   const {
     voicex_id, amazon_asin, amazon_url, amazon_name, amazon_description,
-    amazon_price_cents, voice_name, voice_description, custom_price_cents,
+    amazon_price_cents, amazon_star_rating, amazon_ratings_total,
+    voice_name, voice_description, custom_price_cents,
     is_active, category_ids,
   } = req.body;
 
@@ -269,6 +279,8 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   if (amazon_name !== undefined) updates.amazon_name = amazon_name;
   if (amazon_description !== undefined) updates.amazon_description = amazon_description;
   if (amazon_price_cents !== undefined) updates.amazon_price_cents = amazon_price_cents;
+  if (amazon_star_rating !== undefined) updates.amazon_star_rating = amazon_star_rating;
+  if (amazon_ratings_total !== undefined) updates.amazon_ratings_total = amazon_ratings_total;
   if (voice_name !== undefined) updates.voice_name = voice_name;
   if (voice_description !== undefined) updates.voice_description = voice_description;
   if (custom_price_cents !== undefined) updates.custom_price_cents = custom_price_cents;
