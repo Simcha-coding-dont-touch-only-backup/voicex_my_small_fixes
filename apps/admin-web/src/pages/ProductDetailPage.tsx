@@ -67,55 +67,156 @@ export function ProductDetailPage() {
         </div>
 
         {editing ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {Object.entries({
-              voicex_id: 'VoiceX ID', amazon_asin: 'Amazon ASIN', amazon_url: 'Amazon URL',
-              amazon_name: 'Amazon Name', amazon_description: 'Amazon Description',
-              amazon_price_cents: 'Amazon Price (cents)', voice_name: 'Voice Name (override)',
-              voice_description: 'Voice Description (override)', custom_price_cents: 'Custom Price (cents)',
-            }).map(([key, label]) => (
-              <div key={key}>
-                <label className="text-sm font-medium text-gray-600">{label}</label>
-                <input value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+          <div className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="text-sm font-medium text-gray-600">VoiceX ID</label>
+                <input value={form.voicex_id} onChange={(e) => setForm({ ...form, voicex_id: e.target.value })}
                   className="mt-1 w-full rounded border px-3 py-2 text-sm" />
               </div>
-            ))}
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.is_active}
-                onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-              Active
-            </label>
-            <div className="sm:col-span-2">
-              <label className="text-sm font-medium text-gray-600">Categories</label>
-              <select multiple value={form.category_ids}
-                onChange={(e) => setForm({ ...form, category_ids: Array.from(e.target.selectedOptions, (o) => o.value) })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm h-24">
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <div>
+                <label className="text-sm font-medium text-gray-600">Amazon ASIN</label>
+                <input value={form.amazon_asin} onChange={(e) => setForm({ ...form, amazon_asin: e.target.value })}
+                  className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+              </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <h4 className="mb-3 text-sm font-semibold text-indigo-600 uppercase tracking-wide">VoiceX Overrides</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Voice Name</label>
+                    <input value={form.voice_name} onChange={(e) => setForm({ ...form, voice_name: e.target.value })}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Voice Description</label>
+                    <input value={form.voice_description} onChange={(e) => setForm({ ...form, voice_description: e.target.value })}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Custom Price (cents)</label>
+                    <input value={form.custom_price_cents} onChange={(e) => setForm({ ...form, custom_price_cents: e.target.value })}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="mb-3 text-sm font-semibold text-orange-600 uppercase tracking-wide">Amazon Data</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Amazon Name</label>
+                    <input value={form.amazon_name} onChange={(e) => setForm({ ...form, amazon_name: e.target.value })}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Amazon Description</label>
+                    <input value={form.amazon_description} onChange={(e) => setForm({ ...form, amazon_description: e.target.value })}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Amazon Price (cents)</label>
+                    <input value={form.amazon_price_cents} onChange={(e) => setForm({ ...form, amazon_price_cents: e.target.value })}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-600">Amazon URL</label>
+              <input value={form.amazon_url} onChange={(e) => setForm({ ...form, amazon_url: e.target.value })}
+                className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.is_active}
+                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+                Active
+              </label>
+              <div>
+                <label className="text-sm font-medium text-gray-600">Categories</label>
+                <select multiple value={form.category_ids}
+                  onChange={(e) => setForm({ ...form, category_ids: Array.from(e.target.selectedOptions, (o) => o.value) })}
+                  className="mt-1 w-full rounded border px-3 py-2 text-sm h-24">
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            </div>
+
             <button onClick={handleSave} className="rounded bg-indigo-600 px-4 py-2 text-sm text-white">Save</button>
           </div>
         ) : (
-          <dl className="grid gap-2 text-sm sm:grid-cols-2">
-            {[
-              ['VoiceX ID', product.voicex_id],
-              ['ASIN', product.amazon_asin],
-              ['Amazon Name', product.amazon_name],
-              ['Amazon Description', product.amazon_description || '-'],
-              ['Voice Name', product.voice_name || '-'],
-              ['Voice Description', product.voice_description || '-'],
-              ['Amazon Price', product.amazon_price_cents ? `$${(product.amazon_price_cents / 100).toFixed(2)}` : '-'],
-              ['Custom Price', product.custom_price_cents ? `$${(product.custom_price_cents / 100).toFixed(2)}` : '-'],
-              ['Active', product.is_active ? 'Yes' : 'No'],
-              ['Lifetime Sold', product.lifetime_qty_sold],
-              ['Categories', product.catalog_product_categories?.map((c: any) => c.catalog_categories?.name).join(', ') || '-'],
-            ].map(([label, value]) => (
-              <div key={label as string} className="flex gap-2">
-                <dt className="font-medium text-gray-500 w-32">{label}</dt>
-                <dd>{value}</dd>
+          <div className="space-y-5 text-sm">
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <dt className="font-medium text-blue-600">VoiceX ID</dt>
+                <dd className="mt-0.5">{product.voicex_id}</dd>
               </div>
-            ))}
-          </dl>
+              <div>
+                <dt className="font-medium text-blue-600">ASIN</dt>
+                <dd className="mt-0.5">{product.amazon_asin}</dd>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <h4 className="mb-3 text-sm font-semibold text-indigo-600 uppercase tracking-wide">VoiceX</h4>
+                <dl className="space-y-3">
+                  <div>
+                    <dt className="font-medium text-blue-600">Name</dt>
+                    <dd className="mt-0.5">{product.voice_name || <span className="text-gray-300">—</span>}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-blue-600">Description</dt>
+                    <dd className="mt-0.5">{product.voice_description || <span className="text-gray-300">—</span>}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-blue-600">Price</dt>
+                    <dd className="mt-0.5">{product.custom_price_cents ? `$${(product.custom_price_cents / 100).toFixed(2)}` : <span className="text-gray-300">—</span>}</dd>
+                  </div>
+                </dl>
+              </div>
+
+              <div>
+                <h4 className="mb-3 text-sm font-semibold text-orange-600 uppercase tracking-wide">Amazon</h4>
+                <dl className="space-y-3">
+                  <div>
+                    <dt className="font-medium text-blue-600">Name</dt>
+                    <dd className="mt-0.5">{product.amazon_name || <span className="text-gray-300">—</span>}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-blue-600">Description</dt>
+                    <dd className="mt-0.5">{product.amazon_description || <span className="text-gray-300">—</span>}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-blue-600">Price</dt>
+                    <dd className="mt-0.5">{product.amazon_price_cents ? `$${(product.amazon_price_cents / 100).toFixed(2)}` : <span className="text-gray-300">—</span>}</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
+                <div>
+                  <dt className="font-medium text-blue-600">Active</dt>
+                  <dd className="mt-0.5">{product.is_active ? 'Yes' : 'No'}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-blue-600">Lifetime Sold</dt>
+                  <dd className="mt-0.5">{product.lifetime_qty_sold}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="font-medium text-blue-600">Categories</dt>
+                  <dd className="mt-0.5">{product.catalog_product_categories?.map((c: any) => c.catalog_categories?.name).join(', ') || '-'}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
         )}
       </div>
     </div>
