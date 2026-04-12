@@ -18,7 +18,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import IvrNodeComponent from '../components/ivr/IvrNodeComponent';
 import {
   Plus, Play, Copy, Save, X, ChevronDown,
-  Trash2, ArrowLeft, Map, List,
+  Trash2, ArrowLeft, Map, List, Check, Loader2,
 } from 'lucide-react';
 import IvrRowView from '../components/ivr/IvrRowView';
 
@@ -678,6 +678,7 @@ function NodeEditPanel({
     speech_hints: (node.config?.speech_hints || []).join(', '),
     intents_json: JSON.stringify(node.config?.intents || [], null, 2),
   });
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   useEffect(() => {
     setForm({
@@ -692,26 +693,35 @@ function NodeEditPanel({
       speech_hints: (node.config?.speech_hints || []).join(', '),
       intents_json: JSON.stringify(node.config?.intents || [], null, 2),
     });
+    setSaveStatus('idle');
   }, [node]);
 
   const handleSave = async () => {
     let intents = [];
     try { intents = JSON.parse(form.intents_json); } catch { /* keep existing */ }
 
-    await onUpdate(node.id, {
-      node_key: form.node_key,
-      node_type: form.node_type,
-      handler_name: form.handler_name || null,
-      prompt_text: form.prompt_text,
-      config: {
-        input_type: form.input_type,
-        timeout_seconds: parseInt(form.timeout) || 10,
-        num_digits: form.num_digits ? parseInt(form.num_digits) : undefined,
-        finish_on_key: form.finish_on_key || undefined,
-        speech_hints: form.speech_hints ? form.speech_hints.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
-        intents,
-      },
-    } as any);
+    setSaveStatus('saving');
+    try {
+      await onUpdate(node.id, {
+        node_key: form.node_key,
+        node_type: form.node_type,
+        handler_name: form.handler_name || null,
+        prompt_text: form.prompt_text,
+        config: {
+          input_type: form.input_type,
+          timeout_seconds: parseInt(form.timeout) || 10,
+          num_digits: form.num_digits ? parseInt(form.num_digits) : undefined,
+          finish_on_key: form.finish_on_key || undefined,
+          speech_hints: form.speech_hints ? form.speech_hints.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
+          intents,
+        },
+      } as any);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch {
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
   };
 
   return (
@@ -788,8 +798,20 @@ function NodeEditPanel({
 
         {isDraft && (
           <div className="flex gap-2 pt-2">
-            <button onClick={handleSave} className="flex-1 rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700">
-              Save Node
+            <button
+              onClick={handleSave}
+              disabled={saveStatus === 'saving'}
+              className={`flex-1 rounded px-3 py-2 text-sm text-white flex items-center justify-center gap-1.5 transition-colors ${
+                saveStatus === 'saved'
+                  ? 'bg-green-600'
+                  : saveStatus === 'error'
+                    ? 'bg-red-600'
+                    : 'bg-indigo-600 hover:bg-indigo-700'
+              } disabled:opacity-60`}
+            >
+              {saveStatus === 'saving' && <Loader2 size={14} className="animate-spin" />}
+              {saveStatus === 'saved' && <Check size={14} />}
+              {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved!' : saveStatus === 'error' ? 'Failed to save' : 'Save Node'}
             </button>
             <button onClick={() => { if (confirm('Delete this node?')) onDelete(node.id); }}
               className="rounded border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50">
