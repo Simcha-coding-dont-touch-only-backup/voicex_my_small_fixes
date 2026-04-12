@@ -51,8 +51,6 @@ export function buildGather(options: {
     regex: '[0-9*#]+',
   };
 
-  console.log('[buildGather]', JSON.stringify({ prompt: options.prompt?.slice(0, 40), numDigits: options.numDigits, hasFixedDigits, terminator: gather.terminator, digit_timeout: gather.digit_timeout, min_digits: gather.min_digits, max_digits: gather.max_digits }));
-
   return { actions: [gather] };
 }
 
@@ -90,23 +88,29 @@ export function buildHangup(message?: string): TeltechResponse {
   return { actions };
 }
 
-export function buildMenuFromNode(
+export function buildGatherFromNode(
   node: IvrNode,
-  sessionData: Record<string, string>
+  sessionData: Record<string, string>,
+  overrides?: { prompt?: string; timeout?: number }
 ): TeltechResponse {
-  const prompt = node.prompt_text || 'Please make a selection.';
-
   return buildGather({
-    prompt,
+    prompt: overrides?.prompt || node.prompt_text || 'Please make a selection.',
     actionPath: '/api/ivr/voice/gather',
     numDigits: node.config.num_digits,
-    timeout: node.config.timeout_seconds || 5,
+    timeout: overrides?.timeout || node.config.timeout_seconds || 5,
     finishOnKey: node.config.finish_on_key,
     sessionData: {
       ...sessionData,
       node_key: node.node_key,
     },
   });
+}
+
+export function buildMenuFromNode(
+  node: IvrNode,
+  sessionData: Record<string, string>
+): TeltechResponse {
+  return buildGatherFromNode(node, sessionData);
 }
 
 export function buildCollect(options: {

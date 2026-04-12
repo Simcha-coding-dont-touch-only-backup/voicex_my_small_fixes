@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
+import { buildGather, buildGatherFromNode, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('orders_list', async (ctx) => {
@@ -56,12 +56,7 @@ registerHandler('orders_detail', async (ctx) => {
     if (mainNode) {
       return {
         type: 'actions',
-        response: buildGather({
-          prompt: mainNode.prompt_text || 'Main Menu.',
-          actionPath: '/api/ivr/voice/gather',
-          timeout: 8,
-          sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' },
-        }),
+        response: buildGatherFromNode(mainNode, { call_sid: ctx.callSid, user_id: userId }),
       };
     }
   }

@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildCollect, buildHangup } from '../../teltech/teltech-builder.js';
+import { buildGather, buildGatherFromNode, buildCollect, buildHangup } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('capture_name', async (ctx) => {
@@ -180,12 +180,7 @@ registerHandler('confirm_pin_register', async (ctx) => {
     if (nextNode) {
       return {
         type: 'actions',
-        response: buildGather({
-          prompt: nextNode.prompt_text || 'Main Menu.',
-          actionPath: '/api/ivr/voice/gather',
-          timeout: 8,
-          sessionData: { call_sid: ctx.callSid, user_id: user.id, node_key: nextNode.node_key },
-        }),
+        response: buildGatherFromNode(nextNode, { call_sid: ctx.callSid, user_id: user.id }),
       };
     }
 
