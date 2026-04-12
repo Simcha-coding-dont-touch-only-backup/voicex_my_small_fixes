@@ -679,6 +679,7 @@ function NodeEditPanel({
     intents_json: JSON.stringify(node.config?.intents || [], null, 2),
   });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     setForm({
@@ -717,10 +718,12 @@ function NodeEditPanel({
         },
       } as any);
       setSaveStatus('saved');
-      setTimeout(() => setSaveStatus('idle'), 2000);
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000);
     } catch {
       setSaveStatus('error');
-      setTimeout(() => setSaveStatus('idle'), 3000);
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000);
     }
   };
 
