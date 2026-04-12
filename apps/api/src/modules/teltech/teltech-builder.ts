@@ -44,6 +44,7 @@ export function buildGather(options: {
     prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
     action_url: actionUrl,
     terminator: (options.finishOnKey !== undefined && options.finishOnKey !== '') ? options.finishOnKey : undefined,
+    regex: '[0-9*#]+',
   };
 
   return { actions: [gather] };
