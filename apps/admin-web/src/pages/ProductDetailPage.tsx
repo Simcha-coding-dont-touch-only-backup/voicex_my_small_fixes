@@ -108,18 +108,18 @@ export function ProductDetailPage() {
                 <div className="space-y-3">
                   <div>
                     <label className="text-sm font-medium text-gray-600">Amazon Name</label>
-                    <input value={form.amazon_name} onChange={(e) => setForm({ ...form, amazon_name: e.target.value })}
-                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                    <input value={form.amazon_name} readOnly
+                      className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-600">Amazon Description</label>
-                    <input value={form.amazon_description} onChange={(e) => setForm({ ...form, amazon_description: e.target.value })}
-                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                    <input value={form.amazon_description} readOnly
+                      className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-600">Amazon Price (cents)</label>
-                    <input value={form.amazon_price_cents} onChange={(e) => setForm({ ...form, amazon_price_cents: e.target.value })}
-                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                    <input value={form.amazon_price_cents} readOnly
+                      className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                   </div>
                 </div>
               </div>
@@ -127,8 +127,8 @@ export function ProductDetailPage() {
 
             <div>
               <label className="text-sm font-medium text-gray-600">Amazon URL</label>
-              <input value={form.amazon_url} onChange={(e) => setForm({ ...form, amazon_url: e.target.value })}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+              <input value={form.amazon_url} readOnly
+                className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
