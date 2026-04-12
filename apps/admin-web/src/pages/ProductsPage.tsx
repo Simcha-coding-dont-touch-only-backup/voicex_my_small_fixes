@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
-import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2 } from 'lucide-react';
+import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2, ExternalLink } from 'lucide-react';
 
 interface AsinLookupData {
   asin: string;
@@ -339,6 +339,12 @@ export function ProductsPage() {
                   <td className="px-6 py-3 text-gray-600">{p.lifetime_qty_sold}</td>
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-1">
+                      {p.amazon_url && (
+                        <a href={p.amazon_url} target="_blank" rel="noopener noreferrer" title="View on Amazon"
+                          className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600">
+                          <ExternalLink size={16} />
+                        </a>
+                      )}
                       {editingId === p.id ? (
                         <button onClick={cancelEdit} title="Cancel edit"
                           className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
