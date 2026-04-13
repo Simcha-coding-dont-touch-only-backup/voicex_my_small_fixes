@@ -70,6 +70,16 @@ export async function dispatchNode(
                 });
               }
 
+              if (targetNode.node_type === 'action') {
+                res.json(
+                  buildSay(
+                    targetNode.prompt_text || 'Processing.',
+                    `/api/ivr/voice/gather?node_key=${targetNodeKey}&user_id=${userId}&call_sid=${callSid}`
+                  )
+                );
+                return;
+              }
+
               res.json(
                 buildGather({
                   prompt: targetNode.prompt_text || 'Please continue.',

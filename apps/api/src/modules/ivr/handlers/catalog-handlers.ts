@@ -164,6 +164,15 @@ registerHandler('catalog_action', async (ctx) => {
     if (targetNodeKey) {
       const targetNode = await ivrRuntime.getNodeByKey(ctx.flowVersionId, targetNodeKey);
       if (targetNode) {
+        if (targetNode.node_type === 'action' && targetNode.handler_name) {
+          return {
+            type: 'actions',
+            response: buildSay(
+              targetNode.prompt_text || 'Processing.',
+              `/api/ivr/voice/gather?node_key=${targetNode.node_key}&user_id=${userId}&call_sid=${ctx.callSid}`
+            ),
+          };
+        }
         return {
           type: 'actions',
           response: buildGather({
