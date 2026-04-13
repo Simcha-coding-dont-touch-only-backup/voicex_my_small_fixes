@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Users, ShoppingCart, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
+  ChevronsLeft, ChevronsRight,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
 export function Layout({ children }: { children: React.ReactNode }) {
   const { signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -31,45 +33,58 @@ export function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-64 transform bg-white shadow-lg transition-transform lg:relative lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-30 transform bg-white shadow-lg transition-all duration-300 lg:relative lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${collapsed ? 'w-16' : 'w-64'}`}
       >
-        <div className="flex h-16 items-center justify-between border-b px-6">
-          <span className="text-xl font-bold text-indigo-600">VoiceX</span>
+        <div className={`flex h-16 items-center border-b ${collapsed ? 'justify-center px-2' : 'justify-between px-6'}`}>
+          {!collapsed && <span className="text-xl font-bold text-indigo-600">VoiceX</span>}
           <button className="lg:hidden" onClick={() => setSidebarOpen(false)}>
             <X size={20} />
           </button>
+          <button
+            className="hidden lg:flex items-center justify-center rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            onClick={() => setCollapsed(!collapsed)}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+          </button>
         </div>
 
-        <nav className="mt-4 space-y-1 px-3">
+        <nav className={`mt-4 space-y-1 ${collapsed ? 'px-2' : 'px-3'}`}>
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                `flex items-center rounded-lg text-sm font-medium transition-colors ${
+                  collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'
+                } ${
                   isActive
                     ? 'bg-indigo-50 text-indigo-700'
                     : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                 }`
               }
               onClick={() => setSidebarOpen(false)}
+              title={collapsed ? label : undefined}
             >
-              <Icon size={18} />
-              {label}
+              <Icon size={18} className="shrink-0" />
+              {!collapsed && <span>{label}</span>}
             </NavLink>
           ))}
         </nav>
 
-        <div className="absolute bottom-0 w-full border-t p-3">
+        <div className={`absolute bottom-0 w-full border-t ${collapsed ? 'p-2' : 'p-3'}`}>
           <button
             onClick={signOut}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            className={`flex w-full items-center rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 ${
+              collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'
+            }`}
+            title={collapsed ? 'Sign Out' : undefined}
           >
-            <LogOut size={18} />
-            Sign Out
+            <LogOut size={18} className="shrink-0" />
+            {!collapsed && <span>Sign Out</span>}
           </button>
         </div>
       </aside>
