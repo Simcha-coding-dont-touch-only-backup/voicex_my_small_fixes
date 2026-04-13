@@ -621,7 +621,7 @@ registerHandler('stock_issue', async (ctx) => {
   if (!affectedItem) {
     return {
       type: 'actions',
-      response: buildSay('', '/api/ivr/voice/gather', {
+      response: buildSay('This item has already been removed from your order.', '/api/ivr/voice/gather', {
         call_sid: ctx.callSid, user_id: userId,
         node_key: 'checkout_stock_issue',
         address_id: addressId, payment_method_id: paymentMethodId,

@@ -773,10 +773,9 @@ async function handleStockIssue(
 
   const affectedItem = findCartItemForFailure(failure, cartItems);
   if (!affectedItem) {
-    // Item was already removed — advance to next failure
     res.json(
       buildSay(
-        '',
+        'This item has already been removed from your order.',
         '/api/ivr/voice/gather',
         {
           step: 'checkout_stock_issue',
