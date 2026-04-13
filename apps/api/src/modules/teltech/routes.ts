@@ -25,10 +25,12 @@ function verifyTeltechAuth(req: Request, res: Response, next: NextFunction) {
 
 export const teltechRouter = Router();
 
+// Error webhook is fire-and-forget from TelTech and doesn't include api_auth
+teltechRouter.post('/voice/error', handleErrorWebhook);
+
 teltechRouter.use(verifyTeltechAuth);
 
 teltechRouter.post('/voice/inbound', handleInboundCall);
 teltechRouter.post('/voice/gather', handleGatherResult);
 teltechRouter.post('/voice/payment', handlePaymentResult);
 teltechRouter.post('/voice/status', handleCallStatus);
-teltechRouter.post('/voice/error', handleErrorWebhook);
