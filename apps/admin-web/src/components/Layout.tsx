@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Users, ShoppingCart, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/ivr', label: 'IVR Flows', icon: Phone },
+  { to: '/logs', label: 'Logs', icon: AlertTriangle },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {

@@ -4,6 +4,7 @@ import { handleInboundCall } from './handlers/inbound-call.js';
 import { handleGatherResult } from './handlers/gather-result.js';
 import { handlePaymentResult } from './handlers/payment-result.js';
 import { handleCallStatus } from './handlers/call-status.js';
+import { handleErrorWebhook } from './handlers/error-webhook.js';
 
 function verifyTeltechAuth(req: Request, res: Response, next: NextFunction) {
   const expected = config.teltech.apiAuth;
@@ -30,3 +31,4 @@ teltechRouter.post('/voice/inbound', handleInboundCall);
 teltechRouter.post('/voice/gather', handleGatherResult);
 teltechRouter.post('/voice/payment', handlePaymentResult);
 teltechRouter.post('/voice/status', handleCallStatus);
+teltechRouter.post('/voice/error', handleErrorWebhook);

@@ -13,6 +13,7 @@ import { OrderDetailPage } from './pages/OrderDetailPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { IvrFlowsPage } from './pages/IvrFlowsPage';
+import { LogsPage } from './pages/LogsPage';
 
 function ProtectedRoutes() {
   const { session, loading } = useAuth();
@@ -41,6 +42,7 @@ function ProtectedRoutes() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/ivr" element={<IvrFlowsPage />} />
+        <Route path="/logs" element={<LogsPage />} />
       </Routes>
     </Layout>
   );
