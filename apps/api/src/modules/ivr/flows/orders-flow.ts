@@ -76,7 +76,8 @@ async function handleOrderDetail(
     res.json(
       buildSay(
         'Invalid selection.',
-        `/api/ivr/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
+        '/api/ivr/voice/gather',
+        { step: 'orders_list', user_id: userId, call_sid: callSid }
       )
     );
     return;
@@ -94,7 +95,8 @@ async function handleOrderDetail(
     res.json(
       buildSay(
         'Order not found.',
-        `/api/ivr/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
+        '/api/ivr/voice/gather',
+        { step: 'orders_list', user_id: userId, call_sid: callSid }
       )
     );
     return;

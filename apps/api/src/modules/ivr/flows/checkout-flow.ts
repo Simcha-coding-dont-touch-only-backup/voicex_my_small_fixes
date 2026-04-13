@@ -323,7 +323,8 @@ async function handleAddressConfirm(
       res.json(
         buildSay(
           'Address confirmed.',
-          `/api/ivr/voice/gather?step=checkout_payment_choice&user_id=${userId}&call_sid=${callSid}&address_id=${addressId}`
+          '/api/ivr/voice/gather',
+          { step: 'checkout_payment_choice', user_id: userId, call_sid: callSid, address_id: addressId }
         )
       );
       return;
@@ -388,7 +389,8 @@ async function handleAddressConfirm(
     res.json(
       buildSay(
         'Address saved.',
-        `/api/ivr/voice/gather?step=checkout_payment_choice&user_id=${userId}&call_sid=${callSid}&address_id=${addr.id}`
+        '/api/ivr/voice/gather',
+        { step: 'checkout_payment_choice', user_id: userId, call_sid: callSid, address_id: addr.id }
       )
     );
   } catch (error) {
@@ -432,7 +434,8 @@ async function handlePaymentChoice(
     res.json(
       buildSay(
         'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
-        `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`
+        '/api/ivr/voice/gather',
+        { step: 'main_menu', user_id: userId, call_sid: callSid }
       )
     );
   }
@@ -450,7 +453,8 @@ async function handleOrderSummary(
     res.json(
       buildSay(
         'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
-        `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`
+        '/api/ivr/voice/gather',
+        { step: 'main_menu', user_id: userId, call_sid: callSid }
       )
     );
     return;
@@ -465,7 +469,7 @@ async function handleOrderSummary(
 
   if (!cart) {
     res.json(
-      buildSay('Your cart is empty.', `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`)
+      buildSay('Your cart is empty.', '/api/ivr/voice/gather', { step: 'main_menu', user_id: userId, call_sid: callSid })
     );
     return;
   }
@@ -477,7 +481,7 @@ async function handleOrderSummary(
 
   if (!items || items.length === 0) {
     res.json(
-      buildSay('Your cart is empty.', `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`)
+      buildSay('Your cart is empty.', '/api/ivr/voice/gather', { step: 'main_menu', user_id: userId, call_sid: callSid })
     );
     return;
   }
@@ -514,7 +518,8 @@ async function handleOrderConfirm(
     res.json(
       buildSay(
         'Order cancelled. Returning to cart.',
-        `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+        '/api/ivr/voice/gather',
+        { step: 'cart_menu', user_id: userId, call_sid: callSid }
       )
     );
     return;
@@ -607,7 +612,8 @@ async function handleOrderConfirm(
     res.json(
       buildSay(
         `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. You will receive updates on the status of your order. Thank you for shopping with VoiceX!`,
-        `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`
+        '/api/ivr/voice/gather',
+        { step: 'main_menu', user_id: userId, call_sid: callSid }
       )
     );
   } catch (error) {

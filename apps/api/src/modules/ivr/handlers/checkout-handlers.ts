@@ -271,7 +271,8 @@ registerHandler('address_confirm', async (ctx) => {
         type: 'actions',
         response: buildSay(
           'Address confirmed.',
-          `/api/ivr/voice/gather?node_key=checkout_payment_choice&user_id=${userId}&call_sid=${ctx.callSid}&address_id=${addressId}`
+          '/api/ivr/voice/gather',
+          { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_payment_choice', address_id: addressId }
         ),
       };
     }
@@ -326,7 +327,8 @@ registerHandler('address_confirm', async (ctx) => {
       type: 'actions',
       response: buildSay(
         'Address saved.',
-        `/api/ivr/voice/gather?node_key=checkout_payment_choice&user_id=${userId}&call_sid=${ctx.callSid}&address_id=${addr.id}`
+        '/api/ivr/voice/gather',
+        { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_payment_choice', address_id: addr.id }
       ),
     };
   } catch (error) {
@@ -367,7 +369,8 @@ registerHandler('payment_choice', async (ctx) => {
     type: 'actions',
     response: buildSay(
       'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
-      `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`
+      '/api/ivr/voice/gather',
+      { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
     ),
   };
 });
@@ -384,7 +387,8 @@ registerHandler('order_summary', async (ctx) => {
       type: 'actions',
       response: buildSay(
         'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
-        `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`
+        '/api/ivr/voice/gather',
+        { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
       ),
     };
   }
@@ -393,14 +397,14 @@ registerHandler('order_summary', async (ctx) => {
     .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
 
   if (!cart) {
-    return { type: 'actions', response: buildSay('Your cart is empty.', `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`) };
+    return { type: 'actions', response: buildSay('Your cart is empty.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }) };
   }
 
   const { data: items } = await supabaseAdmin
     .from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
 
   if (!items || items.length === 0) {
-    return { type: 'actions', response: buildSay('Your cart is empty.', `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`) };
+    return { type: 'actions', response: buildSay('Your cart is empty.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }) };
   }
 
   const subtotal = items.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
@@ -429,7 +433,7 @@ registerHandler('order_confirm', async (ctx) => {
   if (digits === '2') {
     return {
       type: 'actions',
-      response: buildSay('Order cancelled. Returning to cart.', `/api/ivr/voice/gather?node_key=cart_menu&user_id=${userId}&call_sid=${ctx.callSid}`),
+      response: buildSay('Order cancelled. Returning to cart.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }),
     };
   }
 
@@ -475,7 +479,8 @@ registerHandler('order_confirm', async (ctx) => {
       type: 'actions',
       response: buildSay(
         `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. You will receive updates on the status of your order. Thank you for shopping with VoiceX!`,
-        `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`
+        '/api/ivr/voice/gather',
+        { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
       ),
     };
   } catch (error) {

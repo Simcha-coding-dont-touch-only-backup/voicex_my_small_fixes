@@ -89,7 +89,8 @@ async function handleCartMenu(
         res.json(
           buildSay(
             'Proceeding to checkout.',
-            `/api/ivr/voice/gather?step=checkout_address_choice&user_id=${userId}&call_sid=${callSid}`
+            '/api/ivr/voice/gather',
+            { step: 'checkout_address_choice', user_id: userId, call_sid: callSid }
           )
         );
         return;
@@ -137,7 +138,7 @@ async function handleCartList(
   const summary = await getCartSummary(userId);
   if (!summary) {
     res.json(
-      buildSay('Your cart is empty.', `/api/ivr/voice/gather?step=main_menu&user_id=${userId}&call_sid=${callSid}`)
+      buildSay('Your cart is empty.', '/api/ivr/voice/gather', { step: 'main_menu', user_id: userId, call_sid: callSid })
     );
     return;
   }
@@ -285,7 +286,8 @@ async function handleCartChangeConfirm(
   res.json(
     buildSay(
       'Quantity updated.',
-      `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+      '/api/ivr/voice/gather',
+      { step: 'cart_menu', user_id: userId, call_sid: callSid }
     )
   );
 }
@@ -351,7 +353,8 @@ async function handleCartRemoveConfirm(
     res.json(
       buildSay(
         'Removal cancelled.',
-        `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+        '/api/ivr/voice/gather',
+        { step: 'cart_menu', user_id: userId, call_sid: callSid }
       )
     );
     return;
@@ -362,7 +365,8 @@ async function handleCartRemoveConfirm(
   res.json(
     buildSay(
       'Item removed from your cart.',
-      `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+      '/api/ivr/voice/gather',
+      { step: 'cart_menu', user_id: userId, call_sid: callSid }
     )
   );
 }

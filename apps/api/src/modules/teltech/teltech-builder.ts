@@ -54,12 +54,18 @@ export function buildGather(options: {
   return { actions: [gather] };
 }
 
-export function buildSay(message: string, redirectPath?: string): TeltechResponse {
+export function buildSay(message: string, redirectPath?: string, sessionData?: Record<string, string>): TeltechResponse {
   const actions: TeltechResponse['actions'] = [
     { action: 'say', text: sanitizeForTTS(message) },
   ];
   if (redirectPath) {
-    actions.push({ action: 'redirect', url: `${BASE}${redirectPath}` });
+    let url = `${BASE}${redirectPath}`;
+    if (sessionData) {
+      const queryParams = new URLSearchParams(sessionData);
+      const separator = redirectPath.includes('?') ? '&' : '?';
+      url += `${separator}${queryParams.toString()}`;
+    }
+    actions.push({ action: 'redirect', url });
   }
   return { actions };
 }

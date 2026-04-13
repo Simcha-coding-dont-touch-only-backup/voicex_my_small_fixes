@@ -65,7 +65,7 @@ registerHandler('orders_detail', async (ctx) => {
   if (idx < 0 || idx >= orderIds.length) {
     return {
       type: 'actions',
-      response: buildSay('Invalid selection.', `/api/ivr/voice/gather?node_key=orders_list&user_id=${userId}&call_sid=${ctx.callSid}`),
+      response: buildSay('Invalid selection.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'orders_list' }),
     };
   }
 
@@ -80,7 +80,7 @@ registerHandler('orders_detail', async (ctx) => {
   if (!order) {
     return {
       type: 'actions',
-      response: buildSay('Order not found.', `/api/ivr/voice/gather?node_key=orders_list&user_id=${userId}&call_sid=${ctx.callSid}`),
+      response: buildSay('Order not found.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'orders_list' }),
     };
   }
 

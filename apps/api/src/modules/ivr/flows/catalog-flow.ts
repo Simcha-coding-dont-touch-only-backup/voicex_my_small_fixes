@@ -410,7 +410,8 @@ async function handleCatalogQtyConfirm(
     res.json(
       buildSay(
         'There was an error adding the product to your cart. Please try again.',
-        `/api/ivr/voice/gather?step=catalog_input&user_id=${userId}&call_sid=${callSid}`
+        '/api/ivr/voice/gather',
+        { step: 'catalog_input', user_id: userId, call_sid: callSid }
       )
     );
   }
@@ -440,7 +441,8 @@ async function handleAfterAdd(
       res.json(
         buildSay(
           'Loading your cart.',
-          `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+          '/api/ivr/voice/gather',
+          { step: 'cart_menu', user_id: userId, call_sid: callSid }
         )
       );
       break;

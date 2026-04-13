@@ -58,7 +58,8 @@ registerHandler('cart_summary', async (ctx) => {
             type: 'actions',
             response: buildSay(
               'Proceeding to checkout.',
-              `/api/ivr/voice/gather?node_key=checkout_address_choice&user_id=${userId}&call_sid=${ctx.callSid}`
+              '/api/ivr/voice/gather',
+              { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_address_choice' }
             ),
           };
         }
@@ -69,7 +70,8 @@ registerHandler('cart_summary', async (ctx) => {
               type: 'actions',
               response: buildSay(
                 targetNode.prompt_text || 'Processing.',
-                `/api/ivr/voice/gather?node_key=${targetNode.node_key}&user_id=${userId}&call_sid=${ctx.callSid}`
+                '/api/ivr/voice/gather',
+                { call_sid: ctx.callSid, user_id: userId, node_key: targetNode.node_key }
               ),
             };
           }
@@ -107,7 +109,7 @@ registerHandler('cart_list', async (ctx) => {
   if (!summary) {
     return {
       type: 'actions',
-      response: buildSay('Your cart is empty.', `/api/ivr/voice/gather?node_key=main_menu&user_id=${userId}&call_sid=${ctx.callSid}`),
+      response: buildSay('Your cart is empty.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }),
     };
   }
 
@@ -250,7 +252,7 @@ registerHandler('cart_change_confirm', async (ctx) => {
 
   return {
     type: 'actions',
-    response: buildSay('Quantity updated.', `/api/ivr/voice/gather?node_key=cart_menu&user_id=${userId}&call_sid=${ctx.callSid}`),
+    response: buildSay('Quantity updated.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }),
   };
 });
 
@@ -314,7 +316,7 @@ registerHandler('cart_remove_confirm', async (ctx) => {
   if (digits === '2') {
     return {
       type: 'actions',
-      response: buildSay('Removal cancelled.', `/api/ivr/voice/gather?node_key=cart_menu&user_id=${userId}&call_sid=${ctx.callSid}`),
+      response: buildSay('Removal cancelled.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }),
     };
   }
 
@@ -322,6 +324,6 @@ registerHandler('cart_remove_confirm', async (ctx) => {
 
   return {
     type: 'actions',
-    response: buildSay('Item removed from your cart.', `/api/ivr/voice/gather?node_key=cart_menu&user_id=${userId}&call_sid=${ctx.callSid}`),
+    response: buildSay('Item removed from your cart.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }),
   };
 });

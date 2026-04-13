@@ -74,7 +74,8 @@ export async function dispatchNode(
                 res.json(
                   buildSay(
                     targetNode.prompt_text || 'Processing.',
-                    `/api/ivr/voice/gather?node_key=${targetNodeKey}&user_id=${userId}&call_sid=${callSid}`
+                    '/api/ivr/voice/gather',
+                    { ...sessionData, node_key: targetNodeKey }
                   )
                 );
                 return;
@@ -125,7 +126,8 @@ export async function dispatchNode(
         res.json(
           buildSay(
             node.prompt_text || 'Processing.',
-            `/api/ivr/voice/gather?node_key=${nextNode.node_key}&user_id=${userId}&call_sid=${callSid}`
+            '/api/ivr/voice/gather',
+            { ...sessionData, node_key: nextNode.node_key }
           )
         );
       } else {

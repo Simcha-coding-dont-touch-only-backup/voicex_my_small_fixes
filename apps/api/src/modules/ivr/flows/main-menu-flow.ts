@@ -70,7 +70,8 @@ export async function handleMainMenu(req: Request, res: Response) {
       res.json(
         buildSay(
           'Loading your cart.',
-          `/api/ivr/voice/gather?step=cart_menu&user_id=${userId}&call_sid=${callSid}`
+          '/api/ivr/voice/gather',
+          { step: 'cart_menu', user_id: userId, call_sid: callSid }
         )
       );
       break;
@@ -79,7 +80,8 @@ export async function handleMainMenu(req: Request, res: Response) {
       res.json(
         buildSay(
           'Loading your orders.',
-          `/api/ivr/voice/gather?step=orders_list&user_id=${userId}&call_sid=${callSid}`
+          '/api/ivr/voice/gather',
+          { step: 'orders_list', user_id: userId, call_sid: callSid }
         )
       );
       break;

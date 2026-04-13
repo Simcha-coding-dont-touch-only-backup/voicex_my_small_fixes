@@ -169,7 +169,11 @@ registerHandler('catalog_action', async (ctx) => {
             type: 'actions',
             response: buildSay(
               targetNode.prompt_text || 'Processing.',
-              `/api/ivr/voice/gather?node_key=${targetNode.node_key}&user_id=${userId}&call_sid=${ctx.callSid}`
+              '/api/ivr/voice/gather',
+              {
+                call_sid: ctx.callSid, user_id: userId, node_key: targetNode.node_key,
+                product_id: productId, voicex_id: voicexId,
+              }
             ),
           };
         }
@@ -360,7 +364,8 @@ registerHandler('confirm_qty', async (ctx) => {
       type: 'actions',
       response: buildSay(
         'There was an error adding the product to your cart. Please try again.',
-        `/api/ivr/voice/gather?node_key=catalog_input&user_id=${userId}&call_sid=${ctx.callSid}`
+        '/api/ivr/voice/gather',
+        { call_sid: ctx.callSid, user_id: userId, node_key: 'catalog_input' }
       ),
     };
   }
