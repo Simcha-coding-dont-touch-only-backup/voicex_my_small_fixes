@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Phone, MessageSquare, Keyboard, Zap, GitBranch,
   PhoneOff, ArrowRight, Menu, ChevronRight, ChevronDown,
-  CornerDownRight, RotateCcw, Hash,
+  CornerDownRight, RotateCcw, Hash, ChevronsDown,
 } from 'lucide-react';
 
 function Tooltip({ text, anchorRef }: { text: string; anchorRef: React.RefObject<HTMLSpanElement | null> }) {
@@ -292,6 +292,10 @@ export default function IvrRowView({
     });
   }, []);
 
+  const expandAll = useCallback(() => {
+    setExpanded(new Set(nodes.map((n) => n.id)));
+  }, [nodes]);
+
   const nodeMap = useMemo(() => {
     const m = new Map<string, IvrNodeData>();
     for (const n of nodes) m.set(n.id, n);
@@ -326,8 +330,21 @@ export default function IvrRowView({
     [entryNodes, orphanNodes],
   );
 
+  const allExpanded = nodes.length > 0 && nodes.every((n) => expanded.has(n.id));
+
   return (
     <div className="h-full overflow-y-auto bg-white">
+      {roots.length > 0 && (
+        <div className="flex items-center justify-end px-3 pt-2">
+          <button
+            onClick={expandAll}
+            disabled={allExpanded}
+            className="flex items-center gap-1 rounded border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-default"
+          >
+            <ChevronsDown size={14} /> Expand All
+          </button>
+        </div>
+      )}
       <div className="py-2 divide-y divide-gray-100">
         {roots.length === 0 && (
           <div className="py-12 text-center text-gray-400 text-sm">
