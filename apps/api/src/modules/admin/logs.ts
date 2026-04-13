@@ -33,7 +33,7 @@ logsRouter.get('/', async (req, res) => {
     query = query.gte('created_at', date_from as string);
   }
   if (date_to) {
-    query = query.lte('created_at', date_to as string);
+    query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
   }
 
   const { data, count, error } = await query

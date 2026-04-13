@@ -25,7 +25,7 @@ ordersRouter.get('/', async (req, res) => {
   if (user_id) query = query.eq('user_id', user_id as string);
   if (status) query = query.eq('status', status as string);
   if (date_from) query = query.gte('created_at', date_from as string);
-  if (date_to) query = query.lte('created_at', date_to as string);
+  if (date_to) query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
 
   const { data, count, error } = await query
     .order(sort_by as string, { ascending: sort_dir === 'asc' })

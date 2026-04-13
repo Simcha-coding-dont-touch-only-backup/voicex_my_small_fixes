@@ -12,7 +12,7 @@ reportsRouter.get('/purchases', async (req, res) => {
     .select('*, orders!inner(created_at, status, user_id, users(name))');
 
   if (date_from) query = query.gte('orders.created_at', date_from as string);
-  if (date_to) query = query.lte('orders.created_at', date_to as string);
+  if (date_to) query = query.lte('orders.created_at', `${date_to}T23:59:59.999Z`);
 
   const { data, error } = await query.order('created_at', { ascending: sort_dir === 'asc', referencedTable: 'orders' });
 
@@ -32,7 +32,7 @@ reportsRouter.get('/purchases/export', async (req, res) => {
     .select('*, orders!inner(created_at, status, user_id, users(name))');
 
   if (date_from) query = query.gte('orders.created_at', date_from as string);
-  if (date_to) query = query.lte('orders.created_at', date_to as string);
+  if (date_to) query = query.lte('orders.created_at', `${date_to}T23:59:59.999Z`);
 
   const { data, error } = await query.order('created_at', { ascending: false, referencedTable: 'orders' });
 
