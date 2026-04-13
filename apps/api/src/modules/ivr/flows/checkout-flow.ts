@@ -2,9 +2,11 @@ import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { buildGather, buildSay, buildHangup, formatCurrency } from '../../teltech/teltech-builder.js';
 import { validateAddress } from '../../../lib/google-address.js';
-import { ryeClient } from '../../../lib/rye.js';
+import { createRyeIntent, confirmRyeIntent, findCartItemForFailure } from '../../../lib/rye-checkout.js';
+import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
 import { getProductDisplayName } from '@voicex/shared';
-import { buildMainMenuResponse } from './pin-flow.js';
+
+const MAX_STOCK_RETRIES_PER_ITEM = 3;
 
 export async function handleCheckoutFlow(req: Request, res: Response) {
   const step = req.query.step as string;
@@ -32,6 +34,14 @@ export async function handleCheckoutFlow(req: Request, res: Response) {
       return handleOrderSummary(req, res, userId, callSid);
     case 'checkout_confirm':
       return handleOrderConfirm(req, res, userId, callSid);
+    case 'checkout_final_confirm':
+      return handleFinalConfirm(req, res, userId, callSid);
+    case 'checkout_stock_issue':
+      return handleStockIssue(req, res, userId, callSid);
+    case 'checkout_stock_new_qty':
+      return handleStockNewQty(req, res, userId, callSid);
+    case 'checkout_pay':
+      return handleCheckoutPayStep(req, res, userId, callSid);
   }
 }
 
@@ -507,6 +517,10 @@ async function handleOrderSummary(
   );
 }
 
+/**
+ * User pressed 1 to place order. We now create the Rye intent synchronously
+ * to validate stock and get real shipping/tax before confirming.
+ */
 async function handleOrderConfirm(
   req: Request, res: Response, userId: string, callSid: string
 ) {
@@ -532,12 +546,6 @@ async function handleOrderConfirm(
       .eq('id', addressId)
       .single();
 
-    const { data: paymentMethod } = await supabaseAdmin
-      .from('payment_methods')
-      .select('*')
-      .eq('id', paymentMethodId)
-      .single();
-
     const { data: cart } = await supabaseAdmin
       .from('carts')
       .select('id')
@@ -545,7 +553,7 @@ async function handleOrderConfirm(
       .eq('status', 'active')
       .single();
 
-    if (!address || !paymentMethod || !cart) {
+    if (!address || !cart) {
       throw new Error('Missing checkout data');
     }
 
@@ -558,10 +566,506 @@ async function handleOrderConfirm(
       throw new Error('Empty cart');
     }
 
-    const subtotal = cartItems.reduce(
-      (sum, i) => sum + i.unit_price_cents * i.quantity, 0
+    res.json(
+      buildSay(
+        'Please hold while we verify your order with Amazon.',
+        '/api/ivr/voice/gather',
+        {
+          step: 'checkout_final_confirm',
+          user_id: userId,
+          call_sid: callSid,
+          address_id: addressId,
+          payment_method_id: paymentMethodId,
+        }
+      )
     );
+  } catch (error) {
+    console.error('Order confirmation error:', error);
+    res.json(
+      buildHangup('We had trouble processing your order. Please try again later.')
+    );
+  }
+}
 
+/**
+ * Creates the Rye intent synchronously, checks stock, and either
+ * presents the final total or routes to stock issue resolution.
+ */
+async function handleFinalConfirm(
+  req: Request, res: Response, userId: string, callSid: string
+) {
+  const addressId = req.query.address_id as string;
+  const paymentMethodId = req.query.payment_method_id as string;
+  const digits = req.body.digits;
+
+  // If returning from a previous final confirm prompt where user pressed 2 to cancel
+  if (digits === '2') {
+    res.json(
+      buildSay(
+        'Order cancelled. Returning to cart.',
+        '/api/ivr/voice/gather',
+        { step: 'cart_menu', user_id: userId, call_sid: callSid }
+      )
+    );
+    return;
+  }
+
+  try {
+    const { data: address } = await supabaseAdmin
+      .from('addresses').select('*').eq('id', addressId).single();
+    const { data: paymentMethod } = await supabaseAdmin
+      .from('payment_methods').select('*').eq('id', paymentMethodId).single();
+    const { data: cart } = await supabaseAdmin
+      .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
+
+    if (!address || !paymentMethod || !cart) throw new Error('Missing checkout data');
+
+    const { data: cartItems } = await supabaseAdmin
+      .from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
+
+    if (!cartItems || cartItems.length === 0) {
+      res.json(
+        buildSay('Your cart is empty.', '/api/ivr/voice/gather', { step: 'main_menu', user_id: userId, call_sid: callSid })
+      );
+      return;
+    }
+
+    let intentResult: IntentResult;
+    try {
+      intentResult = await createRyeIntent(cartItems, address);
+    } catch (ryeError) {
+      console.error('Rye intent creation failed:', ryeError);
+      res.json(
+        buildHangup('We were unable to verify your order with Amazon. Please try again later.')
+      );
+      return;
+    }
+
+    if (!intentResult.success) {
+      if (intentResult.stockFailures.length > 0) {
+        // Serialize failures to session data and start resolving them one by one
+        const failuresJson = JSON.stringify(intentResult.stockFailures);
+        res.json(
+          buildSay(
+            'There is an issue with one or more items in your order.',
+            '/api/ivr/voice/gather',
+            {
+              step: 'checkout_stock_issue',
+              user_id: userId,
+              call_sid: callSid,
+              address_id: addressId,
+              payment_method_id: paymentMethodId,
+              stock_failures: failuresJson,
+              stock_failure_idx: '0',
+              retry_counts: '{}',
+            }
+          )
+        );
+        return;
+      }
+
+      // Non-stock failure
+      const reason = intentResult.intent.failureReason?.code || 'unknown';
+      console.error('Rye intent failed with non-stock reason:', reason);
+      res.json(
+        buildHangup('We were unable to process your order. Please try again later.')
+      );
+      return;
+    }
+
+    // Intent succeeded — present final total with real shipping/tax
+    const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+    const totalWithFees = subtotal + intentResult.shippingCents + intentResult.taxCents + intentResult.surchareCents;
+
+    const shippingStr = intentResult.shippingCents > 0
+      ? `Shipping is ${formatCurrency(intentResult.shippingCents)}. `
+      : 'Shipping is free. ';
+    const taxStr = intentResult.taxCents > 0
+      ? `Tax is ${formatCurrency(intentResult.taxCents)}. `
+      : '';
+
+    res.json(
+      buildGather({
+        prompt: `Your order total is ${formatCurrency(totalWithFees)}. ${shippingStr}${taxStr}Press 1 to confirm and pay, or press 2 to cancel.`,
+        actionPath: '/api/ivr/voice/gather',
+        numDigits: 1,
+        timeout: 15,
+        sessionData: {
+          call_sid: callSid,
+          user_id: userId,
+          step: 'checkout_pay',
+          address_id: addressId,
+          payment_method_id: paymentMethodId,
+          rye_intent_id: intentResult.intent.id,
+          shipping_cents: String(intentResult.shippingCents),
+          tax_cents: String(intentResult.taxCents),
+          surcharge_cents: String(intentResult.surchareCents),
+        },
+      })
+    );
+  } catch (error) {
+    console.error('Final confirm error:', error);
+    res.json(
+      buildHangup('We had trouble processing your order. Please try again later.')
+    );
+  }
+}
+
+/**
+ * Handle stock issue resolution. Walk the caller through each failed item
+ * one at a time by product name.
+ */
+async function handleStockIssue(
+  req: Request, res: Response, userId: string, callSid: string
+) {
+  const addressId = req.query.address_id as string;
+  const paymentMethodId = req.query.payment_method_id as string;
+  const failuresJson = req.query.stock_failures as string;
+  const failureIdx = parseInt(req.query.stock_failure_idx as string || '0', 10);
+  const retryCountsJson = req.query.retry_counts as string || '{}';
+  const digits = req.body.digits;
+
+  let failures: StockFailure[];
+  let retryCounts: Record<string, number>;
+  try {
+    failures = JSON.parse(failuresJson);
+    retryCounts = JSON.parse(retryCountsJson);
+  } catch {
+    res.json(buildHangup('An error occurred processing your order. Please try again later.'));
+    return;
+  }
+
+  if (failureIdx >= failures.length) {
+    // All failures resolved — retry the intent with updated cart
+    res.json(
+      buildSay(
+        'Let me re-check your updated order with Amazon.',
+        '/api/ivr/voice/gather',
+        {
+          step: 'checkout_final_confirm',
+          user_id: userId,
+          call_sid: callSid,
+          address_id: addressId,
+          payment_method_id: paymentMethodId,
+        }
+      )
+    );
+    return;
+  }
+
+  const failure = failures[failureIdx];
+
+  const { data: cart } = await supabaseAdmin
+    .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
+
+  if (!cart) {
+    res.json(buildSay('Your cart is empty. Returning to main menu.', '/api/ivr/voice/gather', { step: 'main_menu', user_id: userId, call_sid: callSid }));
+    return;
+  }
+
+  const { data: cartItems } = await supabaseAdmin
+    .from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
+
+  if (!cartItems || cartItems.length === 0) {
+    res.json(buildSay('Your cart is empty. Returning to main menu.', '/api/ivr/voice/gather', { step: 'main_menu', user_id: userId, call_sid: callSid }));
+    return;
+  }
+
+  const affectedItem = findCartItemForFailure(failure, cartItems);
+  if (!affectedItem) {
+    // Item was already removed — advance to next failure
+    res.json(
+      buildSay(
+        '',
+        '/api/ivr/voice/gather',
+        {
+          step: 'checkout_stock_issue',
+          user_id: userId,
+          call_sid: callSid,
+          address_id: addressId,
+          payment_method_id: paymentMethodId,
+          stock_failures: failuresJson,
+          stock_failure_idx: String(failureIdx + 1),
+          retry_counts: JSON.stringify(retryCounts),
+        }
+      )
+    );
+    return;
+  }
+
+  const productName = getProductDisplayName(affectedItem.catalog_products);
+  const productId = affectedItem.product_id;
+  const retryCount = retryCounts[productId] || 0;
+
+  if (failure.type === 'out_of_stock') {
+    // Auto-remove and inform caller
+    await supabaseAdmin.from('cart_items').delete().eq('id', affectedItem.id);
+
+    const remainingItems = cartItems.filter((ci) => ci.id !== affectedItem.id);
+    if (remainingItems.length === 0) {
+      res.json(
+        buildSay(
+          `Unfortunately, ${productName} is currently out of stock and has been removed from your order. Your cart is now empty. Returning to the main menu.`,
+          '/api/ivr/voice/gather',
+          { step: 'main_menu', user_id: userId, call_sid: callSid }
+        )
+      );
+      return;
+    }
+
+    res.json(
+      buildSay(
+        `Unfortunately, ${productName} is currently out of stock and has been removed from your order.`,
+        '/api/ivr/voice/gather',
+        {
+          step: 'checkout_stock_issue',
+          user_id: userId,
+          call_sid: callSid,
+          address_id: addressId,
+          payment_method_id: paymentMethodId,
+          stock_failures: failuresJson,
+          stock_failure_idx: String(failureIdx + 1),
+          retry_counts: JSON.stringify(retryCounts),
+        }
+      )
+    );
+    return;
+  }
+
+  // insufficient_stock — check retry limit
+  if (retryCount >= MAX_STOCK_RETRIES_PER_ITEM) {
+    await supabaseAdmin.from('cart_items').delete().eq('id', affectedItem.id);
+
+    const remainingItems = cartItems.filter((ci) => ci.id !== affectedItem.id);
+    if (remainingItems.length === 0) {
+      res.json(
+        buildSay(
+          `We were unable to process ${productName} after multiple attempts. It has been removed from your order. Your cart is now empty. Returning to the main menu.`,
+          '/api/ivr/voice/gather',
+          { step: 'main_menu', user_id: userId, call_sid: callSid }
+        )
+      );
+      return;
+    }
+
+    res.json(
+      buildSay(
+        `We were unable to process ${productName} after multiple attempts. It has been removed from your order.`,
+        '/api/ivr/voice/gather',
+        {
+          step: 'checkout_stock_issue',
+          user_id: userId,
+          call_sid: callSid,
+          address_id: addressId,
+          payment_method_id: paymentMethodId,
+          stock_failures: failuresJson,
+          stock_failure_idx: String(failureIdx + 1),
+          retry_counts: JSON.stringify(retryCounts),
+        }
+      )
+    );
+    return;
+  }
+
+  // Ask user to enter a new quantity or remove
+  res.json(
+    buildGather({
+      prompt: `${productName} does not have enough stock for the quantity of ${affectedItem.quantity} that you requested. Press 1 to enter a new quantity, or press 2 to remove it from your order.`,
+      actionPath: '/api/ivr/voice/gather',
+      numDigits: 1,
+      timeout: 15,
+      sessionData: {
+        call_sid: callSid,
+        user_id: userId,
+        step: 'checkout_stock_new_qty',
+        address_id: addressId,
+        payment_method_id: paymentMethodId,
+        stock_failures: failuresJson,
+        stock_failure_idx: String(failureIdx),
+        retry_counts: JSON.stringify(retryCounts),
+        stock_item_id: affectedItem.id,
+        stock_product_id: productId,
+        stock_action: 'pending',
+      },
+    })
+  );
+}
+
+/**
+ * Handle the user's response to a stock issue: enter new qty or remove item.
+ */
+async function handleStockNewQty(
+  req: Request, res: Response, userId: string, callSid: string
+) {
+  const addressId = req.query.address_id as string;
+  const paymentMethodId = req.query.payment_method_id as string;
+  const failuresJson = req.query.stock_failures as string;
+  const failureIdx = parseInt(req.query.stock_failure_idx as string || '0', 10);
+  const retryCountsJson = req.query.retry_counts as string || '{}';
+  const stockItemId = req.query.stock_item_id as string;
+  const stockProductId = req.query.stock_product_id as string;
+  const stockAction = req.query.stock_action as string;
+  const digits = req.body.digits;
+
+  let retryCounts: Record<string, number>;
+  try {
+    retryCounts = JSON.parse(retryCountsJson);
+  } catch {
+    retryCounts = {};
+  }
+
+  const baseSessionData = {
+    call_sid: callSid,
+    user_id: userId,
+    address_id: addressId,
+    payment_method_id: paymentMethodId,
+    stock_failures: failuresJson,
+    stock_failure_idx: String(failureIdx),
+    retry_counts: JSON.stringify(retryCounts),
+  };
+
+  if (stockAction === 'pending') {
+    // User chose: 1 = enter new qty, 2 = remove
+    if (digits === '2') {
+      await supabaseAdmin.from('cart_items').delete().eq('id', stockItemId);
+
+      const { data: cart } = await supabaseAdmin
+        .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
+
+      if (cart) {
+        const { data: remaining } = await supabaseAdmin
+          .from('cart_items').select('id').eq('cart_id', cart.id);
+
+        if (!remaining || remaining.length === 0) {
+          res.json(
+            buildSay(
+              'Item removed. Your cart is now empty. Returning to the main menu.',
+              '/api/ivr/voice/gather',
+              { step: 'main_menu', user_id: userId, call_sid: callSid }
+            )
+          );
+          return;
+        }
+      }
+
+      res.json(
+        buildSay(
+          'Item removed from your order.',
+          '/api/ivr/voice/gather',
+          {
+            step: 'checkout_stock_issue',
+            ...baseSessionData,
+            stock_failure_idx: String(failureIdx + 1),
+          }
+        )
+      );
+      return;
+    }
+
+    // Press 1 — prompt for new quantity
+    res.json(
+      buildGather({
+        prompt: 'Please enter the new quantity followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
+        timeout: 10,
+        finishOnKey: '#',
+        sessionData: {
+          ...baseSessionData,
+          step: 'checkout_stock_new_qty',
+          stock_item_id: stockItemId,
+          stock_product_id: stockProductId,
+          stock_action: 'qty_entry',
+        },
+      })
+    );
+    return;
+  }
+
+  // stock_action === 'qty_entry' — user entered a new quantity
+  const newQty = parseInt(digits || '', 10);
+
+  if (!newQty || newQty <= 0) {
+    res.json(
+      buildGather({
+        prompt: 'Please enter a valid quantity greater than zero, followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
+        timeout: 10,
+        finishOnKey: '#',
+        sessionData: {
+          ...baseSessionData,
+          step: 'checkout_stock_new_qty',
+          stock_item_id: stockItemId,
+          stock_product_id: stockProductId,
+          stock_action: 'qty_entry',
+        },
+      })
+    );
+    return;
+  }
+
+  // Update cart item quantity
+  await supabaseAdmin
+    .from('cart_items')
+    .update({ quantity: newQty })
+    .eq('id', stockItemId);
+
+  // Increment retry count for this product
+  retryCounts[stockProductId] = (retryCounts[stockProductId] || 0) + 1;
+
+  // Advance to next failure (or re-attempt intent if all resolved)
+  res.json(
+    buildSay(
+      `Quantity updated to ${newQty}.`,
+      '/api/ivr/voice/gather',
+      {
+        step: 'checkout_stock_issue',
+        ...baseSessionData,
+        stock_failure_idx: String(failureIdx + 1),
+        retry_counts: JSON.stringify(retryCounts),
+      }
+    )
+  );
+}
+
+async function handleCheckoutPayStep(
+  req: Request, res: Response, userId: string, callSid: string
+) {
+  const digits = req.body.digits;
+  const addressId = req.query.address_id as string;
+  const paymentMethodId = req.query.payment_method_id as string;
+  const ryeIntentId = req.query.rye_intent_id as string;
+  const shippingCents = parseInt(req.query.shipping_cents as string || '0', 10);
+  const taxCents = parseInt(req.query.tax_cents as string || '0', 10);
+  const surchargeCents = parseInt(req.query.surcharge_cents as string || '0', 10);
+
+  if (digits === '2') {
+    res.json(
+      buildSay(
+        'Order cancelled. Returning to cart.',
+        '/api/ivr/voice/gather',
+        { step: 'cart_menu', user_id: userId, call_sid: callSid }
+      )
+    );
+    return;
+  }
+
+  try {
+    const { data: paymentMethod } = await supabaseAdmin
+      .from('payment_methods').select('*').eq('id', paymentMethodId).single();
+    const { data: cart } = await supabaseAdmin
+      .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
+
+    if (!paymentMethod || !cart) throw new Error('Missing checkout data');
+
+    const { data: cartItems } = await supabaseAdmin
+      .from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
+
+    if (!cartItems || cartItems.length === 0) throw new Error('Empty cart');
+
+    const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+    const totalCents = subtotal + shippingCents + taxCents + surchargeCents;
+
+    // Insert order with real costs from Rye
     const { data: order } = await supabaseAdmin
       .from('orders')
       .insert({
@@ -569,11 +1073,12 @@ async function handleOrderConfirm(
         cart_id: cart.id,
         address_id: addressId,
         payment_method_id: paymentMethodId,
+        rye_checkout_intent_id: ryeIntentId,
         status: 'pending',
         subtotal_cents: subtotal,
-        shipping_cents: 0,
-        tax_cents: 0,
-        total_cents: subtotal,
+        shipping_cents: shippingCents,
+        tax_cents: taxCents,
+        total_cents: totalCents,
       })
       .select()
       .single();
@@ -592,21 +1097,14 @@ async function handleOrderConfirm(
     }));
 
     await supabaseAdmin.from('order_items').insert(orderItems);
-
     await supabaseAdmin.from('order_events').insert({
-      order_id: order.id,
-      status: 'pending',
-      source: 'system',
-      details: { action: 'order_created' },
+      order_id: order.id, status: 'pending', source: 'system', details: { action: 'order_created' },
     });
+    await supabaseAdmin.from('carts').update({ status: 'checked_out' }).eq('id', cart.id);
 
-    await supabaseAdmin
-      .from('carts')
-      .update({ status: 'checked_out' })
-      .eq('id', cart.id);
-
-    processRyeCheckout(order.id, cartItems, address, paymentMethod).catch((err) =>
-      console.error('Rye checkout background error:', err)
+    // Confirm with Rye (payment) — run in background since stock is already validated
+    confirmAndFinalizeOrder(order.id, ryeIntentId, paymentMethod, cartItems).catch((err) =>
+      console.error('Rye confirm background error:', err)
     );
 
     res.json(
@@ -624,99 +1122,46 @@ async function handleOrderConfirm(
   }
 }
 
-async function processRyeCheckout(
+async function confirmAndFinalizeOrder(
   orderId: string,
-  cartItems: any[],
-  address: any,
-  paymentMethod: any
+  intentId: string,
+  paymentMethod: any,
+  cartItems: any[]
 ) {
   try {
     await supabaseAdmin.from('order_events').insert({
-      order_id: orderId,
-      status: 'processing',
-      source: 'system',
-      details: { action: 'rye_checkout_started' },
+      order_id: orderId, status: 'processing', source: 'system',
+      details: { action: 'rye_checkout_started', rye_intent_id: intentId },
+    });
+    await supabaseAdmin.from('orders').update({ status: 'processing' }).eq('id', orderId);
+
+    const completed = await confirmRyeIntent(intentId, paymentMethod);
+    const finalStatus = completed.state === 'completed' ? 'completed' : 'failed';
+
+    await supabaseAdmin.from('orders').update({ status: finalStatus }).eq('id', orderId);
+    await supabaseAdmin.from('order_events').insert({
+      order_id: orderId, status: finalStatus, source: 'system',
+      details: {
+        rye_intent_id: intentId,
+        rye_state: completed.state,
+        failure_reason: completed.failureReason || null,
+      },
     });
 
-    await supabaseAdmin
-      .from('orders')
-      .update({ status: 'processing' })
-      .eq('id', orderId);
-
-    for (const item of cartItems) {
-      const product = item.catalog_products;
-      if (!product?.amazon_url) continue;
-
-      try {
-        const intent = await ryeClient.checkoutIntents.createAndPoll({
-          buyer: {
-            firstName: 'VoiceX',
-            lastName: 'Customer',
-            email: 'orders@voicex.com',
-            phone: '0000000000',
-            address1: address.address1,
-            address2: address.address2 || undefined,
-            city: address.city,
-            province: address.state,
-            postalCode: address.zip_code,
-            country: address.country || 'US',
-          },
-          productUrl: product.amazon_url,
-          quantity: item.quantity,
-        });
-
-        if (intent.offer) {
-          const shippingCents = intent.offer.shipping?.availableOptions?.[0]?.cost?.amountSubunits || 0;
-          const taxCents = intent.offer.cost?.tax?.amountSubunits || 0;
-
-          await supabaseAdmin.from('orders').update({
-            shipping_cents: shippingCents,
-            tax_cents: taxCents,
-            total_cents: item.unit_price_cents * item.quantity + shippingCents + taxCents,
-            rye_checkout_intent_id: intent.id,
-          }).eq('id', orderId);
-        }
-
-        const completed = await ryeClient.checkoutIntents.confirmAndPoll(intent.id, {
-          paymentMethod: {
-            stripeToken: paymentMethod.stripe_token,
-            type: 'stripe_token',
-          },
-        });
-
-        const finalStatus = completed.state === 'completed' ? 'completed' : 'failed';
-
-        await supabaseAdmin.from('orders').update({ status: finalStatus }).eq('id', orderId);
-
-        await supabaseAdmin.from('order_events').insert({
-          order_id: orderId,
-          status: finalStatus,
-          source: 'system',
-          details: {
-            rye_intent_id: intent.id,
-            rye_state: completed.state,
-            failure_reason: (completed as any).failureReason || null,
-          },
-        });
-
-        if (finalStatus === 'completed') {
-          await supabaseAdmin.rpc('increment_product_sold', {
-            p_product_id: item.product_id,
-            p_qty: item.quantity,
-          });
-        }
-      } catch (ryeError) {
-        console.error(`Rye checkout failed for product ${product.voicex_id}:`, ryeError);
-        await supabaseAdmin.from('order_events').insert({
-          order_id: orderId,
-          status: 'failed',
-          source: 'system',
-          details: { error: String(ryeError), product_id: item.product_id },
+    if (finalStatus === 'completed') {
+      for (const item of cartItems) {
+        await supabaseAdmin.rpc('increment_product_sold', {
+          p_product_id: item.product_id,
+          p_qty: item.quantity,
         });
       }
     }
   } catch (error) {
-    console.error('Rye checkout process error:', error);
+    console.error('Rye confirm/finalize error:', error);
     await supabaseAdmin.from('orders').update({ status: 'failed' }).eq('id', orderId);
+    await supabaseAdmin.from('order_events').insert({
+      order_id: orderId, status: 'failed', source: 'system',
+      details: { error: String(error), rye_intent_id: intentId },
+    });
   }
 }

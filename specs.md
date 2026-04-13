@@ -23,7 +23,7 @@ Flow:
 •	When a 'Catalog Number' is entered, system repeats the product name and price. User can select to hear its description, full details and reviews. After confirmation, product gets added to cart with the Qty selected by user.. ⚠️ PARTIAL — Name/price readback and add-to-cart work; description now auto-fetched from Rye at product-add time and readable via "More Details"; reviews still stubbed
 •	User can access cart and hear a total of how many product types are in cart, total QTY of products and total cart price (ex:  5 products with total qty of 13 and a total cart price of $150). User can listen to all the products found in cart. He can delete products and edit their Qty. ✅ DONE
 •	User can then move to checkout, where he can select one of his saved addresses or add a new one. He can select a saved credit card or add a new one. ✅ DONE
-•	User can complete the checkout. If order is not eligible for free Prime shipping, it will tell him the shipping cost and the updated cart total. ⚠️ PARTIAL — Checkout works; shipping cost is applied by Rye in background but NOT communicated to user in voice summary before placing order
+•	User can complete the checkout. If order is not eligible for free Prime shipping, it will tell him the shipping cost and the updated cart total. ✅ DONE — Rye intent created synchronously at checkout; shipping, tax, and total communicated to user before final payment confirmation
 •	User can access a simple history of his orders. For now just order ID, order date and current order status. ✅ DONE (uses index-based selection instead of Order ID entry)
 
 Assumptions
@@ -33,10 +33,10 @@ o	Voice matching — ❌ REMOVED (was Twilio speech-normalizer; replaced with DT
 o	Can spell things out like emails — ❌ PENDING — Email not collected during registration
 •	Rye
 o	Allows us to pass a markup to product price. It will charge card for the marked up price but only sends Amazon their price. ✅ DONE (markup logic in shared package)
-o	Allows checkout of multiple products and quantities ⚠️ PARTIAL — Each cart item processed as separate Rye checkout intent (not single multi-item order)
+o	Allows checkout of multiple products and quantities ✅ DONE — Single multi-item Rye checkout intent for entire cart (items[] API)
 o	Includes free shipping from Amazon Prime ✅ DONE (Rye handles this)
 o	Can pass over description, full details and reviews of any given product ⚠️ PARTIAL — Product name/description/price auto-fetched from Rye via products.lookup at admin add time and stored in DB; "More Details" IVR option reads stored description; reviews still stubbed
-o	If an order is not eligible for free Prime shipping, it should pass over the shipping amount. ⚠️ PARTIAL — Shipping stored on order after Rye processes, but not communicated to user before order placement
+o	If an order is not eligible for free Prime shipping, it should pass over the shipping amount. ✅ DONE — Shipping, tax, and surcharge from Rye intent shown to user before final payment confirmation
 o	Can pass status of existing orders ✅ DONE (order status stored and readable)
 
 Admin 
@@ -77,7 +77,7 @@ d.	Credit Cards
 i.	User can save multiple credit cards ✅ DONE
 ii.	Cards can be entered  at registration or at checkout ⚠️ PARTIAL — Only at checkout with saved cards; phone-based card entry stubbed pending TelTech payment docs
 iii.	For each have to enter: CC number, date, cvv ⚠️ STUBBED — Was done via Twilio Pay; TelTech payment integration pending
-e.	Detect Product Availability on Amazon at time it is added to VoiceX cart, with a fallback if out of stock. ❌ PENDING — No stock check via Rye API before adding to cart
+e.	Detect Product Availability on Amazon at time it is added to VoiceX cart, with a fallback if out of stock. ⚠️ PARTIAL — Stock checked at checkout via Rye intent (not at add-to-cart; Rye only validates stock at intent creation). Out-of-stock items auto-removed; insufficient-stock items prompt user to reduce qty (up to 3 retries). NOTE: Amazon does not expose exact stock counts through Rye.
 f.	Order Status
 i.	Can check the status of an existing order ✅ DONE
 Here is the IVR Flow
@@ -152,7 +152,7 @@ Step 2: Add to Cart (Sequential Input)
 •	Confirmation:
 o	Press 1 to confirm ✅ DONE
 o	Press 2 to re-enter ✅ DONE
-•	Stock API check ❌ PENDING — No stock check via Rye before adding to cart
+•	Stock API check ✅ DONE — Stock validated at checkout via Rye multi-item intent (Rye only supports stock check at intent creation, not at add-to-cart)
 If available:
 •	Add to cart ✅ DONE
 •	Read confirmation ✅ DONE
@@ -160,7 +160,7 @@ o	Press 1 or say Add Another Product ✅ DONE
 o	Press 2 or say Checkout (will take them to cart) ✅ DONE
 o	* or say Main Menu ✅ DONE
 If not:
-•	Inform user  (Lets say he enters 5 qty and there are only 3, will it give him a message that there are at least 3 available ) ❌ PENDING — No stock availability check or partial availability messaging
+•	Inform user  (Lets say he enters 5 qty and there are only 3, will it give him a message that there are at least 3 available ) ⚠️ PARTIAL — User is informed of insufficient stock and prompted to enter a lower qty (up to 3 retries), but exact available count cannot be shown (Amazon does not expose it through Rye)
 •	
 ________________________________________
 6. Cart Flow
@@ -223,7 +223,7 @@ o	Press 2 to re-enter ✅ DONE
 ________________________________________
 Step 3: Order Summary
 •	System computes total and delivery estimate ⚠️ PARTIAL — Total computed; delivery estimate not populated
-•	If there is any shipping charge, it should mention it here ❌ PENDING — Shipping charge applied by Rye after order placement, not communicated to user before confirming
+•	If there is any shipping charge, it should mention it here ✅ DONE — Shipping, tax, and total from Rye intent shown to user before final confirmation
 Prompt:
  "Your total is [amount]. Estimated delivery is [date]." ⚠️ PARTIAL — Total shown; estimated delivery date not available
 ________________________________________
@@ -282,21 +282,18 @@ FULLY DONE (✅):  ~70% of spec items
 PARTIALLY DONE / STUBBED (⚠️):  ~20% of spec items
 - Registration missing Email, Address, Credit Card collection
 - Product reviews from Rye API still stubbed (description now works)
-- Shipping cost not communicated to user before order confirmation
+- Shipping cost now communicated to user before final confirmation (via Rye intent)
 - IVR flow admin DB schema + UI exists but does NOT drive live calls (hardcoded handlers)
 - Order filtering by product is in-memory (pagination issues)
 - Reports qty sort/filter limited
 - Order details use index selection instead of Order ID DTMF entry
 - Delivery estimate not populated in order summary
-- Multi-item orders processed as separate Rye intents (not single multi-item checkout)
+- Multi-item orders now use single Rye checkout intent with items[] API
 - Name readback letter-by-letter during registration not confirmed
 - Phone-based new card entry STUBBED (was Twilio Pay; pending TelTech payment docs)
 - Card tokenization STUBBED (was Stripe via Twilio Pay; pending TelTech payment docs)
 
-NOT STARTED (❌):  ~10% of spec items
-- Stock/availability check via Rye API before adding to cart
-- Partial availability messaging ("only 3 available")
-- Shipping cost shown to user before placing order
+NOT STARTED (❌):  ~5% of spec items
 - Product reviews fetched from Rye API
 - Email collection during registration
 - Speech recognition (removed during TelTech migration; TelTech does not support it)
