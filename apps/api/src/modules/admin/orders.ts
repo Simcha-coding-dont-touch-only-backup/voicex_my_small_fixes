@@ -3,6 +3,8 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 
 export const ordersRouter = Router();
 
+const ORDERS_SORTABLE_COLUMNS = ['created_at', 'status', 'user_id', 'id', 'total_cents'];
+
 ordersRouter.get('/', async (req, res) => {
   const {
     page = '1',
@@ -16,6 +18,8 @@ ordersRouter.get('/', async (req, res) => {
     sort_dir = 'desc',
   } = req.query;
 
+  const sortColumn = ORDERS_SORTABLE_COLUMNS.includes(sort_by as string) ? (sort_by as string) : 'created_at';
+  const sortAscending = sort_dir === 'asc';
   const offset = (parseInt(page as string) - 1) * parseInt(per_page as string);
 
   let query = supabaseAdmin
@@ -28,7 +32,7 @@ ordersRouter.get('/', async (req, res) => {
   if (date_to) query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
 
   const { data, count, error } = await query
-    .order(sort_by as string, { ascending: sort_dir === 'asc' })
+    .order(sortColumn, { ascending: sortAscending })
     .range(offset, offset + parseInt(per_page as string) - 1);
 
   if (error) {

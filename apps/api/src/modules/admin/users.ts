@@ -4,8 +4,12 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 
 export const usersRouter = Router();
 
+const USERS_SORTABLE_COLUMNS = ['created_at', 'name', 'email', 'status', 'id'];
+
 usersRouter.get('/', async (req, res) => {
   const { page = '1', per_page = '20', search, status, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
+  const sortColumn = USERS_SORTABLE_COLUMNS.includes(sort_by as string) ? (sort_by as string) : 'created_at';
+  const sortAscending = sort_dir === 'asc';
   const offset = (parseInt(page as string) - 1) * parseInt(per_page as string);
 
   let query = supabaseAdmin
@@ -20,7 +24,7 @@ usersRouter.get('/', async (req, res) => {
   }
 
   const { data, count, error } = await query
-    .order(sort_by as string, { ascending: sort_dir === 'asc' })
+    .order(sortColumn, { ascending: sortAscending })
     .range(offset, offset + parseInt(per_page as string) - 1);
 
   if (error) {

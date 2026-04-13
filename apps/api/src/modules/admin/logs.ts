@@ -3,6 +3,8 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 
 export const logsRouter = Router();
 
+const LOGS_SORTABLE_COLUMNS = ['created_at', 'error_type', 'user_id', 'id'];
+
 logsRouter.get('/', async (req, res) => {
   const {
     page = '1',
@@ -14,6 +16,9 @@ logsRouter.get('/', async (req, res) => {
     sort_by = 'created_at',
     sort_dir = 'desc',
   } = req.query;
+
+  const sortColumn = LOGS_SORTABLE_COLUMNS.includes(sort_by as string) ? (sort_by as string) : 'created_at';
+  const sortAscending = sort_dir === 'asc';
 
   const perPage = parseInt(per_page as string);
   const currentPage = parseInt(page as string);
@@ -37,7 +42,7 @@ logsRouter.get('/', async (req, res) => {
   }
 
   const { data, count, error } = await query
-    .order(sort_by as string, { ascending: sort_dir === 'asc' })
+    .order(sortColumn, { ascending: sortAscending })
     .range(offset, offset + perPage - 1);
 
   if (error) {

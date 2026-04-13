@@ -105,8 +105,12 @@ catalogRouter.delete('/categories/:id', async (req, res) => {
 
 // --- Products ---
 
+const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'amazon_price_cents', 'custom_price_cents', 'is_active', 'voicex_id', 'id'];
+
 catalogRouter.get('/products', async (req, res) => {
   const { page = '1', per_page = '20', search, category_id, is_active, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
+  const sortColumn = PRODUCTS_SORTABLE_COLUMNS.includes(sort_by as string) ? (sort_by as string) : 'created_at';
+  const sortAscending = sort_dir === 'asc';
   const offset = (parseInt(page as string) - 1) * parseInt(per_page as string);
 
   let query = supabaseAdmin
@@ -121,7 +125,7 @@ catalogRouter.get('/products', async (req, res) => {
   }
 
   const { data, count, error } = await query
-    .order(sort_by as string, { ascending: sort_dir === 'asc' })
+    .order(sortColumn, { ascending: sortAscending })
     .range(offset, offset + parseInt(per_page as string) - 1);
 
   if (error) {

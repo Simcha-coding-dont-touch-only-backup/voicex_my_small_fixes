@@ -5,7 +5,8 @@ import * as XLSX from 'xlsx';
 export const reportsRouter = Router();
 
 reportsRouter.get('/purchases', async (req, res) => {
-  const { date_from, date_to, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
+  const { date_from, date_to, sort_dir = 'desc' } = req.query;
+  const sortAscending = sort_dir === 'asc';
 
   let query = supabaseAdmin
     .from('order_items')
@@ -14,7 +15,7 @@ reportsRouter.get('/purchases', async (req, res) => {
   if (date_from) query = query.gte('orders.created_at', date_from as string);
   if (date_to) query = query.lte('orders.created_at', `${date_to}T23:59:59.999Z`);
 
-  const { data, error } = await query.order('created_at', { ascending: sort_dir === 'asc', referencedTable: 'orders' });
+  const { data, error } = await query.order('created_at', { ascending: sortAscending, referencedTable: 'orders' });
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
