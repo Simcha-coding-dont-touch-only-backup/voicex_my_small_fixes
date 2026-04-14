@@ -73,7 +73,7 @@ logsRouter.get('/calls', async (req, res) => {
 
   let query = supabaseAdmin
     .from('ivr_error_logs')
-    .select('call_sid, caller_id, user_id, user_name, flow_version_id, created_at, node_key, error_detail, session_data');
+    .select('call_sid, caller_id, user_id, user_name, flow_version_id, created_at, node_key, error_type, error_detail, session_data');
 
   if (date_from) {
     query = query.gte('created_at', date_from as string);
@@ -101,18 +101,24 @@ logsRouter.get('/calls', async (req, res) => {
         flow_version_id: row.flow_version_id,
         started_at: row.created_at,
         ended_at: row.created_at,
+        end_reason: null,
         step_count: 0,
         steps: [],
       };
       callMap.set(row.call_sid, call);
     }
     call.ended_at = row.created_at;
-    call.step_count++;
-    call.steps.push({
-      node: row.node_key,
-      digits: row.session_data?.digits || null,
-      time: row.created_at,
-    });
+
+    if (row.error_type === 'call_end') {
+      call.end_reason = 'hangup';
+    } else {
+      call.step_count++;
+      call.steps.push({
+        node: row.node_key,
+        digits: row.session_data?.digits || null,
+        time: row.created_at,
+      });
+    }
   }
 
   const calls = Array.from(callMap.values())

@@ -128,6 +128,7 @@ export function LogsPage() {
               <th className="px-6 py-3 font-medium">User</th>
               <th className="px-6 py-3 font-medium">Steps</th>
               <th className="px-6 py-3 font-medium">Duration</th>
+              <th className="px-6 py-3 font-medium">Status</th>
               <th className="w-10 px-3 py-3" />
             </tr>
           </thead>
@@ -138,7 +139,7 @@ export function LogsPage() {
 
               return (
                 <tr key={call.call_sid} className="group border-b">
-                  <td colSpan={8} className="p-0">
+                  <td colSpan={9} className="p-0">
                     <div className="flex items-center hover:bg-gray-50">
                       <div className="w-10 px-3 py-3" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -163,6 +164,17 @@ export function LogsPage() {
                         <div className="flex-1 px-6 py-3">{call.step_count} steps</div>
                         <div className="flex-1 px-6 py-3">
                           {call.duration_seconds != null ? formatDuration(call.duration_seconds) : '-'}
+                        </div>
+                        <div className="flex-1 px-6 py-3">
+                          {call.end_reason ? (
+                            <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">
+                              hangup
+                            </span>
+                          ) : (
+                            <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">
+                              no hangup received
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="w-10 px-3 py-3" onClick={(e) => e.stopPropagation()}>
@@ -247,7 +259,7 @@ export function LogsPage() {
             })}
             {calls.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-6 py-8 text-center text-gray-400">
+                <td colSpan={9} className="px-6 py-8 text-center text-gray-400">
                   No call logs found
                 </td>
               </tr>
