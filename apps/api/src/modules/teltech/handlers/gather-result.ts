@@ -6,11 +6,10 @@ import { supabaseAdmin } from '../../../lib/supabase.js';
 
 export const callWebhookCounts = new Map<string, { count: number; nodes: string[] }>();
 
-const WEBHOOK_WARN_THRESHOLD = 20;
-
-async function logHighWebhookCount(
+async function logWebhookCall(
   callSid: string,
   nodeKey: string,
+  digits: string | undefined,
   count: number,
   nodeHistory: string[],
   session: any
@@ -28,18 +27,18 @@ async function logHighWebhookCount(
 
     await supabaseAdmin.from('ivr_error_logs').insert({
       call_sid: callSid,
-      error_type: 'high_webhook_count',
-      error_detail: `Webhook call #${count} — approaching TelTech loop limit. Node history: ${nodeHistory.slice(-15).join(' → ')}`,
+      error_type: 'webhook_trace',
+      error_detail: `Webhook #${count} → ${nodeKey}${digits ? ` (digits: ${digits})` : ''}`,
       caller_id: session?.phone_number || null,
       user_id: session?.user_id || null,
       user_name: userName,
       node_key: nodeKey,
       flow_version_id: session?.flow_version_id || null,
-      session_data: { webhook_count: count, node_history: nodeHistory },
-      raw_payload: { source: 'app_side_detection', current_node: nodeKey, digits: null },
+      session_data: { webhook_count: count, node_history: nodeHistory, digits: digits || null },
+      raw_payload: { source: 'app_side_trace', current_node: nodeKey, digits: digits || null, count },
     });
   } catch (err) {
-    console.error('Failed to log high webhook count:', err);
+    console.error('Failed to log webhook call:', err);
   }
 }
 
@@ -65,9 +64,7 @@ export async function handleGatherResult(req: Request, res: Response) {
     const session = await ivrRuntime.getSession(callSid);
     const flowVersionId = session?.flow_version_id;
 
-    if (tracker.count >= WEBHOOK_WARN_THRESHOLD) {
-      await logHighWebhookCount(callSid, nodeKey, tracker.count, tracker.nodes, session);
-    }
+    await logWebhookCall(callSid, nodeKey, req.body.digits, tracker.count, tracker.nodes, session);
 
     if (!flowVersionId) {
       const activeVersion = await ivrRuntime.getActiveFlowVersion();
