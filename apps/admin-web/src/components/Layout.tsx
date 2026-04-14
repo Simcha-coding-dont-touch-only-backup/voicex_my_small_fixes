@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  Users, ShoppingCart, Package, FolderTree, Settings,
+  Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
   ChevronsLeft, ChevronsRight, AlertTriangle,
 } from 'lucide-react';
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { to: '/users', label: 'Users', icon: Users },
   { to: '/categories', label: 'Categories', icon: FolderTree },
   { to: '/products', label: 'Products', icon: Package },
+  { to: '/carts', label: 'Carts', icon: ShoppingBag },
   { to: '/orders', label: 'Orders', icon: ShoppingCart },
   { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
