@@ -127,20 +127,22 @@ logsRouter.get('/calls', async (req, res) => {
     }
   }
 
+  const CALL_INACTIVE_MS = 2 * 60 * 1000;
+  const now = Date.now();
+
   const calls = Array.from(callMap.values()).map((call) => {
     const session = sessionMap.get(call.call_sid);
     const startedAt = session?.started_at || call.first_step_at;
-    const endedAt = session?.ended_at || call.last_step_at;
-    const hasEnded = !!session?.ended_at;
+    const lastStepMs = new Date(call.last_step_at).getTime();
+    const callInactive = (now - lastStepMs) > CALL_INACTIVE_MS;
     const startMs = new Date(startedAt).getTime();
-    const endMs = new Date(endedAt).getTime();
 
     return {
       ...call,
       started_at: startedAt,
-      ended_at: endedAt,
-      has_ended: hasEnded,
-      duration_seconds: Math.round((endMs - startMs) / 1000),
+      ended_at: call.last_step_at,
+      has_ended: callInactive,
+      duration_seconds: Math.round((lastStepMs - startMs) / 1000),
     };
   });
 
