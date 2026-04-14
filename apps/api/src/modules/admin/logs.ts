@@ -99,40 +99,56 @@ logsRouter.get('/calls', async (req, res) => {
         user_id: row.user_id,
         user_name: row.user_name,
         flow_version_id: row.flow_version_id,
-        started_at: row.created_at,
-        ended_at: row.created_at,
-        end_reason: null,
+        first_step_at: row.created_at,
+        last_step_at: row.created_at,
         step_count: 0,
         steps: [],
       };
       callMap.set(row.call_sid, call);
     }
-    call.ended_at = row.created_at;
+    call.last_step_at = row.created_at;
+    call.step_count++;
+    call.steps.push({
+      node: row.node_key,
+      digits: row.session_data?.digits || null,
+      time: row.created_at,
+    });
+  }
 
-    if (row.error_type === 'call_end') {
-      call.end_reason = 'hangup';
-    } else {
-      call.step_count++;
-      call.steps.push({
-        node: row.node_key,
-        digits: row.session_data?.digits || null,
-        time: row.created_at,
-      });
+  const callSids = Array.from(callMap.keys());
+  const sessionMap = new Map<string, any>();
+  if (callSids.length > 0) {
+    const { data: sessions } = await supabaseAdmin
+      .from('call_sessions')
+      .select('call_sid, started_at, ended_at')
+      .in('call_sid', callSids);
+    for (const s of sessions || []) {
+      sessionMap.set(s.call_sid, s);
     }
   }
 
-  const calls = Array.from(callMap.values())
-    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+  const calls = Array.from(callMap.values()).map((call) => {
+    const session = sessionMap.get(call.call_sid);
+    const startedAt = session?.started_at || call.first_step_at;
+    const endedAt = session?.ended_at || call.last_step_at;
+    const hasEnded = !!session?.ended_at;
+    const startMs = new Date(startedAt).getTime();
+    const endMs = new Date(endedAt).getTime();
+
+    return {
+      ...call,
+      started_at: startedAt,
+      ended_at: endedAt,
+      has_ended: hasEnded,
+      duration_seconds: Math.round((endMs - startMs) / 1000),
+    };
+  });
+
+  calls.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
 
   const total = calls.length;
   const offset = (currentPage - 1) * perPage;
   const paged = calls.slice(offset, offset + perPage);
-
-  for (const call of paged) {
-    const startMs = new Date(call.started_at).getTime();
-    const endMs = new Date(call.ended_at).getTime();
-    call.duration_seconds = Math.round((endMs - startMs) / 1000);
-  }
 
   res.json({
     success: true,

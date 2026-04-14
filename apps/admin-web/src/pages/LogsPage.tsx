@@ -166,13 +166,13 @@ export function LogsPage() {
                           {call.duration_seconds != null ? formatDuration(call.duration_seconds) : '-'}
                         </div>
                         <div className="flex-1 px-6 py-3">
-                          {call.end_reason ? (
+                          {call.has_ended ? (
                             <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">
-                              hangup
+                              ended
                             </span>
                           ) : (
                             <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">
-                              no hangup received
+                              no end detected
                             </span>
                           )}
                         </div>
@@ -205,12 +205,20 @@ export function LogsPage() {
                             <span>{formatDate(call.started_at)}</span>
                           </div>
                           <div>
-                            <span className="font-medium text-gray-600">Last Activity:</span>{' '}
-                            <span>{formatDate(call.ended_at)}</span>
+                            <span className="font-medium text-gray-600">Call Ended:</span>{' '}
+                            <span>{call.has_ended ? formatDate(call.ended_at) : 'No end detected'}</span>
                           </div>
                           <div>
                             <span className="font-medium text-gray-600">Duration:</span>{' '}
                             <span>{call.duration_seconds != null ? formatDuration(call.duration_seconds) : 'N/A'}</span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-600">Status:</span>{' '}
+                            {call.has_ended ? (
+                              <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">ended</span>
+                            ) : (
+                              <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">no end detected</span>
+                            )}
                           </div>
                           <div>
                             <span className="font-medium text-gray-600">Flow Version:</span>{' '}
