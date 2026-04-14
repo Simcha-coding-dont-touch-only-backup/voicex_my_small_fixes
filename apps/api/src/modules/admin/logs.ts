@@ -102,16 +102,33 @@ logsRouter.get('/calls', async (req, res) => {
         first_step_at: row.created_at,
         last_step_at: row.created_at,
         step_count: 0,
+        total_webhooks: 0,
+        total_actions: 0,
+        max_recursion_depth: 0,
         steps: [],
       };
       callMap.set(row.call_sid, call);
     }
     call.last_step_at = row.created_at;
     call.step_count++;
+
+    const sd = row.session_data || {};
+    const stepActions = sd.action_count || 0;
+    const stepDepth = sd.recursion_depth || 0;
+
+    call.total_webhooks++;
+    call.total_actions += stepActions;
+    if (stepDepth > call.max_recursion_depth) {
+      call.max_recursion_depth = stepDepth;
+    }
+
     call.steps.push({
       node: row.node_key,
-      digits: row.session_data?.digits || null,
+      digits: sd.digits || null,
       time: row.created_at,
+      action_count: stepActions,
+      response_type: sd.response_type || null,
+      recursion_depth: stepDepth,
     });
   }
 

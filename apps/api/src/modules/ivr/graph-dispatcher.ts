@@ -13,6 +13,9 @@ export async function dispatchNode(
   flowVersionId: string,
   sessionData: Record<string, string>
 ): Promise<void> {
+  const depth = ((req as any)._dispatchDepth || 0) + 1;
+  (req as any)._dispatchDepth = depth;
+
   const node = await ivrRuntime.getNodeByKey(flowVersionId, nodeKey);
 
   if (!node) {

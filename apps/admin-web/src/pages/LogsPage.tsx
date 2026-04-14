@@ -15,6 +15,16 @@ function formatDuration(seconds: number) {
   return `${s}s`;
 }
 
+function LimitBadge({ value, max, label }: { value: number; max: number; label: string }) {
+  const pct = max > 0 ? value / max : 0;
+  const color = pct >= 0.8 ? 'text-red-700 bg-red-50' : pct >= 0.5 ? 'text-yellow-700 bg-yellow-50' : 'text-gray-600 bg-gray-50';
+  return (
+    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-mono ${color}`}>
+      {value}/{max} <span className="text-[10px] font-sans font-normal text-gray-400">{label}</span>
+    </span>
+  );
+}
+
 export function LogsPage() {
   const [calls, setCalls] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -123,12 +133,14 @@ export function LogsPage() {
                 />
               </th>
               <th className="w-8 px-1 py-3" />
-              <th className="px-6 py-3 font-medium">Started</th>
-              <th className="px-6 py-3 font-medium">Caller</th>
-              <th className="px-6 py-3 font-medium">User</th>
-              <th className="px-6 py-3 font-medium">Steps</th>
-              <th className="px-6 py-3 font-medium">Duration</th>
-              <th className="px-6 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Started</th>
+              <th className="px-4 py-3 font-medium">Caller</th>
+              <th className="px-4 py-3 font-medium">User</th>
+              <th className="px-4 py-3 font-medium">Webhooks</th>
+              <th className="px-4 py-3 font-medium">Actions</th>
+              <th className="px-4 py-3 font-medium">Depth</th>
+              <th className="px-4 py-3 font-medium">Duration</th>
+              <th className="px-4 py-3 font-medium">Status</th>
               <th className="w-10 px-3 py-3" />
             </tr>
           </thead>
@@ -139,7 +151,7 @@ export function LogsPage() {
 
               return (
                 <tr key={call.call_sid} className="group border-b">
-                  <td colSpan={9} className="p-0">
+                  <td colSpan={11} className="p-0">
                     <div className="flex items-center hover:bg-gray-50">
                       <div className="w-10 px-3 py-3" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -156,24 +168,28 @@ export function LogsPage() {
                         <div className="w-8 px-1 py-3 text-gray-400">
                           {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </div>
-                        <div className="flex-1 px-6 py-3 text-gray-500">{formatDate(call.started_at)}</div>
-                        <div className="flex-1 px-6 py-3 font-mono text-xs text-gray-500">
+                        <div className="flex-1 px-4 py-3 text-gray-500">{formatDate(call.started_at)}</div>
+                        <div className="flex-1 px-4 py-3 font-mono text-xs text-gray-500">
                           {call.caller_id || '-'}
                         </div>
-                        <div className="flex-1 px-6 py-3">{call.user_name || '-'}</div>
-                        <div className="flex-1 px-6 py-3">{call.step_count} steps</div>
-                        <div className="flex-1 px-6 py-3">
+                        <div className="flex-1 px-4 py-3">{call.user_name || '-'}</div>
+                        <div className="flex-1 px-4 py-3">
+                          <LimitBadge value={call.total_webhooks || 0} max={25} label="wh" />
+                        </div>
+                        <div className="flex-1 px-4 py-3">
+                          <LimitBadge value={call.total_actions || 0} max={50} label="act" />
+                        </div>
+                        <div className="flex-1 px-4 py-3">
+                          <LimitBadge value={call.max_recursion_depth || 0} max={10} label="dep" />
+                        </div>
+                        <div className="flex-1 px-4 py-3">
                           {call.duration_seconds != null ? formatDuration(call.duration_seconds) : '-'}
                         </div>
-                        <div className="flex-1 px-6 py-3">
+                        <div className="flex-1 px-4 py-3">
                           {call.has_ended ? (
-                            <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">
-                              ended
-                            </span>
+                            <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">ended</span>
                           ) : (
-                            <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">
-                              no end detected
-                            </span>
+                            <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">no end detected</span>
                           )}
                         </div>
                       </div>
@@ -191,7 +207,7 @@ export function LogsPage() {
 
                     {isExpanded && (
                       <div className="border-t bg-gray-50 px-8 py-4 space-y-4">
-                        <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="grid grid-cols-3 gap-4 text-sm">
                           <div>
                             <span className="font-medium text-gray-600">Call ID:</span>{' '}
                             <span className="font-mono text-xs">{call.call_sid}</span>
@@ -201,28 +217,35 @@ export function LogsPage() {
                             <span className="font-mono text-xs">{call.user_id || 'N/A'}</span>
                           </div>
                           <div>
+                            <span className="font-medium text-gray-600">Flow Version:</span>{' '}
+                            <span className="font-mono text-xs">{call.flow_version_id || 'N/A'}</span>
+                          </div>
+                          <div>
                             <span className="font-medium text-gray-600">Call Started:</span>{' '}
                             <span>{formatDate(call.started_at)}</span>
                           </div>
                           <div>
-                            <span className="font-medium text-gray-600">Call Ended:</span>{' '}
-                            <span>{call.has_ended ? formatDate(call.ended_at) : 'No end detected'}</span>
+                            <span className="font-medium text-gray-600">Last Activity:</span>{' '}
+                            <span>{formatDate(call.ended_at)}</span>
                           </div>
                           <div>
                             <span className="font-medium text-gray-600">Duration:</span>{' '}
                             <span>{call.duration_seconds != null ? formatDuration(call.duration_seconds) : 'N/A'}</span>
                           </div>
+                        </div>
+
+                        <div className="flex gap-6 rounded-lg bg-white p-3 text-sm">
                           <div>
-                            <span className="font-medium text-gray-600">Status:</span>{' '}
-                            {call.has_ended ? (
-                              <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">ended</span>
-                            ) : (
-                              <span className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">no end detected</span>
-                            )}
+                            <span className="font-medium text-gray-600">Webhooks:</span>{' '}
+                            <LimitBadge value={call.total_webhooks || 0} max={25} label="/ 25 limit" />
                           </div>
                           <div>
-                            <span className="font-medium text-gray-600">Flow Version:</span>{' '}
-                            <span className="font-mono text-xs">{call.flow_version_id || 'N/A'}</span>
+                            <span className="font-medium text-gray-600">Actions:</span>{' '}
+                            <LimitBadge value={call.total_actions || 0} max={50} label="/ 50 limit" />
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-600">Max Recursion:</span>{' '}
+                            <LimitBadge value={call.max_recursion_depth || 0} max={10} label="/ 10 limit" />
                           </div>
                         </div>
 
@@ -231,14 +254,17 @@ export function LogsPage() {
                             <h4 className="mb-2 text-xs font-semibold uppercase text-gray-500">
                               Call Steps ({steps.length})
                             </h4>
-                            <div className="rounded-lg bg-gray-100 overflow-auto max-h-64">
+                            <div className="rounded-lg bg-gray-100 overflow-auto max-h-80">
                               <table className="w-full text-xs">
                                 <thead>
-                                  <tr className="border-b text-left text-gray-500">
+                                  <tr className="border-b text-left text-gray-500 sticky top-0 bg-gray-100">
                                     <th className="px-3 py-1.5 font-medium w-8">#</th>
                                     <th className="px-3 py-1.5 font-medium">Time</th>
                                     <th className="px-3 py-1.5 font-medium">Node</th>
                                     <th className="px-3 py-1.5 font-medium">Digits</th>
+                                    <th className="px-3 py-1.5 font-medium">Response</th>
+                                    <th className="px-3 py-1.5 font-medium">Actions</th>
+                                    <th className="px-3 py-1.5 font-medium">Depth</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -251,6 +277,26 @@ export function LogsPage() {
                                       <td className="px-3 py-1.5 font-mono">{step.node}</td>
                                       <td className="px-3 py-1.5 font-mono text-indigo-600">
                                         {step.digits || '-'}
+                                      </td>
+                                      <td className="px-3 py-1.5">
+                                        {step.response_type ? (
+                                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                            step.response_type === 'gather' ? 'bg-blue-50 text-blue-600' :
+                                            step.response_type === 'say+redirect' ? 'bg-purple-50 text-purple-600' :
+                                            step.response_type === 'hangup' ? 'bg-red-50 text-red-600' :
+                                            'bg-gray-50 text-gray-500'
+                                          }`}>
+                                            {step.response_type}
+                                          </span>
+                                        ) : '-'}
+                                      </td>
+                                      <td className="px-3 py-1.5 font-mono">
+                                        {step.action_count > 0 ? step.action_count : '-'}
+                                      </td>
+                                      <td className="px-3 py-1.5 font-mono">
+                                        {step.recursion_depth > 1 ? (
+                                          <span className="text-orange-600">{step.recursion_depth}</span>
+                                        ) : step.recursion_depth === 1 ? '1' : '-'}
                                       </td>
                                     </tr>
                                   ))}
@@ -267,7 +313,7 @@ export function LogsPage() {
             })}
             {calls.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-6 py-8 text-center text-gray-400">
+                <td colSpan={11} className="px-6 py-8 text-center text-gray-400">
                   No call logs found
                 </td>
               </tr>
