@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { ivrRuntime } from '../../ivr/runtime.js';
-import { callWebhookCounts } from './gather-result.js';
+import { flushCallLog } from './gather-result.js';
 
 export async function handleCallStatus(req: Request, res: Response) {
   const callId = req.body.call_id;
@@ -12,7 +12,7 @@ export async function handleCallStatus(req: Request, res: Response) {
     } catch (err) {
       console.error('Failed to end session:', err);
     }
-    callWebhookCounts.delete(callId);
+    await flushCallLog(callId, 'hangup');
   }
 
   res.sendStatus(200);

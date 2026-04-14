@@ -59,3 +59,38 @@ logsRouter.get('/', async (req, res) => {
     total_pages: Math.ceil((count || 0) / perPage),
   });
 });
+
+logsRouter.delete('/:id', async (req, res) => {
+  const { error } = await supabaseAdmin
+    .from('ivr_error_logs')
+    .delete()
+    .eq('id', req.params.id);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  res.json({ success: true });
+});
+
+logsRouter.post('/bulk-delete', async (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ success: false, error: 'ids array is required' });
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('ivr_error_logs')
+    .delete()
+    .in('id', ids);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  res.json({ success: true, deleted: ids.length });
+});
