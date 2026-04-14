@@ -18,9 +18,10 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import IvrNodeComponent from '../components/ivr/IvrNodeComponent';
 import {
   Plus, Play, Copy, Save, X, ChevronDown,
-  Trash2, ArrowLeft, Map, List, Check, Loader2, Pencil, PencilOff,
+  Trash2, ArrowLeft, Map, List, LayoutList, Check, Loader2, Pencil, PencilOff,
 } from 'lucide-react';
 import IvrRowView from '../components/ivr/IvrRowView';
+import IvrListView from '../components/ivr/IvrListView';
 
 interface IvrNodeData {
   id: string;
@@ -107,7 +108,7 @@ export function IvrFlowsPage() {
   const [createForm, setCreateForm] = useState({ name: '', description: '' });
   const [showAddNode, setShowAddNode] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<'map' | 'rows'>('rows');
+  const [viewMode, setViewMode] = useState<'map' | 'rows' | 'list'>('rows');
   const positionsDirty = useRef(false);
   const [panelWidth, setPanelWidth] = useState(320);
   const isDragging = useRef(false);
@@ -532,6 +533,13 @@ export function IvrFlowsPage() {
             >
               <List size={16} />
             </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`rounded p-1.5 transition-colors ${viewMode === 'list' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="List View"
+            >
+              <LayoutList size={16} />
+            </button>
           </div>
         </div>
 
@@ -619,7 +627,7 @@ export function IvrFlowsPage() {
                 className="!bg-gray-50"
               />
             </ReactFlow>
-          ) : (
+          ) : viewMode === 'rows' ? (
             <IvrRowView
               nodes={rawNodes}
               edges={rawEdges}
@@ -634,6 +642,16 @@ export function IvrFlowsPage() {
                 const raw = rawEdges.find((e) => e.id === edgeId);
                 setSelectedEdge(raw || null);
                 setSelectedNode(null);
+              }}
+            />
+          ) : (
+            <IvrListView
+              nodes={rawNodes}
+              selectedNodeId={selectedNode?.id ?? null}
+              onNodeClick={(nodeId) => {
+                const raw = rawNodes.find((n) => n.id === nodeId);
+                setSelectedNode(raw || null);
+                setSelectedEdge(null);
               }}
             />
           )}
