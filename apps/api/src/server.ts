@@ -7,8 +7,16 @@ import './modules/ivr/init-handlers.js';
 import { teltechRouter } from './modules/teltech/routes.js';
 import { adminRouter } from './modules/admin/routes.js';
 import { webhookRouter } from './modules/orders/webhook-routes.js';
+import { handleCallStatus } from './modules/teltech/handlers/call-status.js';
+import { handleErrorWebhook } from './modules/teltech/handlers/error-webhook.js';
 
 const app = express();
+
+// TelTech fire-and-forget webhooks — mounted before ANY middleware
+// to guarantee no helmet/cors/auth interference
+const rawBodyParsers = [express.json(), express.urlencoded({ extended: true })];
+app.all('/api/ivr/voice/status', ...rawBodyParsers, handleCallStatus);
+app.all('/api/ivr/voice/error', ...rawBodyParsers, handleErrorWebhook);
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(morgan('combined'));
