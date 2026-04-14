@@ -1134,7 +1134,7 @@ async function confirmAndFinalizeOrder(
     });
     await supabaseAdmin.from('orders').update({ status: 'processing' }).eq('id', orderId);
 
-    const completed = await confirmRyeIntent(intentId, paymentMethod);
+    const completed = await confirmRyeIntent(intentId);
     const finalStatus = completed.state === 'completed' ? 'completed' : 'failed';
 
     await supabaseAdmin.from('orders').update({ status: finalStatus }).eq('id', orderId);

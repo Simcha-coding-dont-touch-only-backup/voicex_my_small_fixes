@@ -149,18 +149,17 @@ export async function createRyeIntent(
 }
 
 /**
- * Confirm a Rye checkout intent with payment.
+ * Confirm a Rye checkout intent with drawdown (pre-funded balance) payment.
+ * VoiceX charges the customer directly via Sola and pays Rye from its balance.
  */
 export async function confirmRyeIntent(
-  intentId: string,
-  paymentMethod: any
+  intentId: string
 ): Promise<RyeIntent> {
   const completed = await ryeClient.checkoutIntents.confirmAndPoll(intentId, {
     paymentMethod: {
-      stripeToken: paymentMethod.stripe_token,
-      type: 'stripe_token',
+      type: 'drawdown',
     },
-  }) as unknown as RyeIntent;
+  } as any) as unknown as RyeIntent;
 
   return completed;
 }

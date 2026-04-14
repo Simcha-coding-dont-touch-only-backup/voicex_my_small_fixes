@@ -130,7 +130,7 @@ voicex/
 | `TELTECH_API_AUTH` | Bearer token for TelTech webhook authentication |
 | `RYE_API_KEY` | Rye API key |
 | `GOOGLE_ADDRESS_VALIDATION_API_KEY` | Google API key |
-| `STRIPE_SECRET_KEY` | Stripe secret key |
+| `SOLA_API_KEY` | Sola Payments (Cardknox) API key |
 
 ## Migration Note
 

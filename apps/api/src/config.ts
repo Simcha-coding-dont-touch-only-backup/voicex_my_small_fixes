@@ -16,8 +16,8 @@ export const config = {
     apiAuth: process.env.TELTECH_API_AUTH || '',
   },
 
-  stripe: {
-    secretKey: process.env.STRIPE_SECRET_KEY!,
+  sola: {
+    apiKey: process.env.SOLA_API_KEY!,
   },
 
   rye: {

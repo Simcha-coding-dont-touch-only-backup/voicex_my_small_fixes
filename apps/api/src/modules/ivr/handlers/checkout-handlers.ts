@@ -4,6 +4,7 @@ import { buildGather, buildSay, buildHangup, buildCollect, formatCurrency } from
 import { validateAddress } from '../../../lib/google-address.js';
 import { createRyeIntent, confirmRyeIntent, findCartItemForFailure } from '../../../lib/rye-checkout.js';
 import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
+import { solaTokenize, solaAuthOnly, solaCapture, solaVoidRelease } from '../../../lib/sola.js';
 import { getProductDisplayName } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 
@@ -408,18 +409,27 @@ registerHandler('payment_choice', async (ctx) => {
     .order('is_default', { ascending: false });
 
   if (methods && methods.length > 0) {
-    const defaultCard = methods[0];
+    const maxCards = Math.min(methods.length, 8);
+    const cardLines = methods.slice(0, maxCards).map((m, i) =>
+      `Press ${i + 1} for ${m.card_brand || 'card'} ending in ${m.card_last4}.`
+    );
+    cardLines.push(`Press 9 to enter a new card.`);
+
+    const cardMap = JSON.stringify(
+      Object.fromEntries(methods.slice(0, maxCards).map((m, i) => [String(i + 1), m.id]))
+    );
+
     return {
       type: 'actions',
       response: buildGather({
-        prompt: `Your saved card ending in ${defaultCard.card_last4}. Press 1 to use this card, or press 2 to enter a new card.`,
+        prompt: `Select a payment method. ${cardLines.join(' ')}`,
         actionPath: '/api/ivr/voice/gather',
         numDigits: 1,
         timeout: 10,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId,
-          node_key: 'checkout_summary',
-          address_id: addressId, payment_method_id: defaultCard.id, use_saved_card: 'pending',
+          node_key: 'checkout_payment_select',
+          address_id: addressId, card_map: cardMap,
         },
       }),
     };
@@ -428,30 +438,375 @@ registerHandler('payment_choice', async (ctx) => {
   return {
     type: 'actions',
     response: buildSay(
-      'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
+      'No saved cards found. Let\'s add a new card.',
       '/api/ivr/voice/gather',
-      { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
+      { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_card_number', address_id: addressId }
     ),
   };
+});
+
+registerHandler('payment_select', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const addressId = ctx.sessionData.address_id;
+  const digits = ctx.req.body.digits;
+  const cardMapJson = ctx.sessionData.card_map || '{}';
+
+  if (digits === '9') {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter your credit card number followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
+        timeout: 15,
+        finishOnKey: '#',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_card_number',
+          address_id: addressId,
+        },
+      }),
+    };
+  }
+
+  let cardMap: Record<string, string>;
+  try {
+    cardMap = JSON.parse(cardMapJson);
+  } catch {
+    cardMap = {};
+  }
+
+  const paymentMethodId = cardMap[digits];
+  if (!paymentMethodId) {
+    return {
+      type: 'actions',
+      response: buildSay(
+        'Invalid selection. Returning to payment options.',
+        '/api/ivr/voice/gather',
+        { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_payment_choice', address_id: addressId }
+      ),
+    };
+  }
+
+  return {
+    type: 'actions',
+    response: buildSay(
+      'Card selected.',
+      '/api/ivr/voice/gather',
+      { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_summary', address_id: addressId, payment_method_id: paymentMethodId }
+    ),
+  };
+});
+
+registerHandler('card_number', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const addressId = ctx.sessionData.address_id;
+  const digits = ctx.req.body.digits || '';
+
+  const cleaned = digits.replace(/[^0-9]/g, '');
+  if (cleaned.length < 13 || cleaned.length > 19) {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Invalid card number. Please enter your credit card number followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
+        timeout: 15,
+        finishOnKey: '#',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_card_number',
+          address_id: addressId,
+        },
+      }),
+    };
+  }
+
+  return {
+    type: 'actions',
+    response: buildGather({
+      prompt: 'Enter the expiration date as 4 digits. Month, then year. For example, 0 3 2 6 for March 2026.',
+      actionPath: '/api/ivr/voice/gather',
+      numDigits: 4,
+      timeout: 10,
+      sessionData: {
+        call_sid: ctx.callSid, user_id: userId,
+        node_key: 'checkout_card_exp',
+        address_id: addressId,
+        cc_num: cleaned,
+      },
+    }),
+  };
+});
+
+registerHandler('card_exp', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const addressId = ctx.sessionData.address_id;
+  const ccNum = ctx.sessionData.cc_num;
+  const digits = ctx.req.body.digits || '';
+
+  const cleaned = digits.replace(/[^0-9]/g, '');
+  if (cleaned.length !== 4) {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Invalid expiration date. Please enter 4 digits, month then year.',
+        actionPath: '/api/ivr/voice/gather',
+        numDigits: 4,
+        timeout: 10,
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_card_exp',
+          address_id: addressId,
+          cc_num: ccNum,
+        },
+      }),
+    };
+  }
+
+  const month = parseInt(cleaned.substring(0, 2), 10);
+  if (month < 1 || month > 12) {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Invalid month. Please enter 4 digits, month then year. For example, 0 3 2 6.',
+        actionPath: '/api/ivr/voice/gather',
+        numDigits: 4,
+        timeout: 10,
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_card_exp',
+          address_id: addressId,
+          cc_num: ccNum,
+        },
+      }),
+    };
+  }
+
+  return {
+    type: 'actions',
+    response: buildGather({
+      prompt: 'Enter the 3 or 4 digit security code from your card, followed by the pound key.',
+      actionPath: '/api/ivr/voice/gather',
+      timeout: 10,
+      finishOnKey: '#',
+      sessionData: {
+        call_sid: ctx.callSid, user_id: userId,
+        node_key: 'checkout_card_cvv',
+        address_id: addressId,
+        cc_num: ccNum,
+        cc_exp: cleaned,
+      },
+    }),
+  };
+});
+
+registerHandler('card_cvv', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const addressId = ctx.sessionData.address_id;
+  const ccNum = ctx.sessionData.cc_num;
+  const ccExp = ctx.sessionData.cc_exp;
+  const digits = ctx.req.body.digits || '';
+
+  const cleaned = digits.replace(/[^0-9]/g, '');
+  if (cleaned.length < 3 || cleaned.length > 4) {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Invalid security code. Please enter the 3 or 4 digit code followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
+        timeout: 10,
+        finishOnKey: '#',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_card_cvv',
+          address_id: addressId,
+          cc_num: ccNum,
+          cc_exp: ccExp,
+        },
+      }),
+    };
+  }
+
+  return {
+    type: 'actions',
+    response: buildGather({
+      prompt: 'Enter your 5 digit billing ZIP code.',
+      actionPath: '/api/ivr/voice/gather',
+      numDigits: 5,
+      timeout: 10,
+      finishOnKey: '',
+      sessionData: {
+        call_sid: ctx.callSid, user_id: userId,
+        node_key: 'checkout_card_zip',
+        address_id: addressId,
+        cc_num: ccNum,
+        cc_exp: ccExp,
+        cc_cvv: cleaned,
+      },
+    }),
+  };
+});
+
+registerHandler('card_zip', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const addressId = ctx.sessionData.address_id;
+  const ccNum = ctx.sessionData.cc_num;
+  const ccExp = ctx.sessionData.cc_exp;
+  const ccCvv = ctx.sessionData.cc_cvv;
+  const digits = ctx.req.body.digits || '';
+
+  if (digits.length !== 5) {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter a valid 5 digit billing ZIP code.',
+        actionPath: '/api/ivr/voice/gather',
+        numDigits: 5,
+        timeout: 10,
+        finishOnKey: '',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_card_zip',
+          address_id: addressId,
+          cc_num: ccNum,
+          cc_exp: ccExp,
+          cc_cvv: ccCvv,
+        },
+      }),
+    };
+  }
+
+  const last4 = ccNum.slice(-4);
+  const expMonth = ccExp.substring(0, 2);
+  const expYear = ccExp.substring(2, 4);
+
+  return {
+    type: 'actions',
+    response: buildGather({
+      prompt: `You entered a card ending in ${last4.split('').join(' ')}, expiring ${expMonth} ${expYear}. Press 1 to confirm, or press 2 to re-enter your card.`,
+      actionPath: '/api/ivr/voice/gather',
+      numDigits: 1,
+      timeout: 10,
+      sessionData: {
+        call_sid: ctx.callSid, user_id: userId,
+        node_key: 'checkout_card_confirm',
+        address_id: addressId,
+        cc_num: ccNum,
+        cc_exp: ccExp,
+        cc_cvv: ccCvv,
+        cc_zip: digits,
+      },
+    }),
+  };
+});
+
+registerHandler('card_confirm', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const addressId = ctx.sessionData.address_id;
+  const ccNum = ctx.sessionData.cc_num;
+  const ccExp = ctx.sessionData.cc_exp;
+  const ccCvv = ctx.sessionData.cc_cvv;
+  const ccZip = ctx.sessionData.cc_zip;
+  const digits = ctx.req.body.digits;
+
+  if (digits === '2') {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: 'Please enter your credit card number followed by the pound key.',
+        actionPath: '/api/ivr/voice/gather',
+        timeout: 15,
+        finishOnKey: '#',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_card_number',
+          address_id: addressId,
+        },
+      }),
+    };
+  }
+
+  try {
+    const solaResult = await solaTokenize(ccNum, ccExp, ccCvv, ccZip);
+
+    if (solaResult.xResult !== 'A') {
+      return {
+        type: 'actions',
+        response: buildGather({
+          prompt: `Your card could not be verified. ${solaResult.xError || 'Please try again.'}. Press 1 to re-enter your card, or press 2 to cancel.`,
+          actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
+          timeout: 10,
+          sessionData: {
+            call_sid: ctx.callSid, user_id: userId,
+            node_key: 'checkout_card_number',
+            address_id: addressId,
+          },
+        }),
+      };
+    }
+
+    const last4 = ccNum.slice(-4);
+    const expMonth = parseInt(ccExp.substring(0, 2), 10);
+    const expYear = parseInt(ccExp.substring(2, 4), 10) + 2000;
+
+    const { data: savedCard } = await supabaseAdmin
+      .from('payment_methods')
+      .insert({
+        user_id: userId,
+        sola_token: solaResult.xToken,
+        card_last4: last4,
+        card_brand: solaResult.xCardType || null,
+        card_exp_month: expMonth,
+        card_exp_year: expYear,
+        is_default: true,
+      })
+      .select()
+      .single();
+
+    if (!savedCard) throw new Error('Failed to save card');
+
+    await supabaseAdmin
+      .from('payment_methods')
+      .update({ is_default: false })
+      .eq('user_id', userId)
+      .neq('id', savedCard.id);
+
+    return {
+      type: 'actions',
+      response: buildSay(
+        `Your ${solaResult.xCardType || 'card'} ending in ${last4} has been saved.`,
+        '/api/ivr/voice/gather',
+        {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_summary',
+          address_id: addressId,
+          payment_method_id: savedCard.id,
+        }
+      ),
+    };
+  } catch (error) {
+    console.error('Card tokenization error:', error);
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: 'There was an error processing your card. Press 1 to try again, or press 2 to cancel.',
+        actionPath: '/api/ivr/voice/gather',
+        numDigits: 1,
+        timeout: 10,
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_card_number',
+          address_id: addressId,
+        },
+      }),
+    };
+  }
 });
 
 registerHandler('order_summary', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const addressId = ctx.sessionData.address_id;
   const paymentMethodId = ctx.sessionData.payment_method_id;
-  const useSavedCard = ctx.sessionData.use_saved_card;
-  const digits = ctx.req.body.digits;
-
-  if (useSavedCard === 'pending' && digits === '2') {
-    return {
-      type: 'actions',
-      response: buildSay(
-        'Phone-based payment is temporarily unavailable. Please use the web app to add a payment method. Returning to the main menu.',
-        '/api/ivr/voice/gather',
-        { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
-      ),
-    };
-  }
 
   const { data: cart } = await supabaseAdmin
     .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
@@ -907,8 +1262,9 @@ registerHandler('stock_new_qty', async (ctx) => {
 });
 
 /**
- * Final payment step — user confirmed the total with real shipping/tax.
- * Insert order in DB, then confirm with Rye (payment) in background.
+ * Final payment step -- user confirmed the total with real shipping/tax.
+ * Synchronous flow: Sola auth-hold -> Rye drawdown -> Sola capture.
+ * If Rye fails, the Sola hold is released via cc:voidrelease.
  */
 registerHandler('checkout_pay', async (ctx) => {
   const userId = ctx.sessionData.user_id;
@@ -939,12 +1295,54 @@ registerHandler('checkout_pay', async (ctx) => {
     const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
     const totalCents = subtotal + shippingCents + taxCents + surchargeCents;
 
+    // --- Step 1: Place auth hold on customer's card via Sola ---
+    let authResult;
+    try {
+      authResult = await solaAuthOnly(paymentMethod.sola_token, totalCents);
+    } catch (authError) {
+      console.error('Sola auth hold failed:', authError);
+      return {
+        type: 'actions',
+        response: buildGather({
+          prompt: 'Your card was declined. Press 1 to try a different card, or press 2 to cancel.',
+          actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
+          timeout: 10,
+          sessionData: {
+            call_sid: ctx.callSid, user_id: userId,
+            node_key: 'checkout_payment_choice',
+            address_id: addressId,
+          },
+        }),
+      };
+    }
+
+    if (authResult.xResult !== 'A') {
+      return {
+        type: 'actions',
+        response: buildGather({
+          prompt: `Your card was declined. ${authResult.xError || ''}. Press 1 to try a different card, or press 2 to cancel.`,
+          actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
+          timeout: 10,
+          sessionData: {
+            call_sid: ctx.callSid, user_id: userId,
+            node_key: 'checkout_payment_choice',
+            address_id: addressId,
+          },
+        }),
+      };
+    }
+
+    const solaRefNum = authResult.xRefNum;
+
+    // --- Step 2: Create order in DB ---
     const { data: order } = await supabaseAdmin
       .from('orders')
       .insert({
         user_id: userId, cart_id: cart.id, address_id: addressId, payment_method_id: paymentMethodId,
         rye_checkout_intent_id: ryeIntentId,
-        status: 'pending', subtotal_cents: subtotal, shipping_cents: shippingCents,
+        status: 'processing', subtotal_cents: subtotal, shipping_cents: shippingCents,
         tax_cents: taxCents, total_cents: totalCents,
       })
       .select()
@@ -960,21 +1358,98 @@ registerHandler('checkout_pay', async (ctx) => {
     }));
 
     await supabaseAdmin.from('order_items').insert(orderItems);
-    await supabaseAdmin.from('order_events').insert({ order_id: order.id, status: 'pending', source: 'system', details: { action: 'order_created' } });
+    await supabaseAdmin.from('order_events').insert({
+      order_id: order.id, status: 'processing', source: 'system',
+      details: { action: 'order_created', sola_ref_num: solaRefNum },
+    });
+    await supabaseAdmin.from('order_holds').insert({
+      order_id: order.id, sola_ref_num: solaRefNum, amount_cents: totalCents, status: 'held',
+    });
     await supabaseAdmin.from('carts').update({ status: 'checked_out' }).eq('id', cart.id);
 
-    confirmAndFinalizeOrder(order.id, ryeIntentId, paymentMethod, cartItems).catch((err) =>
-      console.error('Rye confirm background error:', err)
-    );
+    // --- Step 3: Confirm with Rye using drawdown ---
+    let ryeSuccess = false;
+    try {
+      const completed = await confirmRyeIntent(ryeIntentId);
+      ryeSuccess = completed.state === 'completed';
 
-    return {
-      type: 'actions',
-      response: buildSay(
-        `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. You will receive updates on the status of your order. Thank you for shopping with VoiceX!`,
-        '/api/ivr/voice/gather',
-        { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
-      ),
-    };
+      await supabaseAdmin.from('order_events').insert({
+        order_id: order.id, status: ryeSuccess ? 'completed' : 'failed', source: 'system',
+        details: {
+          action: 'rye_checkout_confirmed', rye_intent_id: ryeIntentId,
+          rye_state: completed.state, failure_reason: completed.failureReason || null,
+        },
+      });
+    } catch (ryeError) {
+      console.error('Rye confirm failed:', ryeError);
+      await supabaseAdmin.from('order_events').insert({
+        order_id: order.id, status: 'failed', source: 'system',
+        details: { action: 'rye_checkout_failed', rye_intent_id: ryeIntentId, error: String(ryeError) },
+      });
+    }
+
+    // --- Step 4: Capture or release the Sola hold ---
+    if (ryeSuccess) {
+      try {
+        await solaCapture(solaRefNum, totalCents);
+        await supabaseAdmin.from('order_holds').update({ status: 'captured' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+        await supabaseAdmin.from('orders').update({ status: 'completed' }).eq('id', order.id);
+
+        for (const item of cartItems) {
+          await supabaseAdmin.rpc('increment_product_sold', {
+            p_product_id: item.product_id,
+            p_qty: item.quantity,
+          });
+        }
+
+        return {
+          type: 'actions',
+          response: buildSay(
+            `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. You will receive updates on the status of your order. Thank you for shopping with VoiceX!`,
+            '/api/ivr/voice/gather',
+            { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
+          ),
+        };
+      } catch (captureError) {
+        // Rye drawdown succeeded but Sola capture failed -- critical
+        console.error('CRITICAL: Sola capture failed after Rye success:', captureError);
+        await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+        await supabaseAdmin.from('orders').update({ status: 'completed' }).eq('id', order.id);
+        await supabaseAdmin.from('order_events').insert({
+          order_id: order.id, status: 'completed', source: 'system',
+          details: { action: 'sola_capture_failed_manual_review', error: String(captureError), sola_ref_num: solaRefNum },
+        });
+
+        return {
+          type: 'actions',
+          response: buildSay(
+            `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. Thank you for shopping with VoiceX!`,
+            '/api/ivr/voice/gather',
+            { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
+          ),
+        };
+      }
+    } else {
+      // Rye failed -- release the auth hold
+      try {
+        await solaVoidRelease(solaRefNum);
+        await supabaseAdmin.from('order_holds').update({ status: 'voided' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+      } catch (voidError) {
+        console.error('Sola void release failed:', voidError);
+        await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+      }
+
+      await supabaseAdmin.from('orders').update({ status: 'failed' }).eq('id', order.id);
+
+      return {
+        type: 'actions',
+        response: buildSay(
+          'We were unable to complete your order with the merchant. Your card has not been charged. Please try again later.',
+          '/api/ivr/voice/gather',
+          { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
+        ),
+      };
+    }
   } catch (error) {
     console.error('Order placement error:', error);
     return { type: 'actions', response: buildHangup('We had trouble placing your order. Please try again later.') };
@@ -1011,46 +1486,3 @@ function parseStateInput(raw: string): string {
   return STATE_NAME_TO_CODE[trimmed] || '';
 }
 
-async function confirmAndFinalizeOrder(
-  orderId: string,
-  intentId: string,
-  paymentMethod: any,
-  cartItems: any[]
-) {
-  try {
-    await supabaseAdmin.from('order_events').insert({
-      order_id: orderId, status: 'processing', source: 'system',
-      details: { action: 'rye_checkout_started', rye_intent_id: intentId },
-    });
-    await supabaseAdmin.from('orders').update({ status: 'processing' }).eq('id', orderId);
-
-    const completed = await confirmRyeIntent(intentId, paymentMethod);
-    const finalStatus = completed.state === 'completed' ? 'completed' : 'failed';
-
-    await supabaseAdmin.from('orders').update({ status: finalStatus }).eq('id', orderId);
-    await supabaseAdmin.from('order_events').insert({
-      order_id: orderId, status: finalStatus, source: 'system',
-      details: {
-        rye_intent_id: intentId,
-        rye_state: completed.state,
-        failure_reason: completed.failureReason || null,
-      },
-    });
-
-    if (finalStatus === 'completed') {
-      for (const item of cartItems) {
-        await supabaseAdmin.rpc('increment_product_sold', {
-          p_product_id: item.product_id,
-          p_qty: item.quantity,
-        });
-      }
-    }
-  } catch (error) {
-    console.error('Rye confirm/finalize error:', error);
-    await supabaseAdmin.from('orders').update({ status: 'failed' }).eq('id', orderId);
-    await supabaseAdmin.from('order_events').insert({
-      order_id: orderId, status: 'failed', source: 'system',
-      details: { error: String(error), rye_intent_id: intentId },
-    });
-  }
-}

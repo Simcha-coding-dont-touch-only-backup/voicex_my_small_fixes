@@ -1,7 +1,7 @@
 export interface PaymentMethod {
   id: string;
   user_id: string;
-  stripe_token: string;
+  sola_token: string;
   card_last4: string;
   card_brand: string | null;
   card_exp_month: number;
