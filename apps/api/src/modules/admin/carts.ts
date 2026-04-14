@@ -17,7 +17,7 @@ cartsRouter.get('/', async (req, res) => {
   let query = supabaseAdmin
     .from('carts')
     .select(
-      '*, users(name, email, phone), cart_items(*, catalog_products(name, voicex_id))',
+      '*, users(name, email, user_phones(phone_number, is_primary)), cart_items(*, catalog_products(voicex_id, voice_name, amazon_name))',
       { count: 'exact' },
     );
 

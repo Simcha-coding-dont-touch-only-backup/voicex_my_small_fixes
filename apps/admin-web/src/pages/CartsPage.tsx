@@ -4,8 +4,9 @@ import { apiGet } from '../lib/api';
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface CartProduct {
-  name: string;
   voicex_id: string;
+  voice_name: string | null;
+  amazon_name: string | null;
 }
 
 interface CartItemRow {
@@ -16,12 +17,17 @@ interface CartItemRow {
   catalog_products: CartProduct | null;
 }
 
+interface UserPhone {
+  phone_number: string;
+  is_primary: boolean;
+}
+
 interface CartRow {
   id: string;
   user_id: string;
   status: string;
   created_at: string;
-  users: { name: string; email: string; phone: string } | null;
+  users: { name: string; email: string; user_phones: UserPhone[] } | null;
   cart_items: CartItemRow[];
 }
 
@@ -100,7 +106,11 @@ export function CartsPage() {
                       <Link to={`/users/${cart.user_id}`} className="text-indigo-600 hover:underline">
                         {cart.users?.name || 'N/A'}
                       </Link>
-                      <div className="text-xs text-gray-400">{cart.users?.phone || cart.users?.email || ''}</div>
+                      <div className="text-xs text-gray-400">
+                        {cart.users?.user_phones?.find((p) => p.is_primary)?.phone_number
+                          || cart.users?.user_phones?.[0]?.phone_number
+                          || cart.users?.email || ''}
+                      </div>
                     </td>
                     <td className="px-6 py-3 text-gray-500">{items.length}</td>
                     <td className="px-6 py-3">${(cartTotal(items) / 100).toFixed(2)}</td>
@@ -132,7 +142,7 @@ export function CartsPage() {
                           <tbody>
                             {items.map((item) => (
                               <tr key={item.id} className="text-gray-600">
-                                <td className="py-0.5 pr-4">{item.catalog_products?.name || item.product_id.slice(-8)}</td>
+                                <td className="py-0.5 pr-4">{item.catalog_products?.voice_name || item.catalog_products?.amazon_name || item.product_id.slice(-8)}</td>
                                 <td className="py-0.5 pr-4 font-mono">{item.catalog_products?.voicex_id || '—'}</td>
                                 <td className="py-0.5 pr-4">{item.quantity}</td>
                                 <td className="py-0.5">${(item.unit_price_cents / 100).toFixed(2)}</td>
