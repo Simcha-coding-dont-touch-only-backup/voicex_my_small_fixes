@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildSay, buildHangup, formatCurrency } from '../../teltech/teltech-builder.js';
+import { buildGather, buildSay, buildHangup, buildCollect, formatCurrency } from '../../teltech/teltech-builder.js';
 import { validateAddress } from '../../../lib/google-address.js';
 import { createRyeIntent, confirmRyeIntent, findCartItemForFailure } from '../../../lib/rye-checkout.js';
 import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
@@ -42,11 +42,16 @@ registerHandler('address_choice', async (ctx) => {
 
   return {
     type: 'actions',
-    response: buildGather({
-      prompt: nextNode?.prompt_text || 'Please enter your street number and name followed by the pound key.',
+    response: buildCollect({
+      type: 'recording',
+      id: 'addr_line1',
+      prompt: nextNode?.prompt_text || 'Please say your street address after the beep, then press pound.',
+      confirm: true,
+      confirmMethod: 'transcribe',
+      transcribe: true,
+      retry: 3,
+      maxDuration: 15,
       actionPath: '/api/ivr/voice/gather',
-      timeout: 15,
-      finishOnKey: '#',
       sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: nextNode?.node_key || 'checkout_address_line1' },
     }),
   };
@@ -54,17 +59,24 @@ registerHandler('address_choice', async (ctx) => {
 
 registerHandler('address_line1', async (ctx) => {
   const userId = ctx.sessionData.user_id;
-  const digits = ctx.req.body.digits;
-  const line1 = digits || '';
+  const fieldTranscript = ctx.req.body.field_transcript;
+  const fieldValue = ctx.req.body.field_value;
+  const variables = ctx.req.body.variables || {};
+  const line1 = fieldTranscript || fieldValue || variables.addr_line1_text || variables.addr_line1 || ctx.req.body.digits || '';
 
   if (!line1.trim()) {
     return {
       type: 'actions',
-      response: buildGather({
-        prompt: 'Please enter your street address.',
+      response: buildCollect({
+        type: 'recording',
+        id: 'addr_line1',
+        prompt: 'Please say your street address after the beep, then press pound.',
+        confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
+        retry: 3,
+        maxDuration: 15,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 15,
-        finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
       }),
     };
@@ -74,11 +86,16 @@ registerHandler('address_line1', async (ctx) => {
 
   return {
     type: 'actions',
-    response: buildGather({
-      prompt: nextNode?.prompt_text || 'Enter apartment or unit number, or press pound to skip.',
+    response: buildCollect({
+      type: 'recording',
+      id: 'addr_line2',
+      prompt: nextNode?.prompt_text || 'Say your apartment or unit number after the beep, or press pound to skip.',
+      confirm: true,
+      confirmMethod: 'transcribe',
+      transcribe: true,
+      retry: 3,
+      maxDuration: 10,
       actionPath: '/api/ivr/voice/gather',
-      timeout: 10,
-      finishOnKey: '#',
       sessionData: {
         call_sid: ctx.callSid, user_id: userId,
         node_key: nextNode?.node_key || 'checkout_address_line2',
@@ -91,18 +108,25 @@ registerHandler('address_line1', async (ctx) => {
 registerHandler('address_line2', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const line1 = ctx.sessionData.addr_line1;
-  const digits = ctx.req.body.digits;
-  const line2 = digits || '';
+  const fieldTranscript = ctx.req.body.field_transcript;
+  const fieldValue = ctx.req.body.field_value;
+  const variables = ctx.req.body.variables || {};
+  const line2 = fieldTranscript || fieldValue || variables.addr_line2_text || variables.addr_line2 || ctx.req.body.digits || '';
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
   return {
     type: 'actions',
-    response: buildGather({
-      prompt: nextNode?.prompt_text || 'Enter your city name.',
+    response: buildCollect({
+      type: 'recording',
+      id: 'addr_city',
+      prompt: nextNode?.prompt_text || 'Please say your city name after the beep, then press pound.',
+      confirm: true,
+      confirmMethod: 'transcribe',
+      transcribe: true,
+      retry: 3,
+      maxDuration: 10,
       actionPath: '/api/ivr/voice/gather',
-      timeout: 15,
-      finishOnKey: '#',
       sessionData: {
         call_sid: ctx.callSid, user_id: userId,
         node_key: nextNode?.node_key || 'checkout_address_city',
@@ -116,15 +140,24 @@ registerHandler('address_city', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const line1 = ctx.sessionData.addr_line1;
   const line2 = ctx.sessionData.addr_line2;
-  const city = ctx.req.body.digits || '';
+  const fieldTranscript = ctx.req.body.field_transcript;
+  const fieldValue = ctx.req.body.field_value;
+  const variables = ctx.req.body.variables || {};
+  const city = fieldTranscript || fieldValue || variables.addr_city_text || variables.addr_city || ctx.req.body.digits || '';
 
   if (!city.trim()) {
     return {
       type: 'actions',
-      response: buildGather({
-        prompt: 'Please enter your city name.',
+      response: buildCollect({
+        type: 'recording',
+        id: 'addr_city',
+        prompt: 'Please say your city name after the beep, then press pound.',
+        confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
+        retry: 3,
+        maxDuration: 10,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 10,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
           addr_line1: line1, addr_line2: line2,
@@ -137,10 +170,16 @@ registerHandler('address_city', async (ctx) => {
 
   return {
     type: 'actions',
-    response: buildGather({
-      prompt: nextNode?.prompt_text || 'Enter your 2-letter state code.',
+    response: buildCollect({
+      type: 'recording',
+      id: 'addr_state',
+      prompt: nextNode?.prompt_text || 'Please say your state name or state code after the beep, then press pound.',
+      confirm: true,
+      confirmMethod: 'transcribe',
+      transcribe: true,
+      retry: 3,
+      maxDuration: 10,
       actionPath: '/api/ivr/voice/gather',
-      timeout: 10,
       sessionData: {
         call_sid: ctx.callSid, user_id: userId,
         node_key: nextNode?.node_key || 'checkout_address_state',
@@ -155,15 +194,25 @@ registerHandler('address_state', async (ctx) => {
   const line1 = ctx.sessionData.addr_line1;
   const line2 = ctx.sessionData.addr_line2;
   const city = ctx.sessionData.addr_city;
-  const state = (ctx.req.body.digits || '').trim().toUpperCase().slice(0, 2);
+  const fieldTranscript = ctx.req.body.field_transcript;
+  const fieldValue = ctx.req.body.field_value;
+  const variables = ctx.req.body.variables || {};
+  const rawState = fieldTranscript || fieldValue || variables.addr_state_text || variables.addr_state || ctx.req.body.digits || '';
+  const state = parseStateInput(rawState);
 
   if (!state) {
     return {
       type: 'actions',
-      response: buildGather({
-        prompt: 'Please enter your state code.',
+      response: buildCollect({
+        type: 'recording',
+        id: 'addr_state',
+        prompt: 'Please say your state name or state code after the beep, then press pound.',
+        confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
+        retry: 3,
+        maxDuration: 10,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 10,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
           addr_line1: line1, addr_line2: line2, addr_city: city,
@@ -280,11 +329,16 @@ registerHandler('address_confirm', async (ctx) => {
     }
     return {
       type: 'actions',
-      response: buildGather({
-        prompt: 'Please enter your street address followed by the pound key.',
+      response: buildCollect({
+        type: 'recording',
+        id: 'addr_line1',
+        prompt: 'Please say your street address after the beep, then press pound.',
+        confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
+        retry: 3,
+        maxDuration: 15,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 15,
-        finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_address_line1' },
       }),
     };
@@ -294,11 +348,16 @@ registerHandler('address_confirm', async (ctx) => {
     const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
     return {
       type: 'actions',
-      response: buildGather({
-        prompt: 'Please enter your street address followed by the pound key.',
+      response: buildCollect({
+        type: 'recording',
+        id: 'addr_line1',
+        prompt: 'Please say your street address after the beep, then press pound.',
+        confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
+        retry: 3,
+        maxDuration: 15,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 15,
-        finishOnKey: '#',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: retryNode?.node_key || 'checkout_address_line1' },
       }),
     };
@@ -922,6 +981,36 @@ registerHandler('checkout_pay', async (ctx) => {
     return { type: 'actions', response: buildHangup('We had trouble placing your order. Please try again later.') };
   }
 });
+
+const STATE_NAME_TO_CODE: Record<string, string> = {
+  'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR',
+  'california': 'CA', 'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE',
+  'florida': 'FL', 'georgia': 'GA', 'hawaii': 'HI', 'idaho': 'ID',
+  'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA', 'kansas': 'KS',
+  'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+  'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS',
+  'missouri': 'MO', 'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV',
+  'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+  'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH', 'oklahoma': 'OK',
+  'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+  'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT',
+  'vermont': 'VT', 'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV',
+  'wisconsin': 'WI', 'wyoming': 'WY', 'district of columbia': 'DC',
+};
+
+const VALID_STATE_CODES = new Set(Object.values(STATE_NAME_TO_CODE));
+
+function parseStateInput(raw: string): string {
+  const trimmed = raw.trim().toLowerCase().replace(/[^a-z\s]/g, '');
+  if (!trimmed) return '';
+
+  if (trimmed.length <= 2) {
+    const code = trimmed.toUpperCase();
+    return VALID_STATE_CODES.has(code) ? code : '';
+  }
+
+  return STATE_NAME_TO_CODE[trimmed] || '';
+}
 
 async function confirmAndFinalizeOrder(
   orderId: string,

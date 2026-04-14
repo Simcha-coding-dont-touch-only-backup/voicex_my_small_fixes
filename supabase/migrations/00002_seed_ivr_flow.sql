@@ -226,35 +226,35 @@ VALUES (gen_random_uuid(), v_version_id, 'checkout_address_choice', 'action', 'a
   700, 450)
 RETURNING id INTO n_checkout_address_choice;
 
--- Checkout: address line1
+-- Checkout: address line1 (voice input with transcription)
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_line1', 'input', 'address_line1',
-  'Please enter your street number and name followed by the pound key.',
-  '{"input_type":"dtmf","timeout_seconds":15,"finish_on_key":"#"}',
+  'Please say your street address after the beep, then press pound.',
+  '{"input_type":"voice","timeout_seconds":15}',
   700, 600)
 RETURNING id INTO n_checkout_address_line1;
 
--- Checkout: address line2
+-- Checkout: address line2 (voice input with transcription)
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_line2', 'input', 'address_line2',
-  'Enter apartment or unit number, or press pound to skip.',
-  '{"input_type":"dtmf","timeout_seconds":10,"finish_on_key":"#"}',
+  'Say your apartment or unit number after the beep, or press pound to skip.',
+  '{"input_type":"voice","timeout_seconds":10}',
   700, 750)
 RETURNING id INTO n_checkout_address_line2;
 
--- Checkout: address city
+-- Checkout: address city (voice input with transcription)
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_city', 'input', 'address_city',
-  'Enter your city name followed by the pound key.',
-  '{"input_type":"dtmf","timeout_seconds":15,"finish_on_key":"#"}',
+  'Please say your city name after the beep, then press pound.',
+  '{"input_type":"voice","timeout_seconds":15}',
   700, 900)
 RETURNING id INTO n_checkout_address_city;
 
--- Checkout: address state
+-- Checkout: address state (voice input with transcription)
 INSERT INTO ivr_nodes (id, flow_version_id, node_key, node_type, handler_name, prompt_text, config, position_x, position_y)
 VALUES (gen_random_uuid(), v_version_id, 'checkout_address_state', 'input', 'address_state',
-  'Enter your 2-letter state code.',
-  '{"input_type":"dtmf","timeout_seconds":10}',
+  'Please say your state name or state code after the beep, then press pound.',
+  '{"input_type":"voice","timeout_seconds":10}',
   700, 1050)
 RETURNING id INTO n_checkout_address_state;
 

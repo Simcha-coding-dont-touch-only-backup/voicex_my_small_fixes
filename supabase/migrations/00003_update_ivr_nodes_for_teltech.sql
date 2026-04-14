@@ -48,27 +48,28 @@ UPDATE ivr_nodes SET
   config = '{"input_type":"dtmf","timeout_seconds":10}'
 WHERE node_key = 'checkout_address_choice';
 
--- checkout_address_line1: remove "Say it", DTMF only
+-- checkout_address_line1: voice recording with transcription
 UPDATE ivr_nodes SET
-  prompt_text = 'Please enter your street number and name followed by the pound key.',
-  config = '{"input_type":"dtmf","timeout_seconds":15,"finish_on_key":"#"}'
+  prompt_text = 'Please say your street address after the beep, then press pound.',
+  config = '{"input_type":"voice","timeout_seconds":15}'
 WHERE node_key = 'checkout_address_line1';
 
--- checkout_address_line2: DTMF only
+-- checkout_address_line2: voice recording with transcription
 UPDATE ivr_nodes SET
-  config = '{"input_type":"dtmf","timeout_seconds":10,"finish_on_key":"#"}'
+  prompt_text = 'Say your apartment or unit number after the beep, or press pound to skip.',
+  config = '{"input_type":"voice","timeout_seconds":10}'
 WHERE node_key = 'checkout_address_line2';
 
--- checkout_address_city: remove "Say or enter", DTMF only
+-- checkout_address_city: voice recording with transcription
 UPDATE ivr_nodes SET
-  prompt_text = 'Enter your city name followed by the pound key.',
-  config = '{"input_type":"dtmf","timeout_seconds":15,"finish_on_key":"#"}'
+  prompt_text = 'Please say your city name after the beep, then press pound.',
+  config = '{"input_type":"voice","timeout_seconds":15}'
 WHERE node_key = 'checkout_address_city';
 
--- checkout_address_state: remove "Say or enter", DTMF only
+-- checkout_address_state: voice recording with transcription
 UPDATE ivr_nodes SET
-  prompt_text = 'Enter your 2-letter state code.',
-  config = '{"input_type":"dtmf","timeout_seconds":10}'
+  prompt_text = 'Please say your state name or state code after the beep, then press pound.',
+  config = '{"input_type":"voice","timeout_seconds":10}'
 WHERE node_key = 'checkout_address_state';
 
 -- checkout_summary: DTMF only
