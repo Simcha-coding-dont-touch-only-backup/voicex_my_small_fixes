@@ -4,58 +4,37 @@ import { dispatchNode } from '../../ivr/graph-dispatcher.js';
 import { buildHangup } from '../teltech-builder.js';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 
-interface CallTracker {
-  count: number;
-  steps: { node: string; digits: string | null; time: string }[];
-  startedAt: Date;
-  userId: string | null;
-  userName: string | null;
-  callerPhone: string | null;
-  flowVersionId: string | null;
-  flushed: boolean;
-  flushTimer: ReturnType<typeof setTimeout>;
-}
-
-export const callTrackers = new Map<string, CallTracker>();
-
-const FLUSH_TIMEOUT_MS = 2 * 60 * 1000;
-
-export async function flushCallLog(callSid: string, reason: 'hangup' | 'timeout') {
-  const tracker = callTrackers.get(callSid);
-  if (!tracker || tracker.flushed) return;
-  tracker.flushed = true;
-  clearTimeout(tracker.flushTimer);
-  callTrackers.delete(callSid);
-
-  const endedAt = new Date();
-  const durationSec = Math.round((endedAt.getTime() - tracker.startedAt.getTime()) / 1000);
-  const lastStep = tracker.steps[tracker.steps.length - 1];
-
+async function logWebhookStep(
+  callSid: string,
+  nodeKey: string,
+  digits: string | null,
+  session: any
+) {
   try {
+    let userName: string | null = null;
+    if (session?.user_id) {
+      const { data: user } = await supabaseAdmin
+        .from('users')
+        .select('name')
+        .eq('id', session.user_id)
+        .single();
+      userName = user?.name || null;
+    }
+
     await supabaseAdmin.from('ivr_error_logs').insert({
       call_sid: callSid,
-      error_type: 'call_trace',
-      error_detail: `${tracker.count} webhooks, ${durationSec}s, ended by ${reason}. Last node: ${lastStep?.node || 'unknown'}`,
-      caller_id: tracker.callerPhone,
-      user_id: tracker.userId,
-      user_name: tracker.userName,
-      node_key: lastStep?.node || null,
-      flow_version_id: tracker.flowVersionId,
-      session_data: {
-        webhook_count: tracker.count,
-        duration_seconds: durationSec,
-        started_at: tracker.startedAt.toISOString(),
-        ended_at: endedAt.toISOString(),
-        end_reason: reason,
-        steps: tracker.steps,
-      },
-      raw_payload: {
-        source: 'call_trace',
-        node_history: tracker.steps.map((s) => s.node),
-      },
+      error_type: 'call_step',
+      error_detail: `${nodeKey}${digits ? ` (digits: ${digits})` : ''}`,
+      caller_id: session?.phone_number || null,
+      user_id: session?.user_id || null,
+      user_name: userName,
+      node_key: nodeKey,
+      flow_version_id: session?.flow_version_id || null,
+      session_data: { digits },
+      raw_payload: { node: nodeKey, digits },
     });
   } catch (err) {
-    console.error('Failed to flush call log:', err);
+    console.error('Failed to log webhook step:', err);
   }
 }
 
@@ -69,45 +48,11 @@ export async function handleGatherResult(req: Request, res: Response) {
     return;
   }
 
-  let tracker = callTrackers.get(callSid);
-  if (!tracker) {
-    tracker = {
-      count: 0,
-      steps: [],
-      startedAt: new Date(),
-      userId: null,
-      userName: null,
-      callerPhone: null,
-      flowVersionId: null,
-      flushed: false,
-      flushTimer: setTimeout(() => flushCallLog(callSid, 'timeout'), FLUSH_TIMEOUT_MS),
-    };
-    callTrackers.set(callSid, tracker);
-  }
-  tracker.count++;
-  tracker.steps.push({
-    node: nodeKey,
-    digits: req.body.digits || null,
-    time: new Date().toISOString(),
-  });
-
   try {
     const session = await ivrRuntime.getSession(callSid);
     const flowVersionId = session?.flow_version_id;
 
-    if (session && !tracker.userId) {
-      tracker.userId = session.user_id || null;
-      tracker.callerPhone = session.phone_number || null;
-      tracker.flowVersionId = session.flow_version_id || null;
-      if (session.user_id) {
-        const { data: user } = await supabaseAdmin
-          .from('users')
-          .select('name')
-          .eq('id', session.user_id)
-          .single();
-        tracker.userName = user?.name || null;
-      }
-    }
+    await logWebhookStep(callSid, nodeKey, req.body.digits || null, session);
 
     if (!flowVersionId) {
       const activeVersion = await ivrRuntime.getActiveFlowVersion();
