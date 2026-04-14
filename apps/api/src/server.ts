@@ -14,7 +14,7 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(morgan('combined'));
 app.use(cors({ origin: config.adminUrl, credentials: true }));
 
-app.use('/api/ivr', express.json(), teltechRouter);
+app.use('/api/ivr', express.json(), express.urlencoded({ extended: true }), teltechRouter);
 
 app.use('/api/webhooks', express.json(), webhookRouter);
 
