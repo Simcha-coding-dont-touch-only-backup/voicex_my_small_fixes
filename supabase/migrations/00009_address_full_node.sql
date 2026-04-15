@@ -9,7 +9,7 @@ DECLARE
   n_checkout_address_line1 UUID;
   n_checkout_address_confirm UUID;
 BEGIN
-  SELECT id INTO v_version_id FROM ivr_flow_versions WHERE is_published = true LIMIT 1;
+  SELECT id INTO v_version_id FROM ivr_flow_versions WHERE status = 'published' LIMIT 1;
 
   IF v_version_id IS NULL THEN
     RAISE NOTICE 'No published flow version found, skipping';
