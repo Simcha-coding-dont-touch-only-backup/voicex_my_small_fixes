@@ -198,9 +198,14 @@ usersRouter.delete('/:id/hard', async (req, res) => {
     return;
   }
 
-  // Nullify call_sessions references (no CASCADE on that FK)
+  // Nullify references in tables without CASCADE on their FK
   await supabaseAdmin
     .from('call_sessions')
+    .update({ user_id: null })
+    .eq('user_id', userId);
+
+  await supabaseAdmin
+    .from('ivr_error_logs')
     .update({ user_id: null })
     .eq('user_id', userId);
 
