@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
 import { buildGather, buildSay, buildHangup, buildCollect, formatCurrency } from '../../teltech/teltech-builder.js';
-import { validateAddress } from '../../../lib/google-address.js';
+import { validateAddress, validateAddressFreeform } from '../../../lib/google-address.js';
 import { createRyeIntent, confirmRyeIntent, findCartItemForFailure } from '../../../lib/rye-checkout.js';
 import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
 import { solaTokenize, solaAuthOnly, solaCapture, solaVoidRelease } from '../../../lib/sola.js';
@@ -45,17 +45,172 @@ registerHandler('address_choice', async (ctx) => {
     type: 'actions',
     response: buildCollect({
       type: 'recording',
-      id: 'addr_line1',
-      prompt: nextNode?.prompt_text || 'Please say your street address after the beep, then press pound.',
+      id: 'addr_full',
+      prompt: nextNode?.prompt_text || 'Please say your complete address, including street, apartment or unit number if any, city, state, and zip code.',
       confirm: true,
       confirmMethod: 'transcribe',
       transcribe: true,
       retry: 3,
-      maxDuration: 15,
+      maxDuration: 25,
       actionPath: '/api/ivr/voice/gather',
-      sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: nextNode?.node_key || 'checkout_address_line1' },
+      sessionData: {
+        call_sid: ctx.callSid, user_id: userId,
+        node_key: nextNode?.node_key || 'checkout_address_full',
+        addr_full_retries: '0',
+      },
     }),
   };
+});
+
+const MAX_FREEFORM_RETRIES = 3;
+
+registerHandler('address_full', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const fieldTranscript = ctx.req.body.field_transcript;
+  const fieldValue = ctx.req.body.field_value;
+  const variables = ctx.req.body.variables || {};
+  const rawAddress = fieldTranscript || fieldValue || variables.addr_full_text || variables.addr_full || ctx.req.body.digits || '';
+  const retryCount = parseInt(ctx.sessionData.addr_full_retries || '0', 10);
+
+  if (!rawAddress.trim()) {
+    return {
+      type: 'actions',
+      response: buildCollect({
+        type: 'recording',
+        id: 'addr_full',
+        prompt: 'Please say your complete address, including street, apartment or unit number if any, city, state, and zip code.',
+        confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
+        retry: 3,
+        maxDuration: 25,
+        actionPath: '/api/ivr/voice/gather',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: ctx.node.node_key,
+          addr_full_retries: String(retryCount),
+        },
+      }),
+    };
+  }
+
+  try {
+    const validation = await validateAddressFreeform(rawAddress.trim());
+
+    if (validation.isValid) {
+      const fullAddress = validation.formattedAddress || `${validation.address1}, ${validation.address2 ? validation.address2 + ', ' : ''}${validation.city}, ${validation.state} ${validation.zipCode}`;
+      const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
+
+      return {
+        type: 'actions',
+        response: buildGather({
+          prompt: `Your address is: ${fullAddress}. Press 1 to confirm, or press 2 to re-enter.`,
+          actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
+          timeout: 10,
+          sessionData: {
+            call_sid: ctx.callSid, user_id: userId,
+            node_key: nextNode?.node_key || 'checkout_address_confirm',
+            addr_line1: validation.address1,
+            addr_line2: validation.address2 || '',
+            addr_city: validation.city,
+            addr_state: validation.state,
+            addr_zip: validation.zipCode,
+            addr_validated: '1',
+          },
+        }),
+      };
+    }
+
+    const nextRetry = retryCount + 1;
+
+    if (nextRetry >= MAX_FREEFORM_RETRIES) {
+      const fallbackNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'fallback');
+      return {
+        type: 'actions',
+        response: buildCollect({
+          type: 'recording',
+          id: 'addr_line1',
+          prompt: 'We are having trouble verifying your address. Let\'s try a different way. Please say your street address after the beep, then press pound.',
+          confirm: true,
+          confirmMethod: 'transcribe',
+          transcribe: true,
+          retry: 3,
+          maxDuration: 15,
+          actionPath: '/api/ivr/voice/gather',
+          sessionData: {
+            call_sid: ctx.callSid, user_id: userId,
+            node_key: fallbackNode?.node_key || 'checkout_address_line1',
+          },
+        }),
+      };
+    }
+
+    return {
+      type: 'actions',
+      response: buildCollect({
+        type: 'recording',
+        id: 'addr_full',
+        prompt: 'Sorry, we could not verify that as a valid address. Please say your complete address again, including street, city, state, and zip code.',
+        confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
+        retry: 3,
+        maxDuration: 25,
+        actionPath: '/api/ivr/voice/gather',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: ctx.node.node_key,
+          addr_full_retries: String(nextRetry),
+        },
+      }),
+    };
+  } catch (error) {
+    console.error('Freeform address validation error:', error);
+    const nextRetry = retryCount + 1;
+
+    if (nextRetry >= MAX_FREEFORM_RETRIES) {
+      const fallbackNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'fallback');
+      return {
+        type: 'actions',
+        response: buildCollect({
+          type: 'recording',
+          id: 'addr_line1',
+          prompt: 'We are having trouble verifying your address. Let\'s try a different way. Please say your street address after the beep, then press pound.',
+          confirm: true,
+          confirmMethod: 'transcribe',
+          transcribe: true,
+          retry: 3,
+          maxDuration: 15,
+          actionPath: '/api/ivr/voice/gather',
+          sessionData: {
+            call_sid: ctx.callSid, user_id: userId,
+            node_key: fallbackNode?.node_key || 'checkout_address_line1',
+          },
+        }),
+      };
+    }
+
+    return {
+      type: 'actions',
+      response: buildCollect({
+        type: 'recording',
+        id: 'addr_full',
+        prompt: 'Sorry, we could not verify that as a valid address. Please say your complete address again, including street, city, state, and zip code.',
+        confirm: true,
+        confirmMethod: 'transcribe',
+        transcribe: true,
+        retry: 3,
+        maxDuration: 25,
+        actionPath: '/api/ivr/voice/gather',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: ctx.node.node_key,
+          addr_full_retries: String(nextRetry),
+        },
+      }),
+    };
+  }
 });
 
 registerHandler('address_line1', async (ctx) => {
@@ -331,15 +486,19 @@ registerHandler('address_confirm', async (ctx) => {
       type: 'actions',
       response: buildCollect({
         type: 'recording',
-        id: 'addr_line1',
-        prompt: 'Please say your street address after the beep, then press pound.',
+        id: 'addr_full',
+        prompt: 'Please say your complete address, including street, apartment or unit number if any, city, state, and zip code.',
         confirm: true,
         confirmMethod: 'transcribe',
         transcribe: true,
         retry: 3,
-        maxDuration: 15,
+        maxDuration: 25,
         actionPath: '/api/ivr/voice/gather',
-        sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_address_line1' },
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: 'checkout_address_full',
+          addr_full_retries: '0',
+        },
       }),
     };
   }
@@ -350,15 +509,19 @@ registerHandler('address_confirm', async (ctx) => {
       type: 'actions',
       response: buildCollect({
         type: 'recording',
-        id: 'addr_line1',
-        prompt: 'Please say your street address after the beep, then press pound.',
+        id: 'addr_full',
+        prompt: 'Please say your complete address, including street, apartment or unit number if any, city, state, and zip code.',
         confirm: true,
         confirmMethod: 'transcribe',
         transcribe: true,
         retry: 3,
-        maxDuration: 15,
+        maxDuration: 25,
         actionPath: '/api/ivr/voice/gather',
-        sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: retryNode?.node_key || 'checkout_address_line1' },
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: retryNode?.node_key || 'checkout_address_full',
+          addr_full_retries: '0',
+        },
       }),
     };
   }

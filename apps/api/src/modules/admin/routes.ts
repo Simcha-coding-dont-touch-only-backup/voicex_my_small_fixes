@@ -7,6 +7,7 @@ import { reportsRouter } from './reports.js';
 import { ivrRouter } from './ivr.js';
 import { logsRouter } from './logs.js';
 import { cartsRouter } from './carts.js';
+import { addressTestRouter } from './address-test.js';
 import { authMiddleware } from './auth-middleware.js';
 
 export const adminRouter = Router();
@@ -21,3 +22,4 @@ adminRouter.use('/reports', reportsRouter);
 adminRouter.use('/ivr', ivrRouter);
 adminRouter.use('/logs', logsRouter);
 adminRouter.use('/carts', cartsRouter);
+adminRouter.use('/address-test', addressTestRouter);

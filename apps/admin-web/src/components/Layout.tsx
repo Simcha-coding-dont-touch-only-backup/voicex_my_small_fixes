@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
-  ChevronsLeft, ChevronsRight, AlertTriangle,
+  ChevronsLeft, ChevronsRight, AlertTriangle, MapPin,
+  Wrench, ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 
@@ -20,10 +21,17 @@ const NAV_ITEMS = [
   { to: '/logs', label: 'Logs', icon: AlertTriangle },
 ];
 
+const TOOLS_ITEMS = [
+  { to: '/address-test', label: 'Address Test', icon: MapPin },
+];
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const { signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
+  const toolsActive = TOOLS_ITEMS.some((item) => location.pathname === item.to);
+  const [toolsOpen, setToolsOpen] = useState(toolsActive);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -75,6 +83,58 @@ export function Layout({ children }: { children: React.ReactNode }) {
               {!collapsed && <span>{label}</span>}
             </NavLink>
           ))}
+
+          {!collapsed && <div className="my-2 border-t border-gray-200" />}
+
+          {collapsed ? (
+            TOOLS_ITEMS.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  `flex items-center justify-center rounded-lg px-2 py-2.5 text-sm font-medium transition-colors ${
+                    isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  }`
+                }
+                onClick={() => setSidebarOpen(false)}
+                title={label}
+              >
+                <Icon size={18} className="shrink-0" />
+              </NavLink>
+            ))
+          ) : (
+            <>
+              <button
+                onClick={() => setToolsOpen(!toolsOpen)}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  toolsActive ? 'text-indigo-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+              >
+                <Wrench size={18} className="shrink-0" />
+                <span className="flex-1 text-left">Tools</span>
+                <ChevronDown size={16} className={`shrink-0 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {toolsOpen && (
+                <div className="ml-4 space-y-1">
+                  {TOOLS_ITEMS.map(({ to, label, icon: Icon }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      className={({ isActive }) =>
+                        `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                        }`
+                      }
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <Icon size={16} className="shrink-0" />
+                      <span>{label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </nav>
 
         <div className={`absolute bottom-0 w-full border-t ${collapsed ? 'p-2' : 'p-3'}`}>

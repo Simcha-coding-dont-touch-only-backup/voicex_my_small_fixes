@@ -78,3 +78,101 @@ function parseFormattedAddress(formatted: string): AddressValidationRequest | nu
 
   return { address1, city, state, zipCode };
 }
+
+export interface FreeformValidationResult {
+  isValid: boolean;
+  action: 'ACCEPT' | 'CONFIRM' | 'CONFIRM_ADD_SUBPREMISES' | 'FIX';
+  formattedAddress: string | null;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  validationGranularity: string;
+  addressComplete: boolean;
+  hasSpellCorrections: boolean;
+  hasReplacements: boolean;
+  hasInferences: boolean;
+  hasUnresolvedTokens: boolean;
+  dpvConfirmation: string;
+  rawResponse?: unknown;
+}
+
+/**
+ * Granularity levels that indicate a premise-level match or better.
+ * PREMISE_PROXIMITY means Google matched to a nearby known premise — still deliverable.
+ * OTHER and ROUTE are too coarse to be considered valid.
+ */
+const ACCEPTABLE_GRANULARITY = new Set(['PREMISE', 'SUB_PREMISE', 'PREMISE_PROXIMITY']);
+
+export async function validateAddressFreeform(
+  rawAddress: string,
+  country: string = 'US'
+): Promise<FreeformValidationResult> {
+  const url = `https://addressvalidation.googleapis.com/v1:validateAddress?key=${config.google.addressValidationApiKey}`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      address: {
+        regionCode: country,
+        addressLines: [rawAddress],
+      },
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Google Address Validation failed: ${resp.status} ${body}`);
+  }
+
+  const data = await resp.json();
+  const verdict = data.result?.verdict || {};
+  const addressObj = data.result?.address || {};
+  const postalAddress = addressObj.postalAddress || {};
+  const uspsData = data.result?.uspsData || {};
+
+  const validationGranularity: string = verdict.validationGranularity || 'OTHER';
+  const addressComplete: boolean = verdict.addressComplete === true;
+  const hasUnresolvedTokens = (addressObj.unresolvedTokens || []).length > 0;
+  const dpvConfirmation: string = uspsData.dpvConfirmation || '';
+
+  const action: 'ACCEPT' | 'CONFIRM' | 'CONFIRM_ADD_SUBPREMISES' | 'FIX' =
+    verdict.possibleNextAction === 'FIX' ? 'FIX'
+    : verdict.possibleNextAction === 'CONFIRM_ADD_SUBPREMISES' ? 'CONFIRM_ADD_SUBPREMISES'
+    : verdict.possibleNextAction === 'CONFIRM' ? 'CONFIRM'
+    : verdict.possibleNextAction === 'ACCEPT' ? 'ACCEPT'
+    : 'FIX'; // if missing, treat as FIX rather than assuming valid
+
+  const formattedAddress = addressObj.formattedAddress || null;
+
+  const addressLines: string[] = postalAddress.addressLines || [];
+  const address1 = addressLines[0] || '';
+  const address2 = addressLines.length > 1 ? addressLines[1] : '';
+
+  const isValid =
+    action === 'ACCEPT'
+    && ACCEPTABLE_GRANULARITY.has(validationGranularity)
+    && addressComplete
+    && !hasUnresolvedTokens;
+
+  return {
+    isValid,
+    action,
+    formattedAddress,
+    address1,
+    address2,
+    city: postalAddress.locality || '',
+    state: postalAddress.administrativeArea || '',
+    zipCode: postalAddress.postalCode || '',
+    validationGranularity,
+    addressComplete,
+    hasSpellCorrections: verdict.hasSpellCorrectedComponents || false,
+    hasReplacements: verdict.hasReplacedComponents || false,
+    hasInferences: verdict.hasInferredComponents || false,
+    hasUnresolvedTokens,
+    dpvConfirmation,
+    rawResponse: data,
+  };
+}

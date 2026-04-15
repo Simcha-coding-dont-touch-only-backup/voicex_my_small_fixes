@@ -15,6 +15,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { IvrFlowsPage } from './pages/IvrFlowsPage';
 import { LogsPage } from './pages/LogsPage';
+import { AddressTestPage } from './pages/AddressTestPage';
 
 function ProtectedRoutes() {
   const { session, loading } = useAuth();
@@ -45,6 +46,7 @@ function ProtectedRoutes() {
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/ivr" element={<IvrFlowsPage />} />
         <Route path="/logs" element={<LogsPage />} />
+        <Route path="/address-test" element={<AddressTestPage />} />
       </Routes>
     </Layout>
   );
