@@ -47,3 +47,38 @@ cartsRouter.get('/', async (req, res) => {
     total_pages: Math.ceil((count || 0) / perPage),
   });
 });
+
+cartsRouter.delete('/:cartId', async (req, res) => {
+  const { cartId } = req.params;
+  const { error } = await supabaseAdmin
+    .from('carts')
+    .delete()
+    .eq('id', cartId)
+    .neq('status', 'checked_out');
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+  res.json({ success: true });
+});
+
+cartsRouter.delete('/:cartId/items/:itemId', async (req, res) => {
+  const { cartId, itemId } = req.params;
+  const { error } = await supabaseAdmin
+    .from('cart_items')
+    .delete()
+    .eq('id', itemId)
+    .eq('cart_id', cartId);
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+  const { count } = await supabaseAdmin
+    .from('cart_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('cart_id', cartId);
+  if (count === 0) {
+    await supabaseAdmin.from('carts').delete().eq('id', cartId).neq('status', 'checked_out');
+  }
+  res.json({ success: true });
+});

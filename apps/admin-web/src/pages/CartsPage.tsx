@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiGet } from '../lib/api';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { apiGet, apiDelete } from '../lib/api';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 
 interface CartProduct {
   voicex_id: string;
@@ -53,6 +53,19 @@ export function CartsPage() {
   const cartTotal = (items: CartItemRow[]) =>
     items.reduce((sum, i) => sum + i.quantity * i.unit_price_cents, 0);
 
+  const deleteCart = async (cartId: string) => {
+    if (!window.confirm('Delete this entire cart? The user will have no cart when they call back.')) return;
+    await apiDelete(`/carts/${cartId}`);
+    if (expandedId === cartId) setExpandedId(null);
+    load();
+  };
+
+  const deleteCartItem = async (cartId: string, itemId: string) => {
+    if (!window.confirm('Remove this product from the cart?')) return;
+    await apiDelete(`/carts/${cartId}/items/${itemId}`);
+    load();
+  };
+
   return (
     <div>
       <h2 className="mb-6 text-2xl font-bold text-gray-800">Active Carts</h2>
@@ -80,6 +93,7 @@ export function CartsPage() {
               <th className="px-6 py-3 font-medium">Total</th>
               <th className="px-6 py-3 font-medium">Status</th>
               <th className="px-6 py-3 font-medium">Created</th>
+              <th className="w-10 px-3 py-3" />
             </tr>
           </thead>
           <tbody>
@@ -126,17 +140,27 @@ export function CartsPage() {
                     <td className="px-6 py-3 text-gray-500">
                       {new Date(cart.created_at).toLocaleDateString()}
                     </td>
+                    <td className="px-3 py-3">
+                      <button
+                        onClick={() => deleteCart(cart.id)}
+                        className="text-gray-400 hover:text-red-600"
+                        title="Delete cart"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
                   </tr>
                   {expanded && items.length > 0 && (
                     <tr className="border-b bg-gray-50/50">
-                      <td colSpan={7} className="px-10 py-3">
+                      <td colSpan={8} className="px-10 py-3">
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="text-left text-gray-400">
                               <th className="pb-1 pr-4 font-medium">Product</th>
                               <th className="pb-1 pr-4 font-medium">VoiceX ID</th>
                               <th className="pb-1 pr-4 font-medium">Qty</th>
-                              <th className="pb-1 font-medium">Unit Price</th>
+                              <th className="pb-1 pr-4 font-medium">Unit Price</th>
+                              <th className="pb-1 w-8" />
                             </tr>
                           </thead>
                           <tbody>
@@ -145,7 +169,16 @@ export function CartsPage() {
                                 <td className="py-0.5 pr-4">{item.catalog_products?.voice_name || item.catalog_products?.amazon_name || item.product_id.slice(-8)}</td>
                                 <td className="py-0.5 pr-4 font-mono">{item.catalog_products?.voicex_id || '—'}</td>
                                 <td className="py-0.5 pr-4">{item.quantity}</td>
-                                <td className="py-0.5">${(item.unit_price_cents / 100).toFixed(2)}</td>
+                                <td className="py-0.5 pr-4">${(item.unit_price_cents / 100).toFixed(2)}</td>
+                                <td className="py-0.5">
+                                  <button
+                                    onClick={() => deleteCartItem(cart.id, item.id)}
+                                    className="text-gray-400 hover:text-red-600"
+                                    title="Remove product"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -157,7 +190,7 @@ export function CartsPage() {
               );
             })}
             {carts.length === 0 && (
-              <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">No active carts found</td></tr>
+              <tr><td colSpan={8} className="px-6 py-8 text-center text-gray-400">No active carts found</td></tr>
             )}
           </tbody>
         </table>
