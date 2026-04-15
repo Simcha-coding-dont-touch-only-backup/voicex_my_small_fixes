@@ -594,11 +594,17 @@ registerHandler('payment_choice', async (ctx) => {
 
   return {
     type: 'actions',
-    response: buildSay(
-      'No saved cards found. Let\'s add a new card.',
-      '/api/ivr/voice/gather',
-      { call_sid: ctx.callSid, user_id: userId, node_key: 'checkout_card_number', address_id: addressId }
-    ),
+    response: buildGather({
+      prompt: 'No saved cards found. Let\'s add a new card. Please enter your credit card number followed by the pound key.',
+      actionPath: '/api/ivr/voice/gather',
+      timeout: 15,
+      finishOnKey: '#',
+      sessionData: {
+        call_sid: ctx.callSid, user_id: userId,
+        node_key: 'checkout_card_number',
+        address_id: addressId,
+      },
+    }),
   };
 });
 
