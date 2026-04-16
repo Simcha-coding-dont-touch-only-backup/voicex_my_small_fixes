@@ -42,6 +42,7 @@ export async function handleMainMenu(req: Request, res: Response) {
       buildGather({
         prompt: 'I didn\'t understand. Press 1 for Catalog, 2 for Cart, 3 for Orders.',
         actionPath: '/api/ivr/voice/gather',
+        numDigits: 1,
         timeout: 8,
         sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
       })
@@ -91,6 +92,7 @@ export async function handleMainMenu(req: Request, res: Response) {
         buildGather({
           prompt: 'Returns are not yet available. Press 1 for Catalog, 2 for Cart, 3 for Orders.',
           actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
           timeout: 8,
           sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
         })
@@ -102,6 +104,7 @@ export async function handleMainMenu(req: Request, res: Response) {
         buildGather({
           prompt: 'Press 1 for Catalog, 2 for Cart, 3 for Orders.',
           actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
           timeout: 8,
           sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
         })

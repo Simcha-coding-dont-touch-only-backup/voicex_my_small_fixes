@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
+import { buildGather, buildGatherFromNode, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
 import { normalizeInput } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName, getProductPriceCents } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
@@ -63,16 +63,31 @@ registerHandler('lookup_product', async (ctx) => {
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'found');
 
+  if (nextNode) {
+    return {
+      type: 'actions',
+      response: buildGatherFromNode(nextNode, {
+        call_sid: ctx.callSid,
+        user_id: userId,
+        product_id: product.id,
+        voicex_id: product.voicex_id,
+      }, {
+        prompt: `${displayName}, priced at ${priceStr}. ${nextNode.prompt_text || 'Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.'}`,
+      }),
+    };
+  }
+
   return {
     type: 'actions',
     response: buildGather({
-      prompt: `${displayName}, priced at ${priceStr}. ${nextNode?.prompt_text || 'Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.'}`,
+      prompt: `${displayName}, priced at ${priceStr}. Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.`,
       actionPath: '/api/ivr/voice/gather',
+      numDigits: 1,
       timeout: 10,
       sessionData: {
         call_sid: ctx.callSid,
         user_id: userId,
-        node_key: nextNode?.node_key || 'catalog_action',
+        node_key: 'catalog_action',
         product_id: product.id,
         voicex_id: product.voicex_id,
       },
@@ -103,7 +118,9 @@ registerHandler('catalog_action', async (ctx) => {
       response: buildGather({
         prompt: `${description}. Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.`,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 10,
+        numDigits: ctx.node.config.num_digits,
+        timeout: ctx.node.config.timeout_seconds || 10,
+        finishOnKey: ctx.node.config.finish_on_key,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
           product_id: productId, voicex_id: voicexId,
@@ -150,7 +167,9 @@ registerHandler('catalog_action', async (ctx) => {
       response: buildGather({
         prompt: `${reviewPrompt} Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.`,
         actionPath: '/api/ivr/voice/gather',
-        timeout: 10,
+        numDigits: ctx.node.config.num_digits,
+        timeout: ctx.node.config.timeout_seconds || 10,
+        finishOnKey: ctx.node.config.finish_on_key,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
           product_id: productId, voicex_id: voicexId,
@@ -200,7 +219,9 @@ registerHandler('catalog_action', async (ctx) => {
     response: buildGather({
       prompt: ctx.node.prompt_text || 'Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.',
       actionPath: '/api/ivr/voice/gather',
-      timeout: 8,
+      numDigits: ctx.node.config.num_digits,
+      timeout: ctx.node.config.timeout_seconds || 8,
+      finishOnKey: ctx.node.config.finish_on_key,
       sessionData: {
         call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key,
         product_id: productId, voicex_id: voicexId,
@@ -234,6 +255,18 @@ registerHandler('enter_qty', async (ctx) => {
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
+  if (nextNode) {
+    return {
+      type: 'actions',
+      response: buildGatherFromNode(nextNode, {
+        call_sid: ctx.callSid, user_id: userId,
+        product_id: productId, voicex_id: voicexId, qty: qty.toString(),
+      }, {
+        prompt: `You entered a quantity of ${qty}. Press 1 to confirm, or press 2 to re-enter.`,
+      }),
+    };
+  }
+
   return {
     type: 'actions',
     response: buildGather({
@@ -244,7 +277,7 @@ registerHandler('enter_qty', async (ctx) => {
       finishOnKey: '',
       sessionData: {
         call_sid: ctx.callSid, user_id: userId,
-        node_key: nextNode?.node_key || 'catalog_qty_confirm',
+        node_key: 'catalog_qty_confirm',
         product_id: productId, voicex_id: voicexId, qty: qty.toString(),
       },
     }),
@@ -346,15 +379,27 @@ registerHandler('confirm_qty', async (ctx) => {
     const displayName = getProductDisplayName(product);
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'confirmed');
 
+    if (nextNode) {
+      return {
+        type: 'actions',
+        response: buildGatherFromNode(nextNode, {
+          call_sid: ctx.callSid, user_id: userId,
+        }, {
+          prompt: `${qty} of ${displayName} has been added to your cart. ${nextNode.prompt_text || 'Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.'}`,
+        }),
+      };
+    }
+
     return {
       type: 'actions',
       response: buildGather({
-        prompt: `${qty} of ${displayName} has been added to your cart. ${nextNode?.prompt_text || 'Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.'}`,
+        prompt: `${qty} of ${displayName} has been added to your cart. Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.`,
         actionPath: '/api/ivr/voice/gather',
+        numDigits: 1,
         timeout: 8,
         sessionData: {
           call_sid: ctx.callSid, user_id: userId,
-          node_key: nextNode?.node_key || 'catalog_after_add',
+          node_key: 'catalog_after_add',
         },
       }),
     };

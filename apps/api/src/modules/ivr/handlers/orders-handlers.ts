@@ -19,7 +19,9 @@ registerHandler('orders_list', async (ctx) => {
       response: buildGather({
         prompt: 'You have no orders. Press star for the Main Menu.',
         actionPath: '/api/ivr/voice/gather',
-        timeout: 8,
+        numDigits: ctx.node.config.num_digits,
+        timeout: ctx.node.config.timeout_seconds || 8,
+        finishOnKey: ctx.node.config.finish_on_key,
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' },
       }),
     };
@@ -36,8 +38,9 @@ registerHandler('orders_list', async (ctx) => {
     response: buildGather({
       prompt: `${lines.join('. ')}. To hear details about an order, enter the order number from 1 to ${orders.length}. Press star for Main Menu.`,
       actionPath: '/api/ivr/voice/gather',
-      numDigits: 1,
-      timeout: 10,
+      numDigits: ctx.node.config.num_digits,
+      timeout: ctx.node.config.timeout_seconds || 10,
+      finishOnKey: ctx.node.config.finish_on_key,
       sessionData: {
         call_sid: ctx.callSid, user_id: userId, node_key: 'orders_detail',
         order_ids: orders.map((o) => o.id).join(','),
@@ -95,8 +98,9 @@ registerHandler('orders_detail', async (ctx) => {
     response: buildGather({
       prompt: `Order ${shortId}. Status: ${order.status}. Total: ${formatCurrency(order.total_cents)}. Items: ${itemLines.join('. ')}. Press star for Main Menu, or press 0 to go back to the orders list.`,
       actionPath: '/api/ivr/voice/gather',
-      numDigits: 1,
-      timeout: 10,
+      numDigits: ctx.node.config.num_digits,
+      timeout: ctx.node.config.timeout_seconds || 10,
+      finishOnKey: ctx.node.config.finish_on_key,
       sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: 'orders_list' },
     }),
   };

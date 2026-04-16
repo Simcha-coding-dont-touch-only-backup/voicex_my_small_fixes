@@ -71,6 +71,7 @@ async function handleCartMenu(
       buildGather({
         prompt: 'Your cart is empty. Press 1 to browse the catalog, or press star for the main menu.',
         actionPath: '/api/ivr/voice/gather',
+        numDigits: 1,
         timeout: 8,
         sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
       })
@@ -126,6 +127,7 @@ async function handleCartMenu(
     buildGather({
       prompt: `Your cart has ${summary.itemCount} product${summary.itemCount === 1 ? '' : 's'} with a total quantity of ${summary.totalQty} and a total price of ${formatCurrency(summary.totalCents)}. Press 1 to hear all items. Press 2 to checkout. Press 3 to change an item. Press 4 to remove an item. Press star for Main Menu.`,
       actionPath: '/api/ivr/voice/gather',
+      numDigits: 1,
       timeout: 10,
       sessionData: { call_sid: callSid, user_id: userId, step: 'cart_menu' },
     })
@@ -152,6 +154,7 @@ async function handleCartList(
     buildGather({
       prompt: `${lines.join('. ')}. Total: ${formatCurrency(summary.totalCents)}. Press 2 to checkout. Press 3 to change an item. Press 4 to remove an item. Press star for Main Menu.`,
       actionPath: '/api/ivr/voice/gather',
+      numDigits: 1,
       timeout: 10,
       sessionData: { call_sid: callSid, user_id: userId, step: 'cart_menu' },
     })

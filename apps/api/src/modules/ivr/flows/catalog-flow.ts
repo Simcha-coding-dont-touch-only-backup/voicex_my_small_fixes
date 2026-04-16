@@ -101,6 +101,7 @@ async function handleCatalogInput(
     buildGather({
       prompt: `${displayName}, priced at ${priceStr}. Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star to go back to the Main Menu.`,
       actionPath: '/api/ivr/voice/gather',
+      numDigits: 1,
       timeout: 10,
       sessionData: {
         call_sid: callSid,
@@ -154,6 +155,7 @@ async function handleCatalogAction(
         buildGather({
           prompt: `${description}. Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.`,
           actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
           timeout: 10,
           sessionData: {
             call_sid: callSid,
@@ -204,6 +206,7 @@ async function handleCatalogAction(
         buildGather({
           prompt: `${reviewPrompt} Press 1 to Add to Cart. Press 4 for Another Product. Press star for Main Menu.`,
           actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
           timeout: 10,
           sessionData: {
             call_sid: callSid,
@@ -238,6 +241,7 @@ async function handleCatalogAction(
         buildGather({
           prompt: 'Press 1 to Add to Cart. Press 2 for More Details. Press 3 for Reviews. Press 4 for Another Product. Press star for Main Menu.',
           actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
           timeout: 8,
           sessionData: {
             call_sid: callSid,
@@ -397,6 +401,7 @@ async function handleCatalogQtyConfirm(
       buildGather({
         prompt: `${qty} of ${displayName} has been added to your cart. Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.`,
         actionPath: '/api/ivr/voice/gather',
+        numDigits: 1,
         timeout: 8,
         sessionData: {
           call_sid: callSid,
@@ -456,6 +461,7 @@ async function handleAfterAdd(
         buildGather({
           prompt: 'Press 1 for Another Product. Press 2 for Checkout. Press star for Main Menu.',
           actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
           timeout: 8,
           sessionData: { call_sid: callSid, user_id: userId, step: 'catalog_after_add' },
         })

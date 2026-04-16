@@ -31,6 +31,7 @@ async function handleOrdersList(
       buildGather({
         prompt: 'You have no orders. Press star for the Main Menu.',
         actionPath: '/api/ivr/voice/gather',
+        numDigits: 1,
         timeout: 8,
         sessionData: { call_sid: callSid, user_id: userId, step: 'main_menu' },
       })
