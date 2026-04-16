@@ -1077,9 +1077,10 @@ registerHandler('final_confirm', async (ctx) => {
     let intentResult: IntentResult;
     try {
       intentResult = await createRyeIntent(cartItems, address);
-    } catch (ryeError) {
-      console.error('Rye intent creation failed:', ryeError);
-      return { type: 'actions', response: buildHangup('We were unable to verify your order with Amazon. Please try again later.') };
+    } catch (ryeError: any) {
+      const errMsg = ryeError?.message || String(ryeError);
+      console.error('Rye intent creation failed:', errMsg, ryeError);
+      return { type: 'actions', response: buildHangup(`We were unable to verify your order with Amazon. Error: ${errMsg.slice(0, 200)}`) };
     }
 
     if (!intentResult.success) {
@@ -1135,9 +1136,10 @@ registerHandler('final_confirm', async (ctx) => {
         },
       }),
     };
-  } catch (error) {
-    console.error('Final confirm error:', error);
-    return { type: 'actions', response: buildHangup('We had trouble processing your order. Please try again later.') };
+  } catch (error: any) {
+    const errMsg = error?.message || String(error);
+    console.error('Final confirm error:', errMsg, error);
+    return { type: 'actions', response: buildHangup(`We had trouble processing your order. Error: ${errMsg.slice(0, 200)}`) };
   }
 });
 
