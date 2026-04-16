@@ -219,10 +219,14 @@ catalogRouter.post('/products', async (req, res) => {
 
   let finalVoicexId = voicex_id;
   if (!finalVoicexId) {
-    const { count } = await supabaseAdmin
+    const { data: allIds } = await supabaseAdmin
       .from('catalog_products')
-      .select('*', { count: 'exact', head: true });
-    finalVoicexId = String((count || 0) + 1001).padStart(6, '0');
+      .select('voicex_id');
+    const maxNumeric = (allIds || []).reduce((max: number, r: any) => {
+      const n = parseInt(r.voicex_id, 10);
+      return isNaN(n) ? max : Math.max(max, n);
+    }, 1000);
+    finalVoicexId = String(maxNumeric + 1).padStart(6, '0');
   }
 
   const { data: product, error } = await supabaseAdmin
