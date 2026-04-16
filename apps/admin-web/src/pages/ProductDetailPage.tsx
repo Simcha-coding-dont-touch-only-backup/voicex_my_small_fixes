@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiGet, apiPatch, apiDelete } from '../lib/api';
+import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
 
 export function ProductDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState<any>(null);
   const [categories, setCategories] = useState<any[]>([]);
+  const [defaultMarkupPercent, setDefaultMarkupPercent] = useState(15);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<any>({});
 
@@ -28,6 +30,13 @@ export function ProductDetailPage() {
       });
     });
     apiGet<any>('/catalog/categories').then((r) => setCategories(r.data || []));
+    apiGet<any>('/settings').then((r) => {
+      const row = (r.data || []).find((s: { key: string }) => s.key === 'default_markup_percent');
+      if (row?.value != null && row.value !== '') {
+        const n = parseFloat(String(row.value));
+        if (!Number.isNaN(n)) setDefaultMarkupPercent(n);
+      }
+    });
   }, [id]);
 
   const handleSave = async () => {
@@ -97,8 +106,14 @@ export function ProductDetailPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-600">Custom Price (cents)</label>
-                    <input value={form.custom_price_cents} onChange={(e) => setForm({ ...form, custom_price_cents: e.target.value })}
-                      className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+                    <input
+                      type="number"
+                      value={form.custom_price_cents}
+                      onChange={(e) => setForm({ ...form, custom_price_cents: e.target.value })}
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                      placeholder={customPriceInputPlaceholder(product.amazon_price_cents, defaultMarkupPercent)}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
                   </div>
                 </div>
               </div>
@@ -176,7 +191,14 @@ export function ProductDetailPage() {
                   </div>
                   <div>
                     <dt className="font-medium text-blue-600">Price</dt>
-                    <dd className="mt-0.5">{product.custom_price_cents ? `$${(product.custom_price_cents / 100).toFixed(2)}` : <span className="text-gray-300">—</span>}</dd>
+                    <dd className="mt-0.5">
+                      <CustomPriceReadonlyDisplay
+                        product={product}
+                        defaultMarkupPercent={defaultMarkupPercent}
+                        whenEmpty={<span className="text-gray-300">—</span>}
+                        showMarkupExplanation
+                      />
+                    </dd>
                   </div>
                 </dl>
               </div>

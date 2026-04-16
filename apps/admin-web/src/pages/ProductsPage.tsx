@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
+import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
 import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
 
 interface AsinLookupData {
@@ -39,6 +40,7 @@ export function ProductsPage() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
+  const [defaultMarkupPercent, setDefaultMarkupPercent] = useState(15);
   const [asinInput, setAsinInput] = useState('');
   const [lookupData, setLookupData] = useState<AsinLookupData | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -63,6 +65,13 @@ export function ProductsPage() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     apiGet<any>('/catalog/categories').then((r) => setCategories(r.data || []));
+    apiGet<any>('/settings').then((r) => {
+      const row = (r.data || []).find((s: { key: string }) => s.key === 'default_markup_percent');
+      if (row?.value != null && row.value !== '') {
+        const n = parseFloat(String(row.value));
+        if (!Number.isNaN(n)) setDefaultMarkupPercent(n);
+      }
+    });
   }, []);
 
   const handleLookup = async () => {
@@ -268,7 +277,7 @@ export function ProductsPage() {
                         value={createOverrides.custom_price_cents}
                         onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, custom_price_cents: v })); }}
                         onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                        placeholder={lookupData.price_cents != null ? `${lookupData.price_cents} (Amazon + markup)` : 'Leave blank for auto-markup'}
+                        placeholder={customPriceInputPlaceholder(lookupData.price_cents, defaultMarkupPercent)}
                         className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </div>
@@ -341,7 +350,9 @@ export function ProductsPage() {
                   </td>
                   <td className="px-6 py-3 text-gray-500">{p.amazon_asin}</td>
                   <td className="px-6 py-3">{p.amazon_price_cents ? `$${(p.amazon_price_cents / 100).toFixed(2)}` : '-'}</td>
-                  <td className="px-6 py-3">{p.custom_price_cents ? `$${(p.custom_price_cents / 100).toFixed(2)}` : '-'}</td>
+                  <td className="px-6 py-3">
+                    <CustomPriceReadonlyDisplay product={p} defaultMarkupPercent={defaultMarkupPercent} />
+                  </td>
                   <td className="px-6 py-3">
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                       {p.is_active ? 'Yes' : 'No'}
@@ -422,9 +433,14 @@ export function ProductsPage() {
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">Custom Price (cents)</label>
-                            <input type="number" value={editForm.custom_price_cents} onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, custom_price_cents: v })); }}
+                            <input
+                              type="number"
+                              value={editForm.custom_price_cents}
+                              onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, custom_price_cents: v })); }}
                               onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                              className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+                              placeholder={customPriceInputPlaceholder(p.amazon_price_cents, defaultMarkupPercent)}
+                              className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
                           </div>
                           <div className="flex items-end pb-1">
                             <label className="flex items-center gap-2 text-sm">
