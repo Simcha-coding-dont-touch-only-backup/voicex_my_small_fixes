@@ -74,12 +74,12 @@ export interface IntentResult {
   stockFailures: StockFailure[];
 }
 
-function buildBuyer(address: any): RyeBuyer {
+function buildBuyer(address: any, phone?: string): RyeBuyer {
   return {
     firstName: 'VoiceX',
     lastName: 'Customer',
     email: 'orders@voicex.com',
-    phone: '0000000000',
+    phone: phone || '2125551234',
     address1: address.address1,
     address2: address.address2 || undefined,
     city: address.city,
@@ -96,7 +96,8 @@ function buildBuyer(address: any): RyeBuyer {
  */
 export async function createRyeIntent(
   cartItems: any[],
-  address: any
+  address: any,
+  callerPhone?: string
 ): Promise<IntentResult> {
   const amazonItems = cartItems.filter((ci) => ci.catalog_products?.amazon_url);
 
@@ -111,7 +112,7 @@ export async function createRyeIntent(
   const firstItem = amazonItems[0];
 
   const intent = await ryeClient.checkoutIntents.createAndPoll({
-    buyer: buildBuyer(address),
+    buyer: buildBuyer(address, callerPhone),
     productUrl: firstItem.catalog_products.amazon_url,
     quantity: firstItem.quantity,
   }) as unknown as RyeIntent;

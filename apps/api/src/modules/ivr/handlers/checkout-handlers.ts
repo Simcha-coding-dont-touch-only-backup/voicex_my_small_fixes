@@ -1074,13 +1074,15 @@ registerHandler('final_confirm', async (ctx) => {
       return { type: 'actions', response: buildSay('Your cart is empty.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }) };
     }
 
+    const session = await ivrRuntime.getSession(ctx.callSid);
+    const callerPhone = session?.phone_number || undefined;
+
     let intentResult: IntentResult;
     try {
-      intentResult = await createRyeIntent(cartItems, address);
+      intentResult = await createRyeIntent(cartItems, address, callerPhone);
     } catch (ryeError: any) {
-      const errMsg = ryeError?.message || String(ryeError);
-      console.error('Rye intent creation failed:', errMsg, ryeError);
-      return { type: 'actions', response: buildHangup(`We were unable to verify your order with Amazon. Error: ${errMsg.slice(0, 200)}`) };
+      console.error('Rye intent creation failed:', ryeError?.message || ryeError);
+      return { type: 'actions', response: buildHangup('We were unable to verify your order with Amazon. Please try again later.') };
     }
 
     if (!intentResult.success) {
@@ -1137,9 +1139,8 @@ registerHandler('final_confirm', async (ctx) => {
       }),
     };
   } catch (error: any) {
-    const errMsg = error?.message || String(error);
-    console.error('Final confirm error:', errMsg, error);
-    return { type: 'actions', response: buildHangup(`We had trouble processing your order. Error: ${errMsg.slice(0, 200)}`) };
+    console.error('Final confirm error:', error?.message || error);
+    return { type: 'actions', response: buildHangup('We had trouble processing your order. Please try again later.') };
   }
 });
 
