@@ -41,7 +41,7 @@ registerHandler('cart_summary', async (ctx) => {
       response: buildGather({
         prompt: 'Your cart is empty. Press 1 to browse the catalog, or press star for the main menu.',
         actionPath: '/api/ivr/voice/gather',
-        numDigits: mainNode?.config.num_digits,
+        numDigits: mainNode ? mainNode.config.num_digits : 1,
         timeout: mainNode?.config.timeout_seconds || 8,
         finishOnKey: mainNode?.config.finish_on_key,
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' },
