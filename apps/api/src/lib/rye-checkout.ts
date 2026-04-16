@@ -1,10 +1,5 @@
 import { ryeClient } from './rye.js';
 
-// The Rye SDK (checkout-intents@0.23.0) types don't yet include the
-// multi-item items[] create param or the items[] field on the response.
-// The REST API supports it (confirmed with Rye support). We use type
-// assertions to bypass the SDK's type limitations until they update.
-
 export interface RyeBuyer {
   firstName: string;
   lastName: string;
@@ -51,6 +46,7 @@ export interface RyeIntentItem {
 export interface RyeIntent {
   id: string;
   state: string;
+  productUrl?: string;
   offer?: RyeIntentOffer;
   items?: RyeIntentItem[];
   failureReason?: {
@@ -94,8 +90,9 @@ function buildBuyer(address: any): RyeBuyer {
 }
 
 /**
- * Create a multi-item Rye checkout intent and poll until it resolves.
- * Uses the new items[] API to send all cart products in a single intent.
+ * Create a single-product Rye checkout intent and poll until it resolves.
+ * Currently only supports one Amazon product per intent.
+ * For multi-product carts, only the first Amazon item is used.
  */
 export async function createRyeIntent(
   cartItems: any[],
@@ -107,19 +104,17 @@ export async function createRyeIntent(
     throw new Error('No Amazon products in cart');
   }
 
-  const items: RyeCartItem[] = amazonItems.map((ci) => ({
-    productUrl: ci.catalog_products.amazon_url,
-    quantity: ci.quantity,
-  }));
+  if (amazonItems.length > 1) {
+    console.warn(`Cart has ${amazonItems.length} Amazon products but only single-product intents are supported. Using first item only.`);
+  }
 
-  // SDK types require productUrl+quantity at top level but the API now
-  // accepts an items[] array for multi-product intents. Cast to bypass.
-  const createParams = {
+  const firstItem = amazonItems[0];
+
+  const intent = await ryeClient.checkoutIntents.createAndPoll({
     buyer: buildBuyer(address),
-    items,
-  } as any;
-
-  const intent = await ryeClient.checkoutIntents.createAndPoll(createParams) as unknown as RyeIntent;
+    productUrl: firstItem.catalog_products.amazon_url,
+    quantity: firstItem.quantity,
+  }) as unknown as RyeIntent;
 
   const stockFailures = parseIntentFailures(intent);
 
