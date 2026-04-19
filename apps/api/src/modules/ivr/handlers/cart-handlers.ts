@@ -154,7 +154,9 @@ registerHandler('cart_change_id', async (ctx) => {
   }
 
   const summary = await getCartSummary(userId);
-  const item = summary?.items.find((i: any) => i.voicex_id === digits);
+  const item = summary?.items.find(
+    (i: any) => i.catalog_products?.voicex_id === digits || i.voicex_id === digits
+  );
 
   if (!item) {
     return {
@@ -293,7 +295,9 @@ registerHandler('cart_remove_id', async (ctx) => {
   }
 
   const summary = await getCartSummary(userId);
-  const item = summary?.items.find((i: any) => i.voicex_id === digits);
+  const item = summary?.items.find(
+    (i: any) => i.catalog_products?.voicex_id === digits || i.voicex_id === digits
+  );
 
   if (!item) {
     return {
