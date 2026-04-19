@@ -372,6 +372,7 @@ registerHandler('confirm_qty', async (ctx) => {
         quantity: qty,
         unit_price_cents: priceCents,
         amazon_price_cents: product.amazon_price_cents || 0,
+        local_price_cents: product.local_price_cents ?? null,
         markup_percent: isWhitelisted ? 0 : markupPercent,
       });
     }

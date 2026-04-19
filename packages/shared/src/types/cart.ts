@@ -16,6 +16,8 @@ export interface CartItem {
   quantity: number;
   unit_price_cents: number;
   amazon_price_cents: number;
+  /** Snapshot of catalog_products.local_price_cents at add-to-cart time. */
+  local_price_cents?: number | null;
   markup_percent: number;
   created_at: string;
   updated_at: string;

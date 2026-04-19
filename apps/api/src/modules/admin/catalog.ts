@@ -105,7 +105,7 @@ catalogRouter.delete('/categories/:id', async (req, res) => {
 
 // --- Products ---
 
-const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'amazon_price_cents', 'custom_price_cents', 'is_active', 'voicex_id', 'id'];
+const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'amazon_price_cents', 'custom_price_cents', 'local_price_cents', 'is_active', 'voicex_id', 'id'];
 
 catalogRouter.get('/products', async (req, res) => {
   const { page = '1', per_page = '20', search, category_id, is_active, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
@@ -213,6 +213,7 @@ catalogRouter.post('/products', async (req, res) => {
     voice_name,
     voice_description,
     custom_price_cents,
+    local_price_cents,
     is_active,
     category_ids,
   } = req.body;
@@ -243,6 +244,7 @@ catalogRouter.post('/products', async (req, res) => {
       voice_name,
       voice_description,
       custom_price_cents,
+      local_price_cents: local_price_cents ?? null,
       is_active: is_active ?? true,
     })
     .select()
@@ -276,7 +278,7 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   const {
     voicex_id, amazon_asin, amazon_url, amazon_name, amazon_description,
     amazon_price_cents, amazon_star_rating, amazon_ratings_total,
-    voice_name, voice_description, custom_price_cents,
+    voice_name, voice_description, custom_price_cents, local_price_cents,
     is_active, category_ids,
   } = req.body;
 
@@ -292,6 +294,7 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   if (voice_name !== undefined) updates.voice_name = voice_name;
   if (voice_description !== undefined) updates.voice_description = voice_description;
   if (custom_price_cents !== undefined) updates.custom_price_cents = custom_price_cents;
+  if (local_price_cents !== undefined) updates.local_price_cents = local_price_cents;
   if (is_active !== undefined) updates.is_active = is_active;
 
   const { data, error } = await supabaseAdmin

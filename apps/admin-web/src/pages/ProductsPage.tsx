@@ -28,6 +28,7 @@ function buildEditForm(p: any) {
     voice_name: p.voice_name || '',
     voice_description: p.voice_description || '',
     custom_price_cents: p.custom_price_cents ?? '',
+    local_price_cents: p.local_price_cents ?? '',
     is_active: p.is_active,
     category_ids: p.catalog_product_categories?.map((c: any) => c.category_id) || [],
   };
@@ -45,7 +46,13 @@ export function ProductsPage() {
   const [lookupData, setLookupData] = useState<AsinLookupData | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState('');
-  const [createOverrides, setCreateOverrides] = useState({ voice_name: '', voice_description: '', custom_price_cents: '', category_ids: [] as string[] });
+  const [createOverrides, setCreateOverrides] = useState({
+    voice_name: '',
+    voice_description: '',
+    custom_price_cents: '',
+    local_price_cents: '',
+    category_ids: [] as string[],
+  });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
@@ -104,13 +111,16 @@ export function ProductsPage() {
         voice_name: createOverrides.voice_name || null,
         voice_description: createOverrides.voice_description || null,
         custom_price_cents: createOverrides.custom_price_cents ? parseInt(createOverrides.custom_price_cents) : null,
+        local_price_cents: createOverrides.local_price_cents
+          ? parseInt(createOverrides.local_price_cents, 10)
+          : null,
         category_ids: createOverrides.category_ids,
       });
       setShowForm(false);
       setAsinInput('');
       setLookupData(null);
       setLookupError('');
-      setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', category_ids: [] });
+      setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', local_price_cents: '', category_ids: [] });
       load();
     } catch (err: any) {
       setLookupError(err.message || 'Failed to create product.');
@@ -123,7 +133,7 @@ export function ProductsPage() {
     setAsinInput('');
     setLookupData(null);
     setLookupError('');
-    setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', category_ids: [] });
+    setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', local_price_cents: '', category_ids: [] });
   };
 
   const startEdit = (product: any) => {
@@ -146,6 +156,10 @@ export function ProductsPage() {
         ...currentForm,
         amazon_price_cents: currentForm.amazon_price_cents !== '' ? parseInt(currentForm.amazon_price_cents) : null,
         custom_price_cents: currentForm.custom_price_cents !== '' ? parseInt(currentForm.custom_price_cents) : null,
+        local_price_cents:
+          currentForm.local_price_cents !== '' && currentForm.local_price_cents != null
+            ? parseInt(String(currentForm.local_price_cents), 10)
+            : null,
       });
       setEditingId(null);
       setEditForm({});
@@ -281,6 +295,17 @@ export function ProductsPage() {
                         className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Local Store Price (cents, optional)</label>
+                      <input
+                        type="number"
+                        value={createOverrides.local_price_cents}
+                        onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, local_price_cents: v })); }}
+                        onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                        placeholder="e.g. 1299 for $12.99"
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                    </div>
                     <p className="text-xs text-gray-400">If left blank, calls will use the Amazon data shown on the left.</p>
                   </div>
                 </div>
@@ -333,6 +358,7 @@ export function ProductsPage() {
               <th className="px-6 py-3 font-medium">ASIN</th>
               <th className="px-6 py-3 font-medium">Amazon Price</th>
               <th className="px-6 py-3 font-medium">Custom Price</th>
+              <th className="px-6 py-3 font-medium">Local Price</th>
               <th className="px-6 py-3 font-medium">Active</th>
               <th className="px-6 py-3 font-medium">Lifetime Sold</th>
               <th className="px-6 py-3 font-medium w-24">Actions</th>
@@ -352,6 +378,9 @@ export function ProductsPage() {
                   <td className="px-6 py-3">{p.amazon_price_cents ? `$${(p.amazon_price_cents / 100).toFixed(2)}` : '-'}</td>
                   <td className="px-6 py-3">
                     <CustomPriceReadonlyDisplay product={p} defaultMarkupPercent={defaultMarkupPercent} />
+                  </td>
+                  <td className="px-6 py-3 text-gray-600">
+                    {p.local_price_cents != null ? `$${(p.local_price_cents / 100).toFixed(2)}` : '—'}
                   </td>
                   <td className="px-6 py-3">
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -387,7 +416,7 @@ export function ProductsPage() {
                 </tr>
                 {editingId === p.id && (
                   <tr className="border-b bg-indigo-50/50">
-                    <td colSpan={8} className="px-6 py-4">
+                    <td colSpan={9} className="px-6 py-4">
                       <div className="rounded-lg border border-indigo-200 bg-white p-5">
                         <h4 className="mb-4 text-sm font-semibold text-gray-700">Edit Product</h4>
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -439,6 +468,17 @@ export function ProductsPage() {
                               onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, custom_price_cents: v })); }}
                               onWheel={(e) => (e.target as HTMLInputElement).blur()}
                               placeholder={customPriceInputPlaceholder(p.amazon_price_cents, defaultMarkupPercent)}
+                              className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-gray-600">Local Store Price (cents)</label>
+                            <input
+                              type="number"
+                              value={editForm.local_price_cents}
+                              onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, local_price_cents: v })); }}
+                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                              placeholder="Optional — for savings at checkout"
                               className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                           </div>

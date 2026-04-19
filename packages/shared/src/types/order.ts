@@ -33,6 +33,8 @@ export interface OrderItem {
   quantity: number;
   unit_price_cents: number;
   amazon_price_cents: number;
+  /** Snapshot from cart line at order placement. */
+  local_price_cents?: number | null;
   markup_percent: number;
   created_at: string;
 }

@@ -14,7 +14,7 @@ export function customPriceInputPlaceholder(
 ): string {
   if (amazonPriceCents == null) return 'Leave blank for auto-markup';
   const suggested = getProductPriceCents(
-    { custom_price_cents: null, amazon_price_cents: amazonPriceCents } as CatalogProduct,
+    { custom_price_cents: null, amazon_price_cents: amazonPriceCents, local_price_cents: null } as CatalogProduct,
     defaultMarkupPercent,
     false,
   );

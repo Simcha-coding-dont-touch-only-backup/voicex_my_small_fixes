@@ -14,6 +14,8 @@ interface CartItemRow {
   product_id: string;
   quantity: number;
   unit_price_cents: number;
+  amazon_price_cents: number;
+  local_price_cents: number | null;
   catalog_products: CartProduct | null;
 }
 
@@ -27,9 +29,11 @@ interface CartRow {
   user_id: string;
   status: string;
   created_at: string;
-  users: { name: string; email: string; user_phones: UserPhone[] } | null;
+  users: { name: string; email: string; is_whitelisted: boolean; user_phones: UserPhone[] } | null;
   cart_items: CartItemRow[];
 }
+
+const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export function CartsPage() {
   const [carts, setCarts] = useState<CartRow[]>([]);
@@ -125,6 +129,13 @@ export function CartsPage() {
                           || cart.users?.user_phones?.[0]?.phone_number
                           || cart.users?.email || ''}
                       </div>
+                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        cart.users?.is_whitelisted
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {cart.users?.is_whitelisted ? 'Whitelisted' : 'Regular'}
+                      </span>
                     </td>
                     <td className="px-6 py-3 text-gray-500">{items.length}</td>
                     <td className="px-6 py-3">${(cartTotal(items) / 100).toFixed(2)}</td>
@@ -150,42 +161,106 @@ export function CartsPage() {
                       </button>
                     </td>
                   </tr>
-                  {expanded && items.length > 0 && (
-                    <tr className="border-b bg-gray-50/50">
-                      <td colSpan={8} className="px-10 py-3">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-left text-gray-400">
-                              <th className="pb-1 pr-4 font-medium">Product</th>
-                              <th className="pb-1 pr-4 font-medium">VoiceX ID</th>
-                              <th className="pb-1 pr-4 font-medium">Qty</th>
-                              <th className="pb-1 pr-4 font-medium">Unit Price</th>
-                              <th className="pb-1 w-8" />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {items.map((item) => (
-                              <tr key={item.id} className="text-gray-600">
-                                <td className="py-0.5 pr-4">{item.catalog_products?.voice_name || item.catalog_products?.amazon_name || item.product_id.slice(-8)}</td>
-                                <td className="py-0.5 pr-4 font-mono">{item.catalog_products?.voicex_id || '—'}</td>
-                                <td className="py-0.5 pr-4">{item.quantity}</td>
-                                <td className="py-0.5 pr-4">${(item.unit_price_cents / 100).toFixed(2)}</td>
-                                <td className="py-0.5">
-                                  <button
-                                    onClick={() => deleteCartItem(cart.id, item.id)}
-                                    className="text-gray-400 hover:text-red-600"
-                                    title="Remove product"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
+                  {expanded && items.length > 0 && (() => {
+                    const isWhitelisted = !!cart.users?.is_whitelisted;
+                    let totalBase = 0;
+                    let totalMarkedUp = 0;
+                    let totalRetail = 0;
+                    for (const it of items) {
+                      const base = it.amazon_price_cents * it.quantity;
+                      // For whitelisted users they pay base price; everyone else pays unit_price_cents (marked-up).
+                      const charged = (isWhitelisted ? it.amazon_price_cents : it.unit_price_cents) * it.quantity;
+                      const retail = (it.local_price_cents ?? 0) * it.quantity;
+                      totalBase += base;
+                      totalMarkedUp += charged;
+                      totalRetail += retail;
+                    }
+                    const totalProfit = totalMarkedUp - totalBase;
+                    const totalSavings = Math.max(0, totalRetail - totalMarkedUp);
+
+                    return (
+                      <tr className="border-b bg-gray-50/50">
+                        <td colSpan={8} className="px-10 py-3">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-left text-gray-400">
+                                <th className="pb-1 pr-4 font-medium">Product</th>
+                                <th className="pb-1 pr-4 font-medium">VoiceX ID</th>
+                                <th className="pb-1 pr-4 font-medium">Qty</th>
+                                <th className="pb-1 pr-4 font-medium">Unit Price</th>
+                                <th className="pb-1 pr-4 font-medium">Retail</th>
+                                <th className="pb-1 pr-4 font-medium">Saving</th>
+                                <th className="pb-1 w-8" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items.map((item) => {
+                                const charged = isWhitelisted ? item.amazon_price_cents : item.unit_price_cents;
+                                const lineCharged = charged * item.quantity;
+                                const lineRetail = (item.local_price_cents ?? 0) * item.quantity;
+                                const lineSavings = item.local_price_cents != null
+                                  ? Math.max(0, lineRetail - lineCharged)
+                                  : null;
+                                return (
+                                  <tr key={item.id} className="text-gray-600">
+                                    <td className="py-0.5 pr-4">{item.catalog_products?.voice_name || item.catalog_products?.amazon_name || item.product_id.slice(-8)}</td>
+                                    <td className="py-0.5 pr-4 font-mono">{item.catalog_products?.voicex_id || '—'}</td>
+                                    <td className="py-0.5 pr-4">{item.quantity}</td>
+                                    <td className="py-0.5 pr-4">{fmt(charged)}</td>
+                                    <td className="py-0.5 pr-4">
+                                      {item.local_price_cents != null ? fmt(item.local_price_cents) : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className="py-0.5 pr-4">
+                                      {lineSavings != null && lineSavings > 0
+                                        ? <span className="text-emerald-600">{fmt(lineSavings)}</span>
+                                        : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className="py-0.5">
+                                      <button
+                                        onClick={() => deleteCartItem(cart.id, item.id)}
+                                        className="text-gray-400 hover:text-red-600"
+                                        title="Remove product"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t border-gray-200 text-gray-700">
+                                <td colSpan={7} className="pt-2">
+                                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+                                    <div>
+                                      <span className="text-gray-400">Total Base Price: </span>
+                                      <span className="font-medium">{fmt(totalBase)}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">Total Marked-Up Price: </span>
+                                      <span className="font-medium">{fmt(totalMarkedUp)}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">Total Profit: </span>
+                                      <span className={`font-medium ${totalProfit > 0 ? 'text-indigo-600' : ''}`}>{fmt(totalProfit)}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">Total Retail Price: </span>
+                                      <span className="font-medium">{fmt(totalRetail)}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">Total Savings: </span>
+                                      <span className={`font-medium ${totalSavings > 0 ? 'text-emerald-600' : ''}`}>{fmt(totalSavings)}</span>
+                                    </div>
+                                  </div>
                                 </td>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </td>
-                    </tr>
-                  )}
+                            </tfoot>
+                          </table>
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </Fragment>
               );
             })}

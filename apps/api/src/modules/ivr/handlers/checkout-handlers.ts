@@ -5,7 +5,7 @@ import { validateAddress, validateAddressFreeform } from '../../../lib/google-ad
 import { createRyeIntent, confirmRyeIntent, findCartItemForFailure } from '../../../lib/rye-checkout.js';
 import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
 import { solaTokenize, solaAuthOnly, solaCapture, solaVoidRelease } from '../../../lib/sola.js';
-import { getProductDisplayName } from '@voicex/shared';
+import { getProductDisplayName, getCartItemSavingsCents } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 
 const MAX_STOCK_RETRIES_PER_ITEM = 3;
@@ -987,10 +987,22 @@ registerHandler('order_summary', async (ctx) => {
 
   const subtotal = items.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
 
+  // Savings = local retail price - what the user actually pays per unit.
+  // For whitelisted users unit_price_cents already equals the base (Amazon) price,
+  // so this gives them "local - base" automatically.
+  const savingsCents = items.reduce(
+    (sum, i) =>
+      sum + getCartItemSavingsCents(i.local_price_cents, i.unit_price_cents, i.quantity),
+    0
+  );
+  const savingsLine = savingsCents > 0
+    ? ` A total savings of ${formatCurrency(savingsCents)} from the average local retail store pricing.`
+    : '';
+
   return {
     type: 'actions',
     response: buildGather({
-      prompt: `Your order total is ${formatCurrency(subtotal)}. Shipping and tax will be calculated at final confirmation. Press 1 to place the order, or press 2 to go back to your cart.`,
+      prompt: `Your order total is ${formatCurrency(subtotal)}.${savingsLine} Shipping and tax will be calculated at final confirmation. Press 1 to place the order, or press 2 to go back to your cart.`,
       actionPath: '/api/ivr/voice/gather',
       numDigits: 1,
       timeout: 15,
@@ -1520,7 +1532,9 @@ registerHandler('checkout_pay', async (ctx) => {
       order_id: order.id, product_id: ci.product_id, voicex_id: ci.voicex_id,
       product_name: getProductDisplayName(ci.catalog_products),
       quantity: ci.quantity, unit_price_cents: ci.unit_price_cents,
-      amazon_price_cents: ci.amazon_price_cents, markup_percent: ci.markup_percent,
+      amazon_price_cents: ci.amazon_price_cents,
+      local_price_cents: ci.local_price_cents ?? null,
+      markup_percent: ci.markup_percent,
     }));
 
     await supabaseAdmin.from('order_items').insert(orderItems);

@@ -1092,6 +1092,7 @@ async function handleCheckoutPayStep(
       quantity: ci.quantity,
       unit_price_cents: ci.unit_price_cents,
       amazon_price_cents: ci.amazon_price_cents,
+      local_price_cents: ci.local_price_cents ?? null,
       markup_percent: ci.markup_percent,
     }));
 

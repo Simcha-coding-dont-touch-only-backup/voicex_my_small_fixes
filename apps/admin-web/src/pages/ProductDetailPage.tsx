@@ -25,6 +25,7 @@ export function ProductDetailPage() {
         voice_name: r.data.voice_name || '',
         voice_description: r.data.voice_description || '',
         custom_price_cents: r.data.custom_price_cents || '',
+        local_price_cents: r.data.local_price_cents ?? '',
         is_active: r.data.is_active,
         category_ids: r.data.catalog_product_categories?.map((c: any) => c.category_id) || [],
       });
@@ -44,6 +45,9 @@ export function ProductDetailPage() {
       ...form,
       amazon_price_cents: form.amazon_price_cents ? parseInt(form.amazon_price_cents) : null,
       custom_price_cents: form.custom_price_cents ? parseInt(form.custom_price_cents) : null,
+      local_price_cents: form.local_price_cents !== '' && form.local_price_cents != null
+        ? parseInt(String(form.local_price_cents), 10)
+        : null,
     });
     setEditing(false);
     apiGet<any>(`/catalog/products/${id}`).then((r) => setProduct(r.data));
@@ -114,6 +118,18 @@ export function ProductDetailPage() {
                       placeholder={customPriceInputPlaceholder(product.amazon_price_cents, defaultMarkupPercent)}
                       className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Local Store Price (cents, optional)</label>
+                    <input
+                      type="number"
+                      value={form.local_price_cents}
+                      onChange={(e) => setForm({ ...form, local_price_cents: e.target.value })}
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                      placeholder="e.g. 1299 for $12.99 local retail"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Used for checkout savings vs VoiceX price. Leave blank to skip.</p>
                   </div>
                 </div>
               </div>
@@ -198,6 +214,14 @@ export function ProductDetailPage() {
                         whenEmpty={<span className="text-gray-300">—</span>}
                         showMarkupExplanation
                       />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-blue-600">Local Store Price</dt>
+                    <dd className="mt-0.5">
+                      {product.local_price_cents != null
+                        ? `$${(product.local_price_cents / 100).toFixed(2)}`
+                        : <span className="text-gray-300">—</span>}
                     </dd>
                   </div>
                 </dl>

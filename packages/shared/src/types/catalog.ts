@@ -19,6 +19,8 @@ export interface CatalogProduct {
   voice_name: string | null;
   voice_description: string | null;
   custom_price_cents: number | null;
+  /** Optional average local retail store price (USD cents) for savings messaging vs VoiceX price. */
+  local_price_cents: number | null;
   amazon_star_rating: number | null;
   amazon_ratings_total: number | null;
   is_active: boolean;
@@ -51,4 +53,15 @@ export function getProductPriceCents(
   if (product.amazon_price_cents === null) return null;
   if (isWhitelisted) return product.amazon_price_cents;
   return Math.round(product.amazon_price_cents * (1 + markupPercent / 100));
+}
+
+/** Savings vs local retail for one cart line (VoiceX unit price already includes markup). */
+export function getCartItemSavingsCents(
+  localPriceCents: number | null | undefined,
+  unitPriceCents: number,
+  quantity: number
+): number {
+  if (localPriceCents == null) return 0;
+  const diff = (localPriceCents - unitPriceCents) * quantity;
+  return diff > 0 ? diff : 0;
 }
