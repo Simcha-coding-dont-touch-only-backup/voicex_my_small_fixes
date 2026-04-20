@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
 import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
+import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 
 interface AsinLookupData {
   asin: string;
@@ -313,14 +314,12 @@ export function ProductsPage() {
 
               <div className="mb-4">
                 <label className="text-sm font-medium text-gray-600">Categories</label>
-                <select
-                  multiple
+                <SearchableMultiSelect
+                  options={categories.map((c) => ({ value: c.id, label: c.name }))}
                   value={createOverrides.category_ids}
-                  onChange={(e) => setCreateOverrides({ ...createOverrides, category_ids: Array.from(e.target.selectedOptions, (o) => o.value) })}
-                  className="mt-1 w-full rounded border px-3 py-2 text-sm h-24"
-                >
-                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                  onChange={(ids) => setCreateOverrides({ ...createOverrides, category_ids: ids })}
+                  placeholder="Select categories..."
+                />
               </div>
 
               <div className="flex gap-2">
@@ -491,11 +490,12 @@ export function ProductsPage() {
                           </div>
                           <div className="sm:col-span-2 lg:col-span-3">
                             <label className="text-sm font-medium text-gray-600">Categories</label>
-                            <select multiple value={editForm.category_ids}
-                              onChange={(e) => { const v = Array.from(e.target.selectedOptions, (o) => o.value); setEditForm((prev: any) => ({ ...prev, category_ids: v })); }}
-                              className="mt-1 w-full rounded border px-3 py-2 text-sm h-24">
-                              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
+                            <SearchableMultiSelect
+                              options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                              value={editForm.category_ids || []}
+                              onChange={(ids) => setEditForm((prev: any) => ({ ...prev, category_ids: ids }))}
+                              placeholder="Select categories..."
+                            />
                           </div>
                         </div>
                         <div className="mt-4 flex gap-2">

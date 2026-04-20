@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiGet, apiPatch, apiDelete } from '../lib/api';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
+import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 
 export function ProductDetailPage() {
   const { id } = useParams();
@@ -170,11 +171,12 @@ export function ProductDetailPage() {
               </label>
               <div>
                 <label className="text-sm font-medium text-gray-600">Categories</label>
-                <select multiple value={form.category_ids}
-                  onChange={(e) => setForm({ ...form, category_ids: Array.from(e.target.selectedOptions, (o) => o.value) })}
-                  className="mt-1 w-full rounded border px-3 py-2 text-sm h-24">
-                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <SearchableMultiSelect
+                  options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                  value={form.category_ids || []}
+                  onChange={(ids) => setForm({ ...form, category_ids: ids })}
+                  placeholder="Select categories..."
+                />
               </div>
             </div>
 

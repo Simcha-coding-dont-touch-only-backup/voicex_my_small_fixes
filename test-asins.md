@@ -20,15 +20,13 @@ Use these ASINs when testing the **Add Product** flow in the admin portal. The s
 | ASIN | Product |
 |------|---------|
 | `B08N5WRWNW` | Amazon Echo Dot (4th Gen) |
-| `B0BDHX8Z63` | Amazon Echo Dot (5th Gen) |
-| `B09B8RNKH4` | Fire TV Stick 4K Max |
-| `B08ZVXTP5J` | Anker 65W USB-C Charger |
+| `B0BDHX8Z63` | Amazon Echo Dot (5th Gen) | = out of stock
 
 ## Higher Price ($100+)
 
 | ASIN | Product |
 |------|---------|
-| `B07FZ8S74R` | Apple AirPods (2nd Gen) with Charging Case |
+| `B07FZ8S74R` | Apple AirPods (2nd Gen) with Charging Case |  in stock 
 | `B0932QJ2JZ` | Tile Mate Bluetooth Tracker (4-pack) |
 | `B01GW3PNGT` | Kindle Paperwhite |
 
