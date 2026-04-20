@@ -244,6 +244,29 @@ export function parseIntentFailures(intent: RyeIntent): StockFailure[] {
         failureCode: 'product_not_found',
         message: intent.failureReason.message,
       });
+    } else {
+      // Couldn't pin down which item Rye is complaining about. We still need
+      // to surface the failure so the caller doesn't treat this as a generic
+      // intent failure (and so the checkout flow can route the user somewhere
+      // they can recover, instead of hanging up).
+      //
+      // Log loudly so operators notice if Rye changes the message wording.
+      console.error(
+        '[parseIntentFailures] Got product_not_found from Rye but could not identify the affected item.',
+        {
+          intentId: intent.id,
+          failureReasonMessage: message,
+          extractedAsin: badAsin ?? null,
+          itemUrls: intent.items?.map((it) => it.productUrl) ?? [],
+        }
+      );
+
+      failures.push({
+        type: 'unavailable',
+        productUrl: '',
+        failureCode: 'product_not_found',
+        message,
+      });
     }
   }
 

@@ -1105,6 +1105,26 @@ registerHandler('final_confirm', async (ctx) => {
       const unavailableFailures = intentResult.stockFailures.filter((f) => f.type === 'unavailable');
 
       if (unavailableFailures.length > 0) {
+        // Sub-case: Rye told us product_not_found but parseIntentFailures
+        // could not pin down which item (productUrl === ''). We can't
+        // auto-remove without risk, so route the user to the cart menu so
+        // they can review and adjust manually.
+        const unidentified = unavailableFailures.some((f) => !f.productUrl);
+        if (unidentified) {
+          console.error('[final_confirm] product_not_found with unidentified item; routing user to cart for manual review.', {
+            cartItemCount: cartItems.length,
+            failureMessages: unavailableFailures.map((f) => f.message ?? null),
+          });
+          return {
+            type: 'actions',
+            response: buildSay(
+              'One of the items in your cart is no longer available, but we could not determine which one. Please review your cart and remove or replace items before trying again.',
+              '/api/ivr/voice/gather',
+              { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }
+            ),
+          };
+        }
+
         const recoveryCycle = parseInt(ctx.sessionData.unavailable_recovery_count || '0', 10);
 
         if (recoveryCycle >= MAX_UNAVAILABLE_RECOVERY_CYCLES) {
