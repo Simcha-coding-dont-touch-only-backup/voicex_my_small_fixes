@@ -99,12 +99,12 @@ export function ProductDetailPage() {
                 <h4 className="mb-3 text-sm font-semibold text-indigo-600 uppercase tracking-wide">VoiceX Overrides</h4>
                 <div className="space-y-3">
                   <div>
-                    <label className="text-sm font-medium text-gray-600">Voice Name</label>
+                    <label className="text-sm font-medium text-gray-600">VoiceX Name</label>
                     <input value={form.voice_name} onChange={(e) => setForm({ ...form, voice_name: e.target.value })}
                       className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-600">Voice Description</label>
+                    <label className="text-sm font-medium text-gray-600">VoiceX Description</label>
                     <input value={form.voice_description} onChange={(e) => setForm({ ...form, voice_description: e.target.value })}
                       className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                   </div>
