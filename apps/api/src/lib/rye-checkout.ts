@@ -208,11 +208,16 @@ export function parseIntentFailures(intent: RyeIntent): StockFailure[] {
         failureType = 'insufficient_stock';
       }
 
+      // NOTE: Rye does not provide a per-item human-readable message --
+      // failureReason.message is an intent-level summary like
+      // "1 of 2 items unavailable" and is not relevant to any single item,
+      // so we deliberately omit `message` here. Use `failureCode` for the
+      // structured signal and look up the product name from the cart for
+      // the user-facing prompt.
       failures.push({
         type: failureType,
         productUrl: item.productUrl,
         failureCode: item.failureCode,
-        message: intent.failureReason?.message,
       });
     }
 
