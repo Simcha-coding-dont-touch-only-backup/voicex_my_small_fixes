@@ -451,12 +451,12 @@ export function ProductsPage() {
                               className="mt-1 w-full rounded border bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed" />
                           </div>
                           <div>
-                            <label className="text-sm font-medium text-gray-600">Voice Name (override)</label>
+                            <label className="text-sm font-medium text-gray-600">VoiceX Name (override)</label>
                             <input value={editForm.voice_name} onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, voice_name: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                           </div>
                           <div>
-                            <label className="text-sm font-medium text-gray-600">Voice Description (override)</label>
+                            <label className="text-sm font-medium text-gray-600">VoiceX Description (override)</label>
                             <input value={editForm.voice_description} onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, voice_description: v })); }}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm" />
                           </div>
