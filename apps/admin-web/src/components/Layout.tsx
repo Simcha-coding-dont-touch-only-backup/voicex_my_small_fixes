@@ -43,11 +43,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-30 transform bg-white shadow-lg transition-all duration-300 lg:relative lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-30 flex flex-col transform bg-white shadow-lg transition-all duration-300 lg:relative lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } ${collapsed ? 'w-16' : 'w-64'}`}
       >
-        <div className={`flex h-16 items-center border-b ${collapsed ? 'justify-center px-2' : 'justify-between px-6'}`}>
+        <div className={`flex h-16 shrink-0 items-center border-b ${collapsed ? 'justify-center px-2' : 'justify-between px-6'}`}>
           {!collapsed && <span className="text-xl font-bold text-indigo-600">VoiceX</span>}
           <button className="lg:hidden" onClick={() => setSidebarOpen(false)}>
             <X size={20} />
@@ -61,7 +61,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        <nav className={`mt-4 space-y-1 ${collapsed ? 'px-2' : 'px-3'}`}>
+        <nav className={`flex-1 overflow-y-auto mt-4 space-y-1 ${collapsed ? 'px-2' : 'px-3'}`}>
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
@@ -83,8 +83,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
               {!collapsed && <span>{label}</span>}
             </NavLink>
           ))}
-
-          {!collapsed && <div className="my-2 border-t border-gray-200" />}
 
           {collapsed ? (
             TOOLS_ITEMS.map(({ to, label, icon: Icon }) => (
@@ -137,7 +135,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           )}
         </nav>
 
-        <div className={`absolute bottom-0 w-full border-t ${collapsed ? 'p-2' : 'p-3'}`}>
+        <div className={`shrink-0 border-t ${collapsed ? 'p-2' : 'p-3'}`}>
           <button
             onClick={signOut}
             className={`flex w-full items-center rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 ${
