@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
-import { normalizeInput } from '../../teltech/input-normalizer.js';
+import { normalizeInput, normalizeVoicexId } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName, getProductPriceCents } from '@voicex/shared';
 import { fetchAmazonProductReviews } from '../../../lib/rye.js';
 import { buildMainMenuResponse } from './pin-flow.js';
@@ -58,10 +58,11 @@ async function handleCatalogInput(
     return;
   }
 
+  const lookupId = normalizeVoicexId(digits);
   const { data: product } = await supabaseAdmin
     .from('catalog_products')
     .select('*')
-    .eq('voicex_id', digits)
+    .eq('voicex_id', lookupId)
     .eq('is_active', true)
     .single();
 

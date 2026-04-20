@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
 import { buildGather, buildGatherFromNode, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
-import { normalizeInput } from '../../teltech/input-normalizer.js';
+import { normalizeInput, normalizeVoicexId } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 
@@ -153,9 +153,10 @@ registerHandler('cart_change_id', async (ctx) => {
     };
   }
 
+  const lookupId = normalizeVoicexId(digits);
   const summary = await getCartSummary(userId);
   const item = summary?.items.find(
-    (i: any) => i.catalog_products?.voicex_id === digits || i.voicex_id === digits
+    (i: any) => i.catalog_products?.voicex_id === lookupId || i.voicex_id === lookupId
   );
 
   if (!item) {
@@ -183,7 +184,7 @@ registerHandler('cart_change_id', async (ctx) => {
       sessionData: {
         call_sid: ctx.callSid, user_id: userId,
         node_key: nextNode?.node_key || 'cart_change_qty',
-        cart_item_id: item.id, voicex_id: digits,
+        cart_item_id: item.id, voicex_id: lookupId,
       },
     }),
   };
@@ -294,9 +295,10 @@ registerHandler('cart_remove_id', async (ctx) => {
     };
   }
 
+  const lookupId = normalizeVoicexId(digits);
   const summary = await getCartSummary(userId);
   const item = summary?.items.find(
-    (i: any) => i.catalog_products?.voicex_id === digits || i.voicex_id === digits
+    (i: any) => i.catalog_products?.voicex_id === lookupId || i.voicex_id === lookupId
   );
 
   if (!item) {

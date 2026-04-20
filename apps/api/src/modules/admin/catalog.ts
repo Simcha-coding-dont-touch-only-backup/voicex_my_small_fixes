@@ -227,7 +227,7 @@ catalogRouter.post('/products', async (req, res) => {
       const n = parseInt(r.voicex_id, 10);
       return isNaN(n) ? max : Math.max(max, n);
     }, 1000);
-    finalVoicexId = String(maxNumeric + 1).padStart(4, '0');
+    finalVoicexId = String(maxNumeric + 1).padStart(7, '0');
   }
 
   const { data: product, error } = await supabaseAdmin

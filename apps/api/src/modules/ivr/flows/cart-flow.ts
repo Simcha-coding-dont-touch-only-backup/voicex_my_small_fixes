@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
-import { normalizeInput } from '../../teltech/input-normalizer.js';
+import { normalizeInput, normalizeVoicexId } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName } from '@voicex/shared';
 import { buildMainMenuResponse } from './pin-flow.js';
 import type { IvrIntent } from '@voicex/shared';
@@ -178,8 +178,9 @@ async function handleCartChangeId(
     return;
   }
 
+  const lookupId = normalizeVoicexId(digits);
   const summary = await getCartSummary(userId);
-  const item = summary?.items.find((i) => i.voicex_id === digits);
+  const item = summary?.items.find((i) => i.voicex_id === lookupId);
 
   if (!item) {
     res.json(
@@ -205,7 +206,7 @@ async function handleCartChangeId(
         user_id: userId,
         step: 'cart_change_qty',
         cart_item_id: item.id,
-        voicex_id: digits,
+        voicex_id: lookupId,
       },
     })
   );
@@ -312,8 +313,9 @@ async function handleCartRemoveId(
     return;
   }
 
+  const lookupId = normalizeVoicexId(digits);
   const summary = await getCartSummary(userId);
-  const item = summary?.items.find((i) => i.voicex_id === digits);
+  const item = summary?.items.find((i) => i.voicex_id === lookupId);
 
   if (!item) {
     res.json(
