@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiGet, apiPatch, apiDelete } from '../lib/api';
+import { Plus } from 'lucide-react';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
+import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 
 export function ProductDetailPage() {
   const { id } = useParams();
@@ -12,6 +14,7 @@ export function ProductDetailPage() {
   const [defaultMarkupPercent, setDefaultMarkupPercent] = useState(15);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<any>({});
+  const [quickCategoryOpen, setQuickCategoryOpen] = useState(false);
 
   useEffect(() => {
     apiGet<any>(`/catalog/products/${id}`).then((r) => {
@@ -170,7 +173,17 @@ export function ProductDetailPage() {
                 Active
               </label>
               <div>
-                <label className="text-sm font-medium text-gray-600">Categories</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-gray-600">Categories</label>
+                  <button
+                    type="button"
+                    onClick={() => setQuickCategoryOpen(true)}
+                    className="flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100"
+                    title="Create new category"
+                  >
+                    <Plus size={12} /> New
+                  </button>
+                </div>
                 <SearchableMultiSelect
                   options={categories.map((c) => ({ value: c.id, label: c.name }))}
                   value={form.category_ids || []}
@@ -267,6 +280,19 @@ export function ProductDetailPage() {
           </div>
         )}
       </div>
+
+      <CategoryQuickCreateModal
+        open={quickCategoryOpen}
+        onClose={() => setQuickCategoryOpen(false)}
+        categories={categories}
+        onCreated={(newCat) => {
+          setCategories((prev) => [...prev, newCat]);
+          setForm((prev: any) => ({
+            ...prev,
+            category_ids: [...(prev.category_ids || []), newCat.id],
+          }));
+        }}
+      />
     </div>
   );
 }

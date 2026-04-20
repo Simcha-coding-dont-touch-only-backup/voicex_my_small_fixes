@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 
 export function CategoriesPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', parent_id: '', sort_order: 0 });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = () => apiGet<any>('/catalog/categories').then((r) => setCategories(r.data || []));
 
@@ -32,10 +34,16 @@ export function CategoriesPage() {
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this category?')) return;
-    await apiDelete(`/catalog/categories/${id}`);
-    load();
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      await apiDelete(`/catalog/categories/${deleteConfirm.id}`);
+      setDeleteConfirm(null);
+      load();
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const buildTree = (parentId: string | null = null, depth = 0): any[] => {
@@ -113,7 +121,7 @@ export function CategoriesPage() {
                 <td className="px-6 py-3">
                   <div className="flex gap-2">
                     <button onClick={() => handleEdit(cat)} className="text-gray-400 hover:text-indigo-600"><Pencil size={16} /></button>
-                    <button onClick={() => handleDelete(cat.id)} className="text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
+                    <button onClick={() => setDeleteConfirm({ id: cat.id, name: cat.name })} className="text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
                   </div>
                 </td>
               </tr>
@@ -121,6 +129,38 @@ export function CategoriesPage() {
           </tbody>
         </table>
       </div>
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <AlertTriangle size={20} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Delete Category</h3>
+            </div>
+            <p className="mb-6 text-sm text-gray-600">
+              Are you sure you want to delete <span className="font-medium text-gray-900">"{deleteConfirm.name}"</span>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleting}
+                className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

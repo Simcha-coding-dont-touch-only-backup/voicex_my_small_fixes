@@ -4,6 +4,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
 import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
+import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 
 interface AsinLookupData {
   asin: string;
@@ -59,6 +60,7 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [quickCategoryTarget, setQuickCategoryTarget] = useState<'create' | 'edit' | null>(null);
   const perPage = 20;
 
   const load = useCallback(() => {
@@ -313,7 +315,17 @@ export function ProductsPage() {
               </div>
 
               <div className="mb-4">
-                <label className="text-sm font-medium text-gray-600">Categories</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-gray-600">Categories</label>
+                  <button
+                    type="button"
+                    onClick={() => setQuickCategoryTarget('create')}
+                    className="flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100"
+                    title="Create new category"
+                  >
+                    <Plus size={12} /> New
+                  </button>
+                </div>
                 <SearchableMultiSelect
                   options={categories.map((c) => ({ value: c.id, label: c.name }))}
                   value={createOverrides.category_ids}
@@ -489,7 +501,17 @@ export function ProductsPage() {
                             </label>
                           </div>
                           <div className="sm:col-span-2 lg:col-span-3">
-                            <label className="text-sm font-medium text-gray-600">Categories</label>
+                            <div className="flex items-center justify-between">
+                              <label className="text-sm font-medium text-gray-600">Categories</label>
+                              <button
+                                type="button"
+                                onClick={() => setQuickCategoryTarget('edit')}
+                                className="flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100"
+                                title="Create new category"
+                              >
+                                <Plus size={12} /> New
+                              </button>
+                            </div>
                             <SearchableMultiSelect
                               options={categories.map((c) => ({ value: c.id, label: c.name }))}
                               value={editForm.category_ids || []}
@@ -523,6 +545,26 @@ export function ProductsPage() {
           </div>
         </div>
       </div>
+
+      <CategoryQuickCreateModal
+        open={quickCategoryTarget !== null}
+        onClose={() => setQuickCategoryTarget(null)}
+        categories={categories}
+        onCreated={(newCat) => {
+          setCategories((prev) => [...prev, newCat]);
+          if (quickCategoryTarget === 'create') {
+            setCreateOverrides((prev) => ({
+              ...prev,
+              category_ids: [...prev.category_ids, newCat.id],
+            }));
+          } else if (quickCategoryTarget === 'edit') {
+            setEditForm((prev: any) => ({
+              ...prev,
+              category_ids: [...(prev.category_ids || []), newCat.id],
+            }));
+          }
+        }}
+      />
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
