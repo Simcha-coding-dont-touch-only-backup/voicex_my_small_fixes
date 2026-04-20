@@ -9,6 +9,7 @@ import { getProductDisplayName, getCartItemSavingsCents } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 
 const MAX_STOCK_RETRIES_PER_ITEM = 3;
+const MAX_UNAVAILABLE_RECOVERY_CYCLES = 3;
 
 registerHandler('address_choice', async (ctx) => {
   const userId = ctx.sessionData.user_id;
@@ -1098,6 +1099,63 @@ registerHandler('final_confirm', async (ctx) => {
     }
 
     if (!intentResult.success) {
+      // Branch 1: one or more items are no longer in Amazon's catalog.
+      // Auto-remove them, announce to the caller, and retry the intent.
+      // Capped at MAX_UNAVAILABLE_RECOVERY_CYCLES to avoid pathological loops.
+      const unavailableFailures = intentResult.stockFailures.filter((f) => f.type === 'unavailable');
+
+      if (unavailableFailures.length > 0) {
+        const recoveryCycle = parseInt(ctx.sessionData.unavailable_recovery_count || '0', 10);
+
+        if (recoveryCycle >= MAX_UNAVAILABLE_RECOVERY_CYCLES) {
+          console.error(`Unavailable-item recovery exceeded ${MAX_UNAVAILABLE_RECOVERY_CYCLES} cycles; aborting.`);
+          return { type: 'actions', response: buildHangup('We were unable to process your order because too many items in your cart are no longer available. Please try again later.') };
+        }
+
+        const removedNames: string[] = [];
+        for (const failure of unavailableFailures) {
+          const affected = findCartItemForFailure(failure, cartItems);
+          if (!affected) continue;
+          await supabaseAdmin.from('cart_items').delete().eq('id', affected.id);
+          removedNames.push(getProductDisplayName(affected.catalog_products));
+        }
+
+        const remainingItems = cartItems.filter(
+          (ci) => !unavailableFailures.some((f) => ci.catalog_products?.amazon_url === f.productUrl)
+        );
+
+        const announcement = removedNames.length === 1
+          ? `Unfortunately, ${removedNames[0]} is no longer available and has been removed from your cart.`
+          : `Unfortunately, the following items are no longer available and have been removed from your cart: ${removedNames.join(', ')}.`;
+
+        if (remainingItems.length === 0) {
+          return {
+            type: 'actions',
+            response: buildSay(
+              `${announcement} Your cart is now empty. Returning to the main menu.`,
+              '/api/ivr/voice/gather',
+              { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
+            ),
+          };
+        }
+
+        return {
+          type: 'actions',
+          response: buildSay(
+            `${announcement} Let me re-check your remaining items with Amazon.`,
+            '/api/ivr/voice/gather',
+            {
+              call_sid: ctx.callSid, user_id: userId,
+              node_key: 'checkout_final_confirm',
+              address_id: addressId, payment_method_id: paymentMethodId,
+              unavailable_recovery_count: String(recoveryCycle + 1),
+            }
+          ),
+        };
+      }
+
+      // Branch 2: per-item stock issues (out_of_stock / insufficient_stock).
+      // Walk the user through each one to remove or reduce qty.
       if (intentResult.stockFailures.length > 0) {
         const failuresJson = JSON.stringify(intentResult.stockFailures);
         return {

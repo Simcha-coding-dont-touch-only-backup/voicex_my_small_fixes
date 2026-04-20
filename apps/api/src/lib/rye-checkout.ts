@@ -55,7 +55,7 @@ export interface RyeIntent {
   };
 }
 
-export type StockFailureType = 'out_of_stock' | 'insufficient_stock';
+export type StockFailureType = 'out_of_stock' | 'insufficient_stock' | 'unavailable';
 
 export interface StockFailure {
   type: StockFailureType;
@@ -90,9 +90,17 @@ function buildBuyer(address: any, phone?: string): RyeBuyer {
 }
 
 /**
- * Create a single-product Rye checkout intent and poll until it resolves.
- * Currently only supports one Amazon product per intent.
- * For multi-product carts, only the first Amazon item is used.
+ * Create a multi-item Rye checkout intent and poll until it resolves.
+ *
+ * Sends every Amazon product in the cart as a single intent via the items[]
+ * payload (verified working against Rye production -- the SDK 0.23.0 types
+ * don't surface items[] yet, so we cast through `any`). Rye returns one
+ * aggregated offer (subtotal/tax/total/shipping) covering the whole cart,
+ * which we then confirm with a single drawdown payment.
+ *
+ * Failure modes the caller should handle via the returned StockFailure[]:
+ *   - 'out_of_stock' / 'insufficient_stock': per-item stock issue (items[].failureCode)
+ *   - 'unavailable':                          product_not_found at the intent level
  */
 export async function createRyeIntent(
   cartItems: any[],
@@ -105,17 +113,15 @@ export async function createRyeIntent(
     throw new Error('No Amazon products in cart');
   }
 
-  if (amazonItems.length > 1) {
-    console.warn(`Cart has ${amazonItems.length} Amazon products but only single-product intents are supported. Using first item only.`);
-  }
-
-  const firstItem = amazonItems[0];
+  const items: RyeCartItem[] = amazonItems.map((ci) => ({
+    productUrl: ci.catalog_products.amazon_url,
+    quantity: ci.quantity,
+  }));
 
   const intent = await ryeClient.checkoutIntents.createAndPoll({
     buyer: buildBuyer(address, callerPhone),
-    productUrl: firstItem.catalog_products.amazon_url,
-    quantity: firstItem.quantity,
-  }) as unknown as RyeIntent;
+    items,
+  } as any) as unknown as RyeIntent;
 
   const stockFailures = parseIntentFailures(intent);
 
@@ -161,20 +167,30 @@ export async function confirmRyeIntent(
 }
 
 /**
- * Parse stock-related failures from the intent response.
+ * Parse failures from the intent response into per-item entries the IVR can act on.
  *
- * Rye returns per-item status in the items[] array:
- *   - status: "failed" with failureCode identifying the issue
- *   - status: "pending" or "completed" for items that are OK
+ * Two distinct failure shapes show up from Rye:
  *
- * Failure codes:
- *   - insufficient_stock: requested qty exceeds available stock
- *   - product_out_of_stock / out_of_stock: product completely unavailable
+ *   1. Per-item stock failure: state="failed", items[i].status="failed" with
+ *      a failureCode like "product_out_of_stock" or "insufficient_stock".
+ *      Other items in the cart stay status="pending" and are still good --
+ *      we walk the user through resolving each failed item, then retry with
+ *      the cleaned cart.
+ *
+ *   2. Catalog miss: state="failed", failureReason.code="product_not_found".
+ *      Rye stops short of evaluating per-item stock in this case, so items[]
+ *      shows everything as "pending" and the failed product ID is only present
+ *      in failureReason.message (top-level productUrl just echoes items[0],
+ *      not the bad item). We extract the ASIN from the message and match it
+ *      back to a cart item by amazon_url.
+ *
+ * Both shapes return the same StockFailure[] structure so the caller can
+ * dispatch on `type` ('out_of_stock' | 'insufficient_stock' | 'unavailable').
  */
 export function parseIntentFailures(intent: RyeIntent): StockFailure[] {
   const failures: StockFailure[] = [];
 
-  // Primary path: parse per-item failures from items[] array
+  // Shape 1: per-item failures inside items[]
   if (intent.items && intent.items.length > 0) {
     for (const item of intent.items) {
       if (item.status !== 'failed' || !item.failureCode) continue;
@@ -187,8 +203,8 @@ export function parseIntentFailures(intent: RyeIntent): StockFailure[] {
       } else if (codeLower.includes('insufficient_stock')) {
         failureType = 'insufficient_stock';
       } else {
-        // Treat any other item-level failure as insufficient stock
-        // so the user gets a chance to adjust qty
+        // Any other per-item failure -- treat as insufficient stock so the
+        // user gets a chance to lower the qty before we drop the item.
         failureType = 'insufficient_stock';
       }
 
@@ -200,33 +216,27 @@ export function parseIntentFailures(intent: RyeIntent): StockFailure[] {
       });
     }
 
-    return failures;
+    if (failures.length > 0) return failures;
   }
 
-  // Fallback: no items[] array (older API response or single-product intent).
-  // Use the top-level failureReason only.
-  if (intent.state !== 'failed' || !intent.failureReason) {
-    return failures;
-  }
+  // Shape 2: top-level catalog miss (product_not_found)
+  if (intent.state === 'failed' && intent.failureReason?.code === 'product_not_found') {
+    const message = intent.failureReason.message || '';
+    // Message format from Rye:
+    //   "Product with product id <ASIN> not found on Amazon"
+    const asinMatch = message.match(/product id\s+(\S+?)\s+not found/i);
+    const badAsin = asinMatch?.[1];
 
-  const code = intent.failureReason.code || '';
-  const codeLower = code.toLowerCase();
+    // Match back to a cart item via the items[] array (productUrl contains the ASIN).
+    const failedItemUrl = badAsin
+      ? intent.items?.find((it) => it.productUrl?.includes(badAsin))?.productUrl
+      : undefined;
 
-  const isOutOfStock =
-    codeLower.includes('out_of_stock') ||
-    codeLower === 'product_out_of_stock';
-
-  const isInsufficientStock = codeLower.includes('insufficient_stock');
-
-  if (isOutOfStock || isInsufficientStock) {
-    const failureType: StockFailureType = isOutOfStock ? 'out_of_stock' : 'insufficient_stock';
-
-    // Single-product intent: use the top-level productUrl if available
-    if ((intent as any).productUrl) {
+    if (failedItemUrl) {
       failures.push({
-        type: failureType,
-        productUrl: (intent as any).productUrl,
-        failureCode: code,
+        type: 'unavailable',
+        productUrl: failedItemUrl,
+        failureCode: 'product_not_found',
         message: intent.failureReason.message,
       });
     }
