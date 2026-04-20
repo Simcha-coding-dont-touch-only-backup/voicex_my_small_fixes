@@ -1132,17 +1132,48 @@ registerHandler('final_confirm', async (ctx) => {
           return { type: 'actions', response: buildHangup('We were unable to process your order because too many items in your cart are no longer available. Please try again later.') };
         }
 
+        // Track the cart_item ids we actually delete so the
+        // remaining-items check reflects real DB writes (not just the
+        // failure list, which can drift from in-memory cartItems if any
+        // of the lookups above didn't find a match).
+        const removedItemIds = new Set<string>();
         const removedNames: string[] = [];
         for (const failure of unavailableFailures) {
           const affected = findCartItemForFailure(failure, cartItems);
           if (!affected) continue;
-          await supabaseAdmin.from('cart_items').delete().eq('id', affected.id);
+          const { error: deleteErr } = await supabaseAdmin
+            .from('cart_items')
+            .delete()
+            .eq('id', affected.id);
+          if (deleteErr) {
+            console.error('[final_confirm] failed to delete unavailable cart item', {
+              cartItemId: affected.id, productUrl: failure.productUrl, error: deleteErr,
+            });
+            continue;
+          }
+          removedItemIds.add(affected.id);
           removedNames.push(getProductDisplayName(affected.catalog_products));
         }
 
-        const remainingItems = cartItems.filter(
-          (ci) => !unavailableFailures.some((f) => ci.catalog_products?.amazon_url === f.productUrl)
-        );
+        if (removedItemIds.size === 0) {
+          // We detected unavailable failures but couldn't delete any of them
+          // (no matching cart items, or all deletes errored). Don't loop
+          // forever -- escalate to manual review like the unidentified case.
+          console.error('[final_confirm] no unavailable cart items could be deleted; routing user to cart for manual review.', {
+            failureProductUrls: unavailableFailures.map((f) => f.productUrl),
+            cartItemIds: cartItems.map((ci) => ci.id),
+          });
+          return {
+            type: 'actions',
+            response: buildSay(
+              'One of the items in your cart is no longer available, but we ran into an issue removing it. Please review your cart and try again.',
+              '/api/ivr/voice/gather',
+              { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }
+            ),
+          };
+        }
+
+        const remainingItems = cartItems.filter((ci) => !removedItemIds.has(ci.id));
 
         const announcement = removedNames.length === 1
           ? `Unfortunately, ${removedNames[0]} is no longer available and has been removed from your cart.`
