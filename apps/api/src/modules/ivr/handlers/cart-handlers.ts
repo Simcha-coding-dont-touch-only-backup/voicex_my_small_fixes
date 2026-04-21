@@ -357,7 +357,26 @@ registerHandler('cart_remove_confirm', async (ctx) => {
     };
   }
 
-  await supabaseAdmin.from('cart_items').delete().eq('id', cartItemId);
+  const { data: removed } = await supabaseAdmin
+    .from('cart_items')
+    .delete()
+    .eq('id', cartItemId)
+    .select('cart_id')
+    .single();
+
+  if (removed?.cart_id) {
+    const { count } = await supabaseAdmin
+      .from('cart_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('cart_id', removed.cart_id);
+    if (count === 0) {
+      await supabaseAdmin
+        .from('carts')
+        .delete()
+        .eq('id', removed.cart_id)
+        .neq('status', 'checked_out');
+    }
+  }
 
   return {
     type: 'actions',
@@ -403,6 +422,11 @@ registerHandler('cart_empty_confirm', async (ctx) => {
 
     if (cart) {
       await supabaseAdmin.from('cart_items').delete().eq('cart_id', cart.id);
+      await supabaseAdmin
+        .from('carts')
+        .delete()
+        .eq('id', cart.id)
+        .neq('status', 'checked_out');
     }
 
     return {
