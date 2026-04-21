@@ -484,15 +484,17 @@ logsRouter.post('/bulk-delete', async (req, res) => {
 
     // Delete strictly by primary-key id list. Skip any table that has nothing
     // to delete (an empty .in() can be ambiguous in some clients).
+    // Note: PostgrestFilterBuilder is a thenable but TS doesn't see it as a
+    // Promise, so we wrap each call so Promise.all gets a real Promise array.
     const deletes: Promise<{ error: any }>[] = [];
     if (stepIds.length > 0) {
-      deletes.push(supabaseAdmin.from('ivr_error_logs').delete().in('id', stepIds));
+      deletes.push(Promise.resolve(supabaseAdmin.from('ivr_error_logs').delete().in('id', stepIds)));
     }
     if (sessionIds.length > 0) {
-      deletes.push(supabaseAdmin.from('call_sessions').delete().in('id', sessionIds));
+      deletes.push(Promise.resolve(supabaseAdmin.from('call_sessions').delete().in('id', sessionIds)));
     }
     if (checkoutIds.length > 0) {
-      deletes.push(supabaseAdmin.from('checkout_events').delete().in('id', checkoutIds));
+      deletes.push(Promise.resolve(supabaseAdmin.from('checkout_events').delete().in('id', checkoutIds)));
     }
 
     const results = await Promise.all(deletes);
