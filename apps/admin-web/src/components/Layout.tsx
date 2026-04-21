@@ -25,6 +25,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, requires: { kind: 'all' } },
   { to: '/users', label: 'Users', icon: Users, requires: { kind: 'fullAdmin' } },
+  // Sub-admin management is the only super-admin only nav item.
+  { to: '/sub-admins', label: 'Sub-Admins', icon: ShieldCheck, requires: { kind: 'super' } },
   { to: '/categories', label: 'Categories', icon: FolderTree, requires: { kind: 'permission', key: 'manageProducts' } },
   { to: '/products', label: 'Products', icon: Package, requires: { kind: 'permission', key: 'manageProducts' } },
   { to: '/carts', label: 'Carts', icon: ShoppingBag, requires: { kind: 'fullAdmin' } },
@@ -33,8 +35,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/reports', label: 'Reports', icon: BarChart3, requires: { kind: 'fullAdmin' } },
   { to: '/ivr', label: 'IVR Flows', icon: Phone, requires: { kind: 'fullAdmin' } },
   { to: '/logs', label: 'Logs', icon: AlertTriangle, requires: { kind: 'fullAdmin' } },
-  // Sub-admin management is the only super-admin only nav item.
-  { to: '/sub-admins', label: 'Sub-Admins', icon: ShieldCheck, requires: { kind: 'super' } },
 ];
 
 const TOOLS_ITEMS: NavItem[] = [

@@ -5,7 +5,7 @@ import {
   type AdminPermissions,
   type AdminUser,
 } from '@voicex/shared';
-import { Plus, Trash2, KeyRound, Pencil, ShieldCheck } from 'lucide-react';
+import { Plus, Trash2, KeyRound, Pencil, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 
@@ -32,6 +32,35 @@ function emptyPermissions(): AdminPermissions {
     (out as Record<string, boolean>)[meta.key] = false;
   }
   return out;
+}
+
+function PasswordInput(props: {
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+  minLength?: number;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        type={show ? 'text' : 'password'}
+        required={props.required}
+        minLength={props.minLength}
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+      />
+      <button
+        type="button"
+        onClick={() => setShow((v) => !v)}
+        aria-label={show ? 'Hide password' : 'Show password'}
+        className="absolute inset-y-0 right-0 flex items-center px-2.5 text-gray-400 hover:text-gray-600 focus:outline-none"
+      >
+        {show ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
+  );
 }
 
 function permissionSummary(user: AdminUser): string {
@@ -311,13 +340,11 @@ export function SubAdminsPage() {
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Password</label>
-                <input
-                  type="password"
+                <PasswordInput
                   required
                   minLength={8}
                   value={createForm.password}
-                  onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  onChange={(value) => setCreateForm({ ...createForm, password: value })}
                 />
                 <p className="mt-1 text-xs text-gray-400">At least 8 characters.</p>
               </div>
@@ -445,13 +472,11 @@ export function SubAdminsPage() {
 
             <div className="mt-4">
               <label className="mb-1 block text-sm font-medium text-gray-700">New password</label>
-              <input
-                type="password"
+              <PasswordInput
                 required
                 minLength={8}
                 value={resetPassword}
-                onChange={(e) => setResetPassword(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                onChange={setResetPassword}
               />
               <p className="mt-1 text-xs text-gray-400">At least 8 characters.</p>
             </div>
