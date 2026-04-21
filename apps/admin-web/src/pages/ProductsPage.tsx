@@ -61,16 +61,18 @@ export function ProductsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [quickCategoryTarget, setQuickCategoryTarget] = useState<'create' | 'edit' | null>(null);
+  const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>([]);
   const perPage = 20;
 
   const load = useCallback(() => {
     const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
     if (search) params.set('search', search);
+    if (filterCategoryIds.length > 0) params.set('category_ids', filterCategoryIds.join(','));
     apiGet<any>(`/catalog/products?${params}`).then((r) => {
       setProducts(r.data || []);
       setTotal(r.total || 0);
     });
-  }, [page, search]);
+  }, [page, search, filterCategoryIds]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -349,7 +351,7 @@ export function ProductsPage() {
         </div>
       )}
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-start gap-3">
         <form onSubmit={(e) => { e.preventDefault(); setPage(1); load(); }} className="flex gap-2">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -358,6 +360,23 @@ export function ProductsPage() {
           </div>
           <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white">Search</button>
         </form>
+        <div className="min-w-[260px] flex-1 max-w-sm -mt-1">
+          <SearchableMultiSelect
+            options={categories.map((c) => ({ value: c.id, label: c.name }))}
+            value={filterCategoryIds}
+            onChange={(ids) => { setFilterCategoryIds(ids); setPage(1); }}
+            placeholder="Filter by categories..."
+          />
+        </div>
+        {filterCategoryIds.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { setFilterCategoryIds([]); setPage(1); }}
+            className="rounded-lg border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-xl bg-white shadow-sm">

@@ -108,10 +108,43 @@ catalogRouter.delete('/categories/:id', async (req, res) => {
 const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'amazon_price_cents', 'custom_price_cents', 'local_price_cents', 'is_active', 'voicex_id', 'id'];
 
 catalogRouter.get('/products', async (req, res) => {
-  const { page = '1', per_page = '20', search, category_id, is_active, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
+  const { page = '1', per_page = '20', search, category_id, category_ids, is_active, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
   const sortColumn = PRODUCTS_SORTABLE_COLUMNS.includes(sort_by as string) ? (sort_by as string) : 'created_at';
   const sortAscending = sort_dir === 'asc';
   const offset = (parseInt(page as string) - 1) * parseInt(per_page as string);
+
+  const categoryFilter: string[] = [];
+  if (typeof category_ids === 'string' && category_ids.trim()) {
+    categoryFilter.push(...category_ids.split(',').map((s) => s.trim()).filter(Boolean));
+  }
+  if (typeof category_id === 'string' && category_id.trim()) {
+    categoryFilter.push(category_id.trim());
+  }
+
+  let allowedProductIds: string[] | null = null;
+  if (categoryFilter.length > 0) {
+    const { data: links, error: linkErr } = await supabaseAdmin
+      .from('catalog_product_categories')
+      .select('product_id')
+      .in('category_id', categoryFilter);
+
+    if (linkErr) {
+      res.status(500).json({ success: false, error: linkErr.message });
+      return;
+    }
+    allowedProductIds = Array.from(new Set((links || []).map((l: any) => l.product_id)));
+    if (allowedProductIds.length === 0) {
+      res.json({
+        success: true,
+        data: [],
+        total: 0,
+        page: parseInt(page as string),
+        per_page: parseInt(per_page as string),
+        total_pages: 0,
+      });
+      return;
+    }
+  }
 
   let query = supabaseAdmin
     .from('catalog_products')
@@ -122,6 +155,9 @@ catalogRouter.get('/products', async (req, res) => {
   }
   if (is_active !== undefined) {
     query = query.eq('is_active', is_active === 'true');
+  }
+  if (allowedProductIds) {
+    query = query.in('id', allowedProductIds);
   }
 
   const { data, count, error } = await query
