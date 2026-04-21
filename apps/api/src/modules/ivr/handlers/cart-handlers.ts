@@ -126,7 +126,7 @@ registerHandler('cart_list', async (ctx) => {
   return {
     type: 'actions',
     response: buildGather({
-      prompt: `${lines.join('. ')}. Total: ${formatCurrency(summary.totalCents)}. Press 2 to checkout. Press 3 to change an item. Press 4 to remove an item. Press star for Main Menu.`,
+      prompt: `${lines.join('. ')}. Total: ${formatCurrency(summary.totalCents)}. Press 2 to checkout. Press 3 to change an item. Press 4 to remove an item. Press 5 to empty your entire cart. Press star for Main Menu.`,
       actionPath: '/api/ivr/voice/gather',
       numDigits: ctx.node.config.num_digits,
       timeout: ctx.node.config.timeout_seconds || 10,
@@ -362,5 +362,67 @@ registerHandler('cart_remove_confirm', async (ctx) => {
   return {
     type: 'actions',
     response: buildSay('Item removed from your cart.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }),
+  };
+});
+
+registerHandler('cart_empty_confirm', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const digits = ctx.req.body.digits;
+
+  if (!digits) {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: ctx.node.prompt_text || 'Are you sure you want to remove all the items currently found in your cart? Press 1 to move ahead. Press 2 to cancel.',
+        actionPath: '/api/ivr/voice/gather',
+        numDigits: ctx.node.config.num_digits || 1,
+        timeout: ctx.node.config.timeout_seconds || 10,
+        sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
+      }),
+    };
+  }
+
+  if (digits === '2') {
+    return {
+      type: 'actions',
+      response: buildSay(
+        'Cancelled.',
+        '/api/ivr/voice/gather',
+        { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }
+      ),
+    };
+  }
+
+  if (digits === '1') {
+    const { data: cart } = await supabaseAdmin
+      .from('carts')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .single();
+
+    if (cart) {
+      await supabaseAdmin.from('cart_items').delete().eq('cart_id', cart.id);
+    }
+
+    return {
+      type: 'actions',
+      response: buildSay(
+        'All the items have successfully been removed from your cart.',
+        '/api/ivr/voice/gather',
+        { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
+      ),
+    };
+  }
+
+  return {
+    type: 'actions',
+    response: buildGather({
+      prompt: 'Press 1 to move ahead. Press 2 to cancel.',
+      actionPath: '/api/ivr/voice/gather',
+      numDigits: 1,
+      timeout: ctx.node.config.timeout_seconds || 10,
+      sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
+    }),
   };
 });
