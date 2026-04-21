@@ -7,6 +7,7 @@ import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
 import { solaTokenize, solaAuthOnly, solaCapture, solaVoidRelease } from '../../../lib/sola.js';
 import { getProductDisplayName, getCartItemSavingsCents } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
+import { logCheckoutEvent } from '../../../lib/checkout-logger.js';
 
 const MAX_STOCK_RETRIES_PER_ITEM = 3;
 const MAX_UNAVAILABLE_RECOVERY_CYCLES = 3;
@@ -19,6 +20,15 @@ registerHandler('address_choice', async (ctx) => {
     .select('*')
     .eq('user_id', userId)
     .order('is_default', { ascending: false });
+
+  await logCheckoutEvent({
+    callSid: ctx.callSid,
+    userId,
+    eventType: 'checkout_entered',
+    details: {
+      saved_address_count: addresses?.length ?? 0,
+    },
+  });
 
   if (addresses && addresses.length > 0) {
     const defaultAddr = addresses[0];
@@ -470,6 +480,12 @@ registerHandler('address_confirm', async (ctx) => {
 
   if (useSaved === 'pending') {
     if (digits === '1' && addressId) {
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        eventType: 'address_selected',
+        details: { address_id: addressId, source: 'saved' },
+      });
       return {
         type: 'actions',
         response: buildSay(
@@ -541,6 +557,20 @@ registerHandler('address_confirm', async (ctx) => {
     if (!addr) throw new Error('Failed to save address');
 
     await supabaseAdmin.from('addresses').update({ is_default: false }).eq('user_id', userId).neq('id', addr.id);
+
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'address_selected',
+      details: {
+        address_id: addr.id,
+        source: 'new',
+        validated: validated,
+        city: addr.city,
+        state: addr.state,
+        zip: addr.zip_code,
+      },
+    });
 
     return {
       type: 'actions',
@@ -650,6 +680,13 @@ registerHandler('payment_select', async (ctx) => {
       ),
     };
   }
+
+  await logCheckoutEvent({
+    callSid: ctx.callSid,
+    userId,
+    eventType: 'payment_method_selected',
+    details: { payment_method_id: paymentMethodId, source: 'saved' },
+  });
 
   return {
     type: 'actions',
@@ -935,6 +972,18 @@ registerHandler('card_confirm', async (ctx) => {
       .eq('user_id', userId)
       .neq('id', savedCard.id);
 
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'payment_method_selected',
+      details: {
+        payment_method_id: savedCard.id,
+        source: 'new',
+        card_brand: savedCard.card_brand,
+        card_last4: savedCard.card_last4,
+      },
+    });
+
     return {
       type: 'actions',
       response: buildSay(
@@ -1069,6 +1118,12 @@ registerHandler('final_confirm', async (ctx) => {
   const digits = ctx.req.body.digits;
 
   if (digits === '2') {
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'checkout_cancelled',
+      details: { stage: 'final_confirm_prompt' },
+    });
     return {
       type: 'actions',
       response: buildSay('Order cancelled. Returning to cart.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }),
@@ -1095,8 +1150,61 @@ registerHandler('final_confirm', async (ctx) => {
       intentResult = await createRyeIntent(cartItems, address, callerPhone);
     } catch (ryeError: any) {
       console.error('Rye intent creation failed:', ryeError?.message || ryeError);
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        eventType: 'rye_intent_failed',
+        severity: 'error',
+        details: {
+          stage: 'create',
+          error: ryeError?.message || String(ryeError),
+          cart_items: cartItems.map((ci) => ({
+            cart_item_id: ci.id,
+            voicex_id: ci.voicex_id,
+            product_name: getProductDisplayName(ci.catalog_products),
+            amazon_url: ci.catalog_products?.amazon_url ?? null,
+            quantity: ci.quantity,
+          })),
+        },
+      });
       return { type: 'actions', response: buildHangup('We were unable to verify your order with Amazon. Please try again later.') };
     }
+
+    // Build a quick lookup so we can enrich Rye's URL-only payloads with the
+    // product name and voicex_id that admins recognize at a glance.
+    const cartByUrl = new Map<string, any>();
+    for (const ci of cartItems) {
+      const url = ci.catalog_products?.amazon_url;
+      if (url) cartByUrl.set(url, ci);
+    }
+    const enrichByUrl = (productUrl: string | null | undefined) => {
+      if (!productUrl) return { product_name: null, voicex_id: null, cart_item_id: null };
+      const ci = cartByUrl.get(productUrl);
+      if (!ci) return { product_name: null, voicex_id: null, cart_item_id: null };
+      return {
+        product_name: getProductDisplayName(ci.catalog_products),
+        voicex_id: ci.voicex_id ?? null,
+        cart_item_id: ci.id ?? null,
+      };
+    };
+
+    // Snapshot of what Rye returned, captured for both success and failure paths.
+    const ryeIntentSnapshot = {
+      rye_intent_id: intentResult.intent.id,
+      rye_state: intentResult.intent.state,
+      shipping_cents: intentResult.shippingCents,
+      tax_cents: intentResult.taxCents,
+      total_cents: intentResult.totalCents,
+      surcharge_cents: intentResult.surchareCents,
+      items: (intentResult.intent.items ?? []).map((it) => ({
+        product_url: it.productUrl,
+        ...enrichByUrl(it.productUrl),
+        quantity: it.quantity,
+        status: it.status,
+        failure_code: it.failureCode ?? null,
+      })),
+      failure_reason: (intentResult.intent as any).failureReason ?? null,
+    };
 
     if (!intentResult.success) {
       // Branch 1: one or more items are no longer in Amazon's catalog.
@@ -1105,6 +1213,23 @@ registerHandler('final_confirm', async (ctx) => {
       const unavailableFailures = intentResult.stockFailures.filter((f) => f.type === 'unavailable');
 
       if (unavailableFailures.length > 0) {
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          eventType: 'rye_intent_unavailable',
+          severity: 'warn',
+          details: {
+            ...ryeIntentSnapshot,
+            unavailable_failures: unavailableFailures.map((f) => ({
+              product_url: f.productUrl,
+              ...enrichByUrl(f.productUrl),
+              failure_code: f.failureCode,
+              message: f.message ?? null,
+            })),
+            recovery_cycle: parseInt(ctx.sessionData.unavailable_recovery_count || '0', 10),
+          },
+        });
+
         // Sub-case: Rye told us product_not_found but parseIntentFailures
         // could not pin down which item (productUrl === ''). We can't
         // auto-remove without risk, so route the user to the cart menu so
@@ -1153,6 +1278,20 @@ registerHandler('final_confirm', async (ctx) => {
           }
           removedItemIds.add(affected.id);
           removedNames.push(getProductDisplayName(affected.catalog_products));
+          await logCheckoutEvent({
+            callSid: ctx.callSid,
+            userId,
+            eventType: 'unavailable_item_removed',
+            details: {
+              cart_item_id: affected.id,
+              product_id: affected.product_id,
+              voicex_id: affected.voicex_id,
+              product_name: getProductDisplayName(affected.catalog_products),
+              amazon_url: affected.catalog_products?.amazon_url ?? null,
+              quantity: affected.quantity,
+              rye_failure_code: failure.failureCode,
+            },
+          });
         }
 
         if (removedItemIds.size === 0) {
@@ -1208,6 +1347,21 @@ registerHandler('final_confirm', async (ctx) => {
       // Branch 2: per-item stock issues (out_of_stock / insufficient_stock).
       // Walk the user through each one to remove or reduce qty.
       if (intentResult.stockFailures.length > 0) {
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          eventType: 'rye_intent_stock_issue',
+          severity: 'warn',
+          details: {
+            ...ryeIntentSnapshot,
+            stock_failures: intentResult.stockFailures.map((f) => ({
+              type: f.type,
+              product_url: f.productUrl,
+              ...enrichByUrl(f.productUrl),
+              failure_code: f.failureCode,
+            })),
+          },
+        });
         const failuresJson = JSON.stringify(intentResult.stockFailures);
         return {
           type: 'actions',
@@ -1228,11 +1382,44 @@ registerHandler('final_confirm', async (ctx) => {
 
       const reason = (intentResult.intent as any).failureReason?.code || 'unknown';
       console.error('Rye intent failed with non-stock reason:', reason);
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        eventType: 'rye_intent_failed',
+        severity: 'error',
+        details: {
+          ...ryeIntentSnapshot,
+          reason_code: reason,
+        },
+      });
       return { type: 'actions', response: buildHangup('We were unable to process your order. Please try again later.') };
     }
 
     const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
     const totalWithFees = subtotal + intentResult.shippingCents + intentResult.taxCents + intentResult.surchareCents;
+
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'rye_intent_created',
+      details: {
+        ...ryeIntentSnapshot,
+        // What we will charge the customer (cart prices + Rye fees).
+        customer_subtotal_cents: subtotal,
+        customer_total_cents: totalWithFees,
+        // Per-item charge breakdown (our markup-based prices).
+        cart_items: cartItems.map((ci) => ({
+          cart_item_id: ci.id,
+          voicex_id: ci.voicex_id,
+          product_name: getProductDisplayName(ci.catalog_products),
+          amazon_url: ci.catalog_products?.amazon_url ?? null,
+          quantity: ci.quantity,
+          unit_price_cents: ci.unit_price_cents,
+          amazon_price_cents: ci.amazon_price_cents,
+          line_total_cents: ci.unit_price_cents * ci.quantity,
+        })),
+      },
+    });
 
     const shippingStr = intentResult.shippingCents > 0
       ? `Shipping is ${formatCurrency(intentResult.shippingCents)}. `
@@ -1338,6 +1525,20 @@ registerHandler('stock_issue', async (ctx) => {
 
   if (failure.type === 'out_of_stock') {
     await supabaseAdmin.from('cart_items').delete().eq('id', affectedItem.id);
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'stock_item_removed',
+      details: {
+        cart_item_id: affectedItem.id,
+        product_id: productId,
+        voicex_id: affectedItem.voicex_id,
+        product_name: productName,
+        amazon_url: affectedItem.catalog_products?.amazon_url ?? null,
+        quantity: affectedItem.quantity,
+        reason: 'out_of_stock',
+      },
+    });
 
     const remainingItems = cartItems.filter((ci) => ci.id !== affectedItem.id);
     if (remainingItems.length === 0) {
@@ -1371,6 +1572,22 @@ registerHandler('stock_issue', async (ctx) => {
   // insufficient_stock — check retry limit
   if (retryCount >= MAX_STOCK_RETRIES_PER_ITEM) {
     await supabaseAdmin.from('cart_items').delete().eq('id', affectedItem.id);
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'stock_item_removed',
+      severity: 'warn',
+      details: {
+        cart_item_id: affectedItem.id,
+        product_id: productId,
+        voicex_id: affectedItem.voicex_id,
+        product_name: productName,
+        amazon_url: affectedItem.catalog_products?.amazon_url ?? null,
+        quantity: affectedItem.quantity,
+        reason: 'retry_cap_exceeded',
+        retry_count: retryCount,
+      },
+    });
 
     const remainingItems = cartItems.filter((ci) => ci.id !== affectedItem.id);
     if (remainingItems.length === 0) {
@@ -1456,6 +1673,16 @@ registerHandler('stock_new_qty', async (ctx) => {
   if (stockAction === 'pending') {
     if (digits === '2') {
       await supabaseAdmin.from('cart_items').delete().eq('id', stockItemId);
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        eventType: 'stock_item_removed',
+        details: {
+          cart_item_id: stockItemId,
+          product_id: stockProductId,
+          reason: 'user_chose_remove',
+        },
+      });
 
       const { data: cart } = await supabaseAdmin
         .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
@@ -1533,6 +1760,18 @@ registerHandler('stock_new_qty', async (ctx) => {
 
   retryCounts[stockProductId] = (retryCounts[stockProductId] || 0) + 1;
 
+  await logCheckoutEvent({
+    callSid: ctx.callSid,
+    userId,
+    eventType: 'stock_item_qty_updated',
+    details: {
+      cart_item_id: stockItemId,
+      product_id: stockProductId,
+      new_quantity: newQty,
+      retry_count: retryCounts[stockProductId],
+    },
+  });
+
   return {
     type: 'actions',
     response: buildSay(
@@ -1564,6 +1803,12 @@ registerHandler('checkout_pay', async (ctx) => {
   const surchargeCents = parseInt(ctx.sessionData.surcharge_cents || '0', 10);
 
   if (digits === '2') {
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'checkout_cancelled',
+      details: { stage: 'pay_prompt', rye_intent_id: ryeIntentId ?? null },
+    });
     return {
       type: 'actions',
       response: buildSay('Order cancelled. Returning to cart.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }),
@@ -1582,12 +1827,42 @@ registerHandler('checkout_pay', async (ctx) => {
     const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
     const totalCents = subtotal + shippingCents + taxCents + surchargeCents;
 
+    // Same enrich-by-URL helper as in final_confirm so Rye-returned items[]
+    // can be tagged with the product name + voicex_id we recognize.
+    const cartByUrl = new Map<string, any>();
+    for (const ci of cartItems) {
+      const url = ci.catalog_products?.amazon_url;
+      if (url) cartByUrl.set(url, ci);
+    }
+    const enrichByUrl = (productUrl: string | null | undefined) => {
+      if (!productUrl) return { product_name: null, voicex_id: null };
+      const ci = cartByUrl.get(productUrl);
+      if (!ci) return { product_name: null, voicex_id: null };
+      return {
+        product_name: getProductDisplayName(ci.catalog_products),
+        voicex_id: ci.voicex_id ?? null,
+      };
+    };
+
     // --- Step 1: Place auth hold on customer's card via Sola ---
     let authResult;
     try {
       authResult = await solaAuthOnly(paymentMethod.sola_token, totalCents);
     } catch (authError) {
       console.error('Sola auth hold failed:', authError);
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        eventType: 'sola_auth_failed',
+        severity: 'error',
+        details: {
+          stage: 'auth_only',
+          amount_cents: totalCents,
+          payment_method_id: paymentMethodId,
+          card_last4: paymentMethod.card_last4,
+          error: String(authError),
+        },
+      });
       return {
         type: 'actions',
         response: buildGather({
@@ -1605,6 +1880,20 @@ registerHandler('checkout_pay', async (ctx) => {
     }
 
     if (authResult.xResult !== 'A') {
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        eventType: 'sola_auth_failed',
+        severity: 'warn',
+        details: {
+          stage: 'auth_only',
+          amount_cents: totalCents,
+          payment_method_id: paymentMethodId,
+          card_last4: paymentMethod.card_last4,
+          x_result: authResult.xResult,
+          x_error: authResult.xError ?? null,
+        },
+      });
       return {
         type: 'actions',
         response: buildGather({
@@ -1622,6 +1911,18 @@ registerHandler('checkout_pay', async (ctx) => {
     }
 
     const solaRefNum = authResult.xRefNum;
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'sola_auth_succeeded',
+      details: {
+        stage: 'auth_only',
+        amount_cents: totalCents,
+        payment_method_id: paymentMethodId,
+        card_last4: paymentMethod.card_last4,
+        sola_ref_num: solaRefNum,
+      },
+    });
 
     // --- Step 2: Create order in DB ---
     const { data: order } = await supabaseAdmin
@@ -1656,6 +1957,32 @@ registerHandler('checkout_pay', async (ctx) => {
     });
     await supabaseAdmin.from('carts').update({ status: 'checked_out' }).eq('id', cart.id);
 
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      orderId: order.id,
+      eventType: 'order_persisted',
+      details: {
+        order_id: order.id,
+        rye_intent_id: ryeIntentId,
+        sola_ref_num: solaRefNum,
+        subtotal_cents: subtotal,
+        shipping_cents: shippingCents,
+        tax_cents: taxCents,
+        total_cents: totalCents,
+        item_count: orderItems.length,
+        items: orderItems.map((oi) => ({
+          product_id: oi.product_id,
+          voicex_id: oi.voicex_id,
+          product_name: oi.product_name,
+          quantity: oi.quantity,
+          unit_price_cents: oi.unit_price_cents,
+          amazon_price_cents: oi.amazon_price_cents,
+          line_total_cents: oi.unit_price_cents * oi.quantity,
+        })),
+      },
+    });
+
     // --- Step 3: Confirm with Rye using drawdown ---
     let ryeSuccess = false;
     try {
@@ -1669,11 +1996,49 @@ registerHandler('checkout_pay', async (ctx) => {
           rye_state: completed.state, failure_reason: completed.failureReason || null,
         },
       });
+
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        orderId: order.id,
+        eventType: ryeSuccess ? 'rye_confirm_succeeded' : 'rye_confirm_failed',
+        severity: ryeSuccess ? 'info' : 'error',
+        details: {
+          rye_intent_id: ryeIntentId,
+          rye_state: completed.state,
+          rye_order_id: (completed as any).orderId ?? null,
+          failure_reason: completed.failureReason ?? null,
+          // Final pricing as Rye reported it (what Amazon/Rye actually charges
+          // us via drawdown). Compare against order.total_cents (what we
+          // charged the customer via Sola) to monitor margin drift.
+          rye_final_offer: (completed as any).offer?.cost ?? null,
+          rye_items: ((completed as any).items ?? []).map((it: any) => ({
+            product_url: it.productUrl,
+            ...enrichByUrl(it.productUrl),
+            quantity: it.quantity,
+            status: it.status,
+            failure_code: it.failureCode ?? null,
+          })),
+          customer_total_cents: totalCents,
+        },
+      });
     } catch (ryeError) {
       console.error('Rye confirm failed:', ryeError);
       await supabaseAdmin.from('order_events').insert({
         order_id: order.id, status: 'failed', source: 'system',
         details: { action: 'rye_checkout_failed', rye_intent_id: ryeIntentId, error: String(ryeError) },
+      });
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        orderId: order.id,
+        eventType: 'rye_confirm_failed',
+        severity: 'error',
+        details: {
+          rye_intent_id: ryeIntentId,
+          error: String(ryeError),
+          customer_total_cents: totalCents,
+        },
       });
     }
 
@@ -1683,6 +2048,25 @@ registerHandler('checkout_pay', async (ctx) => {
         await solaCapture(solaRefNum, totalCents);
         await supabaseAdmin.from('order_holds').update({ status: 'captured' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
         await supabaseAdmin.from('orders').update({ status: 'completed' }).eq('id', order.id);
+
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          orderId: order.id,
+          eventType: 'sola_capture_succeeded',
+          details: {
+            sola_ref_num: solaRefNum,
+            amount_cents: totalCents,
+            card_last4: paymentMethod.card_last4,
+          },
+        });
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          orderId: order.id,
+          eventType: 'order_completed',
+          details: { order_id: order.id, total_cents: totalCents },
+        });
 
         for (const item of cartItems) {
           await supabaseAdmin.rpc('increment_product_sold', {
@@ -1709,6 +2093,29 @@ registerHandler('checkout_pay', async (ctx) => {
           details: { action: 'sola_capture_failed_manual_review', error: String(captureError), sola_ref_num: solaRefNum },
         });
 
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          orderId: order.id,
+          eventType: 'sola_capture_failed',
+          severity: 'error',
+          details: {
+            sola_ref_num: solaRefNum,
+            amount_cents: totalCents,
+            card_last4: paymentMethod.card_last4,
+            error: String(captureError),
+            note: 'Rye drawdown SUCCEEDED but Sola capture FAILED -- manual review needed (customer was not charged for an order Amazon will fulfill).',
+          },
+        });
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          orderId: order.id,
+          eventType: 'order_completed',
+          severity: 'warn',
+          details: { order_id: order.id, total_cents: totalCents, manual_review: true },
+        });
+
         return {
           type: 'actions',
           response: buildSay(
@@ -1720,15 +2127,48 @@ registerHandler('checkout_pay', async (ctx) => {
       }
     } else {
       // Rye failed -- release the auth hold
+      let voidSucceeded = false;
       try {
         await solaVoidRelease(solaRefNum);
         await supabaseAdmin.from('order_holds').update({ status: 'voided' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+        voidSucceeded = true;
       } catch (voidError) {
         console.error('Sola void release failed:', voidError);
         await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          orderId: order.id,
+          eventType: 'sola_void_release',
+          severity: 'error',
+          details: {
+            sola_ref_num: solaRefNum,
+            amount_cents: totalCents,
+            error: String(voidError),
+            note: 'Sola void-release FAILED after Rye failure -- customer card may be left with a stuck auth hold.',
+          },
+        });
+      }
+
+      if (voidSucceeded) {
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          orderId: order.id,
+          eventType: 'sola_void_release',
+          details: { sola_ref_num: solaRefNum, amount_cents: totalCents },
+        });
       }
 
       await supabaseAdmin.from('orders').update({ status: 'failed' }).eq('id', order.id);
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        orderId: order.id,
+        eventType: 'order_failed',
+        severity: 'error',
+        details: { order_id: order.id, reason: 'rye_confirm_failed' },
+      });
 
       return {
         type: 'actions',
@@ -1741,6 +2181,13 @@ registerHandler('checkout_pay', async (ctx) => {
     }
   } catch (error) {
     console.error('Order placement error:', error);
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'rye_intent_failed',
+      severity: 'error',
+      details: { stage: 'checkout_pay', error: String(error) },
+    });
     return { type: 'actions', response: buildHangup('We had trouble placing your order. Please try again later.') };
   }
 });
