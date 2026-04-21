@@ -532,9 +532,14 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
   const pages: (number | '...')[] = [1];
   const start = Math.max(2, current - 1);
   const end = Math.min(total - 1, current + 1);
-  if (start > 2) pages.push('...');
+  // Only insert an ellipsis when it actually hides more than one page;
+  // otherwise just render the page number directly (e.g. prefer [1, 2, 3]
+  // over [1, '...', 3]).
+  if (start > 3) pages.push('...');
+  else if (start === 3) pages.push(2);
   for (let i = start; i <= end; i++) pages.push(i);
-  if (end < total - 1) pages.push('...');
+  if (end < total - 2) pages.push('...');
+  else if (end === total - 2) pages.push(total - 1);
   pages.push(total);
   return pages;
 }
