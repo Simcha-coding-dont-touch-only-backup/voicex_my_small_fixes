@@ -180,7 +180,7 @@ export function LogsPage() {
                           <LimitBadge value={call.total_actions || 0} max={50} label="act" />
                         </div>
                         <div className="flex-1 px-4 py-3">
-                          <LimitBadge value={call.max_recursion_depth || 0} max={10} label="dep" />
+                          <LimitBadge value={call.max_recursion_depth || 0} max={100} label="dep" />
                         </div>
                         <div className="flex-1 px-4 py-3">
                           {call.duration_seconds != null ? formatDuration(call.duration_seconds) : '-'}
@@ -245,7 +245,7 @@ export function LogsPage() {
                           </div>
                           <div>
                             <span className="font-medium text-gray-600">Max Recursion:</span>{' '}
-                            <LimitBadge value={call.max_recursion_depth || 0} max={10} label="/ 10 limit" />
+                            <LimitBadge value={call.max_recursion_depth || 0} max={100} label="/ 100 limit" />
                           </div>
                         </div>
 
