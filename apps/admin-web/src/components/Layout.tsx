@@ -4,33 +4,68 @@ import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
   ChevronsLeft, ChevronsRight, AlertTriangle, MapPin,
-  Wrench, ChevronDown,
+  Wrench, ChevronDown, ShieldCheck,
 } from 'lucide-react';
+import type { AdminPermissionKey } from '@voicex/shared';
 import { useAuth } from '../lib/auth-context';
 
-const NAV_ITEMS = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/users', label: 'Users', icon: Users },
-  { to: '/categories', label: 'Categories', icon: FolderTree },
-  { to: '/products', label: 'Products', icon: Package },
-  { to: '/carts', label: 'Carts', icon: ShoppingBag },
-  { to: '/orders', label: 'Orders', icon: ShoppingCart },
-  { to: '/settings', label: 'Settings', icon: Settings },
-  { to: '/reports', label: 'Reports', icon: BarChart3 },
-  { to: '/ivr', label: 'IVR Flows', icon: Phone },
-  { to: '/logs', label: 'Logs', icon: AlertTriangle },
+type NavRequirement =
+  | { kind: 'all' }
+  | { kind: 'super' }
+  | { kind: 'fullAdmin' }
+  | { kind: 'permission'; key: AdminPermissionKey };
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  requires: NavRequirement;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, requires: { kind: 'all' } },
+  { to: '/users', label: 'Users', icon: Users, requires: { kind: 'fullAdmin' } },
+  { to: '/categories', label: 'Categories', icon: FolderTree, requires: { kind: 'permission', key: 'manageProducts' } },
+  { to: '/products', label: 'Products', icon: Package, requires: { kind: 'permission', key: 'manageProducts' } },
+  { to: '/carts', label: 'Carts', icon: ShoppingBag, requires: { kind: 'fullAdmin' } },
+  { to: '/orders', label: 'Orders', icon: ShoppingCart, requires: { kind: 'fullAdmin' } },
+  { to: '/settings', label: 'Settings', icon: Settings, requires: { kind: 'fullAdmin' } },
+  { to: '/reports', label: 'Reports', icon: BarChart3, requires: { kind: 'fullAdmin' } },
+  { to: '/ivr', label: 'IVR Flows', icon: Phone, requires: { kind: 'fullAdmin' } },
+  { to: '/logs', label: 'Logs', icon: AlertTriangle, requires: { kind: 'fullAdmin' } },
+  // Sub-admin management is the only super-admin only nav item.
+  { to: '/sub-admins', label: 'Sub-Admins', icon: ShieldCheck, requires: { kind: 'super' } },
 ];
 
-const TOOLS_ITEMS = [
-  { to: '/address-test', label: 'Address Test', icon: MapPin },
+const TOOLS_ITEMS: NavItem[] = [
+  { to: '/address-test', label: 'Address Test', icon: MapPin, requires: { kind: 'fullAdmin' } },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const { signOut } = useAuth();
+  const { signOut, hasPermission, isSuperAdmin, adminUser } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
-  const toolsActive = TOOLS_ITEMS.some((item) => location.pathname === item.to);
+
+  const isFullAdmin = adminUser?.role === 'super_admin' || adminUser?.role === 'admin';
+
+  const isAllowed = (item: NavItem) => {
+    switch (item.requires.kind) {
+      case 'all':
+        return true;
+      case 'super':
+        return isSuperAdmin();
+      case 'fullAdmin':
+        return isFullAdmin;
+      case 'permission':
+        return hasPermission(item.requires.key);
+    }
+  };
+
+  const visibleNav = NAV_ITEMS.filter(isAllowed);
+  const visibleTools = TOOLS_ITEMS.filter(isAllowed);
+
+  const toolsActive = visibleTools.some((item) => location.pathname === item.to);
   const [toolsOpen, setToolsOpen] = useState(toolsActive);
 
   return (
@@ -62,7 +97,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className={`flex-1 overflow-y-auto mt-4 space-y-1 ${collapsed ? 'px-2' : 'px-3'}`}>
-          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+          {visibleNav.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -84,54 +119,56 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </NavLink>
           ))}
 
-          {collapsed ? (
-            TOOLS_ITEMS.map(({ to, label, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  `flex items-center justify-center rounded-lg px-2 py-2.5 text-sm font-medium transition-colors ${
-                    isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`
-                }
-                onClick={() => setSidebarOpen(false)}
-                title={label}
-              >
-                <Icon size={18} className="shrink-0" />
-              </NavLink>
-            ))
-          ) : (
-            <>
-              <button
-                onClick={() => setToolsOpen(!toolsOpen)}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                  toolsActive ? 'text-indigo-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                }`}
-              >
-                <Wrench size={18} className="shrink-0" />
-                <span className="flex-1 text-left">Tools</span>
-                <ChevronDown size={16} className={`shrink-0 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {toolsOpen && (
-                <div className="ml-4 space-y-1">
-                  {TOOLS_ITEMS.map(({ to, label, icon: Icon }) => (
-                    <NavLink
-                      key={to}
-                      to={to}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                          isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-                        }`
-                      }
-                      onClick={() => setSidebarOpen(false)}
-                    >
-                      <Icon size={16} className="shrink-0" />
-                      <span>{label}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </>
+          {visibleTools.length > 0 && (
+            collapsed ? (
+              visibleTools.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    `flex items-center justify-center rounded-lg px-2 py-2.5 text-sm font-medium transition-colors ${
+                      isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    }`
+                  }
+                  onClick={() => setSidebarOpen(false)}
+                  title={label}
+                >
+                  <Icon size={18} className="shrink-0" />
+                </NavLink>
+              ))
+            ) : (
+              <>
+                <button
+                  onClick={() => setToolsOpen(!toolsOpen)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                    toolsActive ? 'text-indigo-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  }`}
+                >
+                  <Wrench size={18} className="shrink-0" />
+                  <span className="flex-1 text-left">Tools</span>
+                  <ChevronDown size={16} className={`shrink-0 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {toolsOpen && (
+                  <div className="ml-4 space-y-1">
+                    {visibleTools.map(({ to, label, icon: Icon }) => (
+                      <NavLink
+                        key={to}
+                        to={to}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                            isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                          }`
+                        }
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        <Icon size={16} className="shrink-0" />
+                        <span>{label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </>
+            )
           )}
         </nav>
 
