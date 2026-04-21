@@ -37,7 +37,7 @@ function LimitBadge({ value, max, label }: { value: number; max: number; label: 
 type TabId = 'ivr' | 'checkout';
 
 export function LogsPage() {
-  const [tab, setTab] = useState<TabId>('checkout');
+  const [tab, setTab] = useState<TabId>('ivr');
 
   return (
     <div>
@@ -184,8 +184,17 @@ function IvrStepsView() {
   const deleteOne = (callSid: string) => runDelete([callSid]);
   const bulkDelete = () => runDelete(Array.from(selected));
 
+  const rangeStart = total === 0 ? 0 : (page - 1) * perPage + 1;
+  const rangeEnd = Math.min(page * perPage, total);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
   return (
     <div>
+      <div className="mb-3 text-sm text-gray-600">
+        {total === 0
+          ? 'No calls'
+          : <>Showing <span className="font-medium text-gray-800">{rangeStart}-{rangeEnd}</span> of <span className="font-medium text-gray-800">{total}</span> call{total !== 1 ? 's' : ''}</>}
+      </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="date"
@@ -425,29 +434,109 @@ function IvrStepsView() {
           </tbody>
         </table>
 
-        <div className="flex items-center justify-between border-t px-6 py-3">
-          <span className="text-sm text-gray-500">{total} call{total !== 1 ? 's' : ''}</span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage(Math.max(1, page - 1))}
-              disabled={page === 1}
-              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="px-3 py-1 text-sm">Page {page}</span>
-            <button
-              onClick={() => setPage(page + 1)}
-              disabled={page * perPage >= total}
-              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
+        <PaginationFooter
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onChange={setPage}
+        />
       </div>
     </div>
   );
+}
+
+function PaginationFooter({
+  page,
+  totalPages,
+  total,
+  rangeStart,
+  rangeEnd,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  rangeStart: number;
+  rangeEnd: number;
+  onChange: (p: number) => void;
+}) {
+  const pages = getPageNumbers(page, totalPages);
+  return (
+    <div className="flex items-center justify-between border-t px-6 py-3">
+      <span className="text-sm text-gray-500">
+        {total === 0 ? 'No results' : `Showing ${rangeStart}-${rangeEnd} of ${total}`}
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onChange(1)}
+          disabled={page === 1}
+          className="rounded border px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          title="First page"
+        >
+          «
+        </button>
+        <button
+          onClick={() => onChange(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className="rounded border px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          title="Previous page"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        {pages.map((p, i) =>
+          p === '...' ? (
+            <span key={`gap-${i}`} className="px-2 text-sm text-gray-400">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onChange(p)}
+              className={`min-w-[32px] rounded border px-2 py-1 text-sm ${
+                p === page
+                  ? 'border-indigo-500 bg-indigo-50 font-medium text-indigo-700'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {p}
+            </button>
+          )
+        )}
+        <button
+          onClick={() => onChange(Math.min(totalPages, page + 1))}
+          disabled={page >= totalPages}
+          className="rounded border px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          title="Next page"
+        >
+          <ChevronRight size={16} />
+        </button>
+        <button
+          onClick={() => onChange(totalPages)}
+          disabled={page >= totalPages}
+          className="rounded border px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+          title="Last page"
+        >
+          »
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Build a compact list of page numbers around the current page,
+// e.g. [1, '...', 4, 5, 6, '...', 12].
+function getPageNumbers(current: number, total: number): (number | '...')[] {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const pages: (number | '...')[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) pages.push('...');
+  for (let i = start; i <= end; i++) pages.push(i);
+  if (end < total - 1) pages.push('...');
+  pages.push(total);
+  return pages;
 }
 
 // ===========================================================================
@@ -527,8 +616,17 @@ function CheckoutEventsView() {
 
   useEffect(() => { load(); }, [page, dateFrom, dateTo]);
 
+  const rangeStart = total === 0 ? 0 : (page - 1) * perPage + 1;
+  const rangeEnd = Math.min(page * perPage, total);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
   return (
     <div>
+      <div className="mb-3 text-sm text-gray-600">
+        {total === 0
+          ? 'No calls'
+          : <>Showing <span className="font-medium text-gray-800">{rangeStart}-{rangeEnd}</span> of <span className="font-medium text-gray-800">{total}</span> call{total !== 1 ? 's' : ''}</>}
+      </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="date"
@@ -616,26 +714,14 @@ function CheckoutEventsView() {
           </tbody>
         </table>
 
-        <div className="flex items-center justify-between border-t px-6 py-3">
-          <span className="text-sm text-gray-500">{total} call{total !== 1 ? 's' : ''}</span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage(Math.max(1, page - 1))}
-              disabled={page === 1}
-              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="px-3 py-1 text-sm">Page {page}</span>
-            <button
-              onClick={() => setPage(page + 1)}
-              disabled={page * perPage >= total}
-              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
+        <PaginationFooter
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onChange={setPage}
+        />
       </div>
     </div>
   );
