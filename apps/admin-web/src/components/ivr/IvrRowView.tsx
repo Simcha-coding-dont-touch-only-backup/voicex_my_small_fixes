@@ -95,6 +95,7 @@ const NODE_ICONS: Record<string, { icon: typeof Phone; color: string; bg: string
 
 function NodeRow({
   node,
+  instanceKey,
   edges,
   nodeMap,
   edgesBySource,
@@ -108,13 +109,14 @@ function NodeRow({
   onEdgeClick,
 }: {
   node: IvrNodeData;
+  instanceKey: string;
   edges: IvrEdgeData[];
   nodeMap: Map<string, IvrNodeData>;
   edgesBySource: Map<string, IvrEdgeData[]>;
   depth: number;
   visited: Set<string>;
   expanded: Set<string>;
-  toggleExpand: (id: string) => void;
+  toggleExpand: (key: string) => void;
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
   onNodeClick: (nodeId: string) => void;
@@ -122,7 +124,7 @@ function NodeRow({
 }) {
   const outgoing = edgesBySource.get(node.id) || [];
   const hasChildren = outgoing.length > 0;
-  const isExpanded = expanded.has(node.id);
+  const isExpanded = expanded.has(instanceKey);
   const isSelected = selectedNodeId === node.id;
 
   const style = NODE_ICONS[node.node_type] || NODE_ICONS.menu;
@@ -144,7 +146,7 @@ function NodeRow({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              toggleExpand(node.id);
+              toggleExpand(instanceKey);
             }}
             className="shrink-0 rounded p-0.5 hover:bg-gray-200 text-gray-400"
           >
@@ -231,6 +233,7 @@ function NodeRow({
             {target && !isCycle && (
               <NodeRow
                 node={target}
+                instanceKey={`${instanceKey}>${edge.id}>${target.id}`}
                 edges={edges}
                 nodeMap={nodeMap}
                 edgesBySource={edgesBySource}
@@ -271,31 +274,6 @@ export default function IvrRowView({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const didAutoExpand = useRef(false);
 
-  useEffect(() => {
-    if (didAutoExpand.current || nodes.length === 0) return;
-    const entry = nodes.find((n) => n.node_type === 'entry');
-    if (!entry) return;
-    didAutoExpand.current = true;
-    const ids = [entry.id];
-    for (const e of edges) {
-      if (e.source_node_id === entry.id) ids.push(e.target_node_id);
-    }
-    setExpanded(new Set(ids));
-  }, [nodes, edges]);
-
-  const toggleExpand = useCallback((id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const expandAll = useCallback(() => {
-    setExpanded(new Set(nodes.map((n) => n.id)));
-  }, [nodes]);
-
   const nodeMap = useMemo(() => {
     const m = new Map<string, IvrNodeData>();
     for (const n of nodes) m.set(n.id, n);
@@ -330,7 +308,54 @@ export default function IvrRowView({
     [entryNodes, orphanNodes],
   );
 
-  const allExpanded = nodes.length > 0 && nodes.every((n) => expanded.has(n.id));
+  // Enumerate every (instance) node in the drill-down tree, with cycle protection.
+  // Each instance gets a unique path-based key matching what NodeRow uses.
+  const allInstanceKeys = useMemo(() => {
+    const keys: string[] = [];
+    const walk = (node: IvrNodeData, instanceKey: string, visited: Set<string>) => {
+      keys.push(instanceKey);
+      const outgoing = edgesBySource.get(node.id) || [];
+      const nextVisited = new Set([...visited, node.id]);
+      for (const edge of outgoing) {
+        if (visited.has(edge.target_node_id)) continue;
+        const target = nodeMap.get(edge.target_node_id);
+        if (!target) continue;
+        walk(target, `${instanceKey}>${edge.id}>${target.id}`, nextVisited);
+      }
+    };
+    for (const root of roots) walk(root, root.id, new Set());
+    return keys;
+  }, [roots, edgesBySource, nodeMap]);
+
+  useEffect(() => {
+    if (didAutoExpand.current || nodes.length === 0) return;
+    const entry = nodes.find((n) => n.node_type === 'entry');
+    if (!entry) return;
+    didAutoExpand.current = true;
+    const keys = new Set<string>([entry.id]);
+    for (const e of edges) {
+      if (e.source_node_id === entry.id) {
+        keys.add(`${entry.id}>${e.id}>${e.target_node_id}`);
+      }
+    }
+    setExpanded(keys);
+  }, [nodes, edges]);
+
+  const toggleExpand = useCallback((key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const expandAll = useCallback(() => {
+    setExpanded(new Set(allInstanceKeys));
+  }, [allInstanceKeys]);
+
+  const allExpanded =
+    allInstanceKeys.length > 0 && allInstanceKeys.every((k) => expanded.has(k));
 
   return (
     <div className="h-full overflow-y-auto bg-white">
@@ -355,6 +380,7 @@ export default function IvrRowView({
           <NodeRow
             key={node.id}
             node={node}
+            instanceKey={node.id}
             edges={edges}
             nodeMap={nodeMap}
             edgesBySource={edgesBySource}
