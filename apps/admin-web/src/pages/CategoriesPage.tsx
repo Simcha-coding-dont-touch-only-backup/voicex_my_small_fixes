@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
-import { Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, AlertTriangle, Trash } from 'lucide-react';
+import { useAuth } from '../lib/auth-context';
 
 export function CategoriesPage() {
+  const { isSuperAdmin } = useAuth();
+  const isSuper = isSuperAdmin();
   const [categories, setCategories] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', parent_id: '', sort_order: 0 });
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const load = () => apiGet<any>('/catalog/categories').then((r) => setCategories(r.data || []));
 
@@ -37,13 +42,21 @@ export function CategoriesPage() {
   const confirmDelete = async () => {
     if (!deleteConfirm) return;
     setDeleting(true);
+    setDeleteError(null);
     try {
       await apiDelete(`/catalog/categories/${deleteConfirm.id}`);
       setDeleteConfirm(null);
       load();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete category');
     } finally {
       setDeleting(false);
     }
+  };
+
+  const closeDeleteConfirm = () => {
+    setDeleteConfirm(null);
+    setDeleteError(null);
   };
 
   const buildTree = (parentId: string | null = null, depth = 0): any[] => {
@@ -57,12 +70,22 @@ export function CategoriesPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-800">Categories</h2>
-        <button
-          onClick={() => { setShowForm(!showForm); setEditId(null); setForm({ name: '', parent_id: '', sort_order: 0 }); }}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
-        >
-          <Plus size={16} /> Add Category
-        </button>
+        <div className="flex items-center gap-2">
+          {isSuper && (
+            <Link
+              to="/categories/deleted"
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Trash size={16} /> Deleted Categories
+            </Link>
+          )}
+          <button
+            onClick={() => { setShowForm(!showForm); setEditId(null); setForm({ name: '', parent_id: '', sort_order: 0 }); }}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+          >
+            <Plus size={16} /> Add Category
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -140,11 +163,20 @@ export function CategoriesPage() {
               <h3 className="text-lg font-semibold text-gray-900">Delete Category</h3>
             </div>
             <p className="mb-6 text-sm text-gray-600">
-              Are you sure you want to delete <span className="font-medium text-gray-900">"{deleteConfirm.name}"</span>? This action cannot be undone.
+              {isSuper ? (
+                <>This will <span className="font-medium text-red-700">permanently delete</span> <span className="font-medium text-gray-900">"{deleteConfirm.name}"</span>. This action cannot be undone.</>
+              ) : (
+                <>Are you sure you want to delete <span className="font-medium text-gray-900">"{deleteConfirm.name}"</span>? This action cannot be undone.</>
+              )}
             </p>
+            {deleteError && (
+              <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {deleteError}
+              </div>
+            )}
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => setDeleteConfirm(null)}
+                onClick={closeDeleteConfirm}
                 disabled={deleting}
                 className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >

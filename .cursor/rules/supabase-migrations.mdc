@@ -1,0 +1,66 @@
+---
+description: Always apply Supabase schema changes via the Supabase MCP, never via supabase CLI db push
+alwaysApply: false
+---
+# Supabase Migrations: Always Use the MCP
+
+This project's remote database history is managed exclusively through the
+Supabase MCP server (`user-supabase`). Mixing the MCP and `supabase db push`
+creates migration history conflicts that are painful to recover from
+(local zero-padded files vs remote timestamp versions). We hit this once
+already — don't repeat it.
+
+## The Rule
+
+For ANY schema change (DDL) or data migration on the VoiceX Supabase
+project, use the MCP `apply_migration` tool. Never run `supabase db push`
+or `npm run db:migrate`.
+
+VoiceX project id: `ophymmelvmjzpagtvhrv`
+
+## Workflow
+
+1. Write the migration SQL.
+2. Apply it via MCP:
+
+```ts
+CallMcpTool({
+  server: "user-supabase",
+  toolName: "apply_migration",
+  arguments: {
+    project_id: "ophymmelvmjzpagtvhrv",
+    name: "snake_case_descriptive_name",
+    query: "-- your SQL here\nALTER TABLE ...",
+  },
+})
+```
+
+3. The MCP will record it under a timestamp version (e.g. `20260422093121`).
+4. Save the SQL locally at `supabase/migrations/<timestamp>_<name>.sql`
+   using the EXACT timestamp the MCP returned (check via
+   `list_migrations` if needed) so local and remote stay aligned.
+5. Verify with the MCP `execute_sql` tool that the schema change took
+   effect (check `information_schema.columns` etc.).
+
+## Don'ts
+
+- Do NOT run `supabase db push`, `npm run db:migrate`, or
+  `supabase migration up`. The script `scripts/supabase-db-push.mjs`
+  exists for legacy reasons but should not be invoked.
+- Do NOT create local-only migration files with the old `00NNN_` zero-pad
+  naming. Always use the timestamp the MCP assigns.
+- Do NOT run `supabase migration repair` without explicit user approval —
+  it edits the migration history table and is easy to misuse.
+
+## Read-only queries
+
+For reading data or inspecting schema, use the MCP `execute_sql` tool.
+Don't write throwaway scripts that connect via `supabaseAdmin` for
+one-off inspection.
+
+## When in doubt
+
+If `supabase migration list` shows local-only entries, those are stale
+files from before this rule existed. Leave them alone unless the user
+explicitly asks for cleanup — the schema is what's on the remote, not
+what's in the local files.

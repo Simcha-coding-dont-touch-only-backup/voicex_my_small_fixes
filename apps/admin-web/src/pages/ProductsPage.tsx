@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
+import { useAuth } from '../lib/auth-context';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
-import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 
@@ -37,6 +38,8 @@ function buildEditForm(p: any) {
 }
 
 export function ProductsPage() {
+  const { isSuperAdmin } = useAuth();
+  const isSuper = isSuperAdmin();
   const [products, setProducts] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -60,6 +63,7 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [quickCategoryTarget, setQuickCategoryTarget] = useState<'create' | 'edit' | null>(null);
   const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>([]);
   const perPage = 20;
@@ -177,25 +181,43 @@ export function ProductsPage() {
   const confirmDelete = async () => {
     if (!deleteConfirm) return;
     setDeleting(true);
+    setDeleteError(null);
     try {
       await apiDelete(`/catalog/products/${deleteConfirm.id}`);
       if (editingId === deleteConfirm.id) cancelEdit();
       setProducts((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
       setTotal((prev) => prev - 1);
+      setDeleteConfirm(null);
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete product');
     } finally {
       setDeleting(false);
-      setDeleteConfirm(null);
     }
+  };
+
+  const closeDeleteConfirm = () => {
+    setDeleteConfirm(null);
+    setDeleteError(null);
   };
 
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-800">Products</h2>
-        <button onClick={() => { setShowForm(!showForm); if (showForm) resetCreateForm(); cancelEdit(); }}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">
-          <Plus size={16} /> Add Product
-        </button>
+        <div className="flex items-center gap-2">
+          {isSuper && (
+            <Link
+              to="/products/deleted"
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Trash size={16} /> Deleted Products
+            </Link>
+          )}
+          <button onClick={() => { setShowForm(!showForm); if (showForm) resetCreateForm(); cancelEdit(); }}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">
+            <Plus size={16} /> Add Product
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -595,11 +617,20 @@ export function ProductsPage() {
               <h3 className="text-lg font-semibold text-gray-900">Delete Product</h3>
             </div>
             <p className="mb-6 text-sm text-gray-600">
-              Are you sure you want to delete <span className="font-medium text-gray-900">"{deleteConfirm.name}"</span>? This action cannot be undone.
+              {isSuper ? (
+                <>This will <span className="font-medium text-red-700">permanently delete</span> <span className="font-medium text-gray-900">"{deleteConfirm.name}"</span>. This action cannot be undone.</>
+              ) : (
+                <>Are you sure you want to delete <span className="font-medium text-gray-900">"{deleteConfirm.name}"</span>? This action cannot be undone.</>
+              )}
             </p>
+            {deleteError && (
+              <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {deleteError}
+              </div>
+            )}
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => setDeleteConfirm(null)}
+                onClick={closeDeleteConfirm}
                 disabled={deleting}
                 className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >

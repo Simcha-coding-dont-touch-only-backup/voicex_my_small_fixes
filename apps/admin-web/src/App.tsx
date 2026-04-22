@@ -19,6 +19,8 @@ import { IvrFlowsPage } from './pages/IvrFlowsPage';
 import { LogsPage } from './pages/LogsPage';
 import { AddressTestPage } from './pages/AddressTestPage';
 import { SubAdminsPage } from './pages/SubAdminsPage';
+import { DeletedProductsPage } from './pages/DeletedProductsPage';
+import { DeletedCategoriesPage } from './pages/DeletedCategoriesPage';
 
 /**
  * Renders children if the current admin has the given permission, otherwise
@@ -107,9 +109,21 @@ function ProtectedRoutes() {
           path="/categories"
           element={<RequirePermission permission="manageProducts"><CategoriesPage /></RequirePermission>}
         />
+        {/* Deleted-categories trash is super_admin only — declared BEFORE
+            /categories/:id so the static segment wins in the matcher
+            (currently no /categories/:id route exists, but this guards
+            against future shadowing). */}
+        <Route
+          path="/categories/deleted"
+          element={<RequireSuperAdmin><DeletedCategoriesPage /></RequireSuperAdmin>}
+        />
         <Route
           path="/products"
           element={<RequirePermission permission="manageProducts"><ProductsPage /></RequirePermission>}
+        />
+        <Route
+          path="/products/deleted"
+          element={<RequireSuperAdmin><DeletedProductsPage /></RequireSuperAdmin>}
         />
         <Route
           path="/products/:id"

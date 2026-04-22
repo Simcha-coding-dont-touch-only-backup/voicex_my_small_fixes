@@ -6,6 +6,8 @@ export interface CatalogCategory {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
 }
 
 export interface CatalogProduct {
@@ -27,6 +29,8 @@ export interface CatalogProduct {
   lifetime_qty_sold: number;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
 }
 
 export interface CatalogProductCategory {

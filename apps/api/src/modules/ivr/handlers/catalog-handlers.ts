@@ -29,6 +29,7 @@ registerHandler('lookup_product', async (ctx) => {
     .select('*')
     .eq('voicex_id', lookupId)
     .eq('is_active', true)
+    .is('deleted_at', null)
     .single();
 
   if (!product) {
@@ -110,6 +111,7 @@ registerHandler('catalog_action', async (ctx) => {
       .from('catalog_products')
       .select('*')
       .eq('id', productId)
+      .is('deleted_at', null)
       .single();
 
     const description = product?.voice_description || product?.amazon_description || 'No description available.';
@@ -135,6 +137,7 @@ registerHandler('catalog_action', async (ctx) => {
       .from('catalog_products')
       .select('amazon_asin, amazon_star_rating, amazon_ratings_total')
       .eq('id', productId)
+      .is('deleted_at', null)
       .single();
 
     let reviewPrompt = 'Review information is not available for this product.';
@@ -315,6 +318,7 @@ registerHandler('confirm_qty', async (ctx) => {
       .from('catalog_products')
       .select('*')
       .eq('id', productId)
+      .is('deleted_at', null)
       .single();
 
     if (!product) throw new Error('Product not found');

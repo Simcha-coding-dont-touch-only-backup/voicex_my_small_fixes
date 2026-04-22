@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { usersRouter } from './users.js';
 import { catalogRouter } from './catalog.js';
+import { catalogTrashRouter } from './catalog-trash.js';
 import { ordersRouter } from './orders.js';
 import { settingsRouter } from './settings.js';
 import { reportsRouter } from './reports.js';
@@ -43,6 +44,11 @@ adminRouter.get('/me', (req, res) => {
 // Product management is gated by the manageProducts permission so sub-admins
 // can be granted this single capability.
 adminRouter.use('/catalog', requirePermission('manageProducts'), catalogRouter);
+
+// Trash (soft-deleted products / categories) is super-admin only. Sub-admins
+// must not be able to see, restore, or permanently delete from the trash —
+// that's the whole point of soft delete being invisible to them.
+adminRouter.use('/catalog-trash', requireSuperAdmin, catalogTrashRouter);
 
 // Everything else requires a full admin (super_admin OR legacy admin).
 // Sub-admins and viewers are blocked. As more permission keys are added

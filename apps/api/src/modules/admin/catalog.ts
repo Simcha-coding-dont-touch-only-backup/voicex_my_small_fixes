@@ -10,6 +10,7 @@ catalogRouter.get('/categories', async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('catalog_categories')
     .select('*')
+    .is('deleted_at', null)
     .order('sort_order', { ascending: true });
 
   if (error) {
@@ -29,6 +30,7 @@ catalogRouter.post('/categories', async (req, res) => {
       .from('catalog_categories')
       .select('depth')
       .eq('id', parent_id)
+      .is('deleted_at', null)
       .single();
 
     if (!parent) {
@@ -90,16 +92,95 @@ catalogRouter.patch('/categories/:id', async (req, res) => {
 });
 
 catalogRouter.delete('/categories/:id', async (req, res) => {
+  const adminUser = (req as any).adminUser;
+  const id = req.params.id;
+
+  // Block deletion (hard or soft) when the category still contains
+  // non-deleted products. Without this the category would silently lose
+  // its product links on hard delete, or leave orphaned link rows on soft
+  // delete that would re-attach the products on restore.
+  const { data: links, error: linkErr } = await supabaseAdmin
+    .from('catalog_product_categories')
+    .select('product_id, catalog_products!inner(id, deleted_at)')
+    .eq('category_id', id)
+    .is('catalog_products.deleted_at', null);
+
+  if (linkErr) {
+    res.status(500).json({ success: false, error: linkErr.message });
+    return;
+  }
+
+  const liveProductCount = (links || []).length;
+  if (liveProductCount > 0) {
+    res.status(409).json({
+      success: false,
+      error: `Category still contains ${liveProductCount} product(s). Remove them before deleting.`,
+    });
+    return;
+  }
+
+  // Block deleting a category that still has live (non-deleted) child
+  // categories. Same reasoning — restore should be deterministic.
+  const { count: childCount, error: childErr } = await supabaseAdmin
+    .from('catalog_categories')
+    .select('id', { count: 'exact', head: true })
+    .eq('parent_id', id)
+    .is('deleted_at', null);
+
+  if (childErr) {
+    res.status(500).json({ success: false, error: childErr.message });
+    return;
+  }
+
+  if ((childCount ?? 0) > 0) {
+    res.status(409).json({
+      success: false,
+      error: `Category still contains ${childCount} sub-categor${childCount === 1 ? 'y' : 'ies'}. Remove them before deleting.`,
+    });
+    return;
+  }
+
+  if (adminUser?.role === 'super_admin') {
+    const { error } = await supabaseAdmin
+      .from('catalog_categories')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      res.status(500).json({ success: false, error: error.message });
+      return;
+    }
+
+    await supabaseAdmin.from('admin_audit_logs').insert({
+      admin_user_id: adminUser.id,
+      action: 'hard_delete_category',
+      entity_type: 'catalog_category',
+      entity_id: id,
+    });
+
+    res.json({ success: true, message: 'Category deleted' });
+    return;
+  }
+
+  // Sub-admin (and any non-super role): soft delete only.
   const { error } = await supabaseAdmin
     .from('catalog_categories')
-    .delete()
-    .eq('id', req.params.id);
+    .update({ deleted_at: new Date().toISOString(), deleted_by: adminUser?.id ?? null })
+    .eq('id', id);
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
     return;
   }
 
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: adminUser?.id,
+    action: 'soft_delete_category',
+    entity_type: 'catalog_category',
+    entity_id: id,
+  });
+
+  // Response copy must NOT reveal the soft-delete to sub-admins.
   res.json({ success: true, message: 'Category deleted' });
 });
 
@@ -148,7 +229,8 @@ catalogRouter.get('/products', async (req, res) => {
 
   let query = supabaseAdmin
     .from('catalog_products')
-    .select('*, catalog_product_categories(category_id, catalog_categories(name))', { count: 'exact' });
+    .select('*, catalog_product_categories(category_id, catalog_categories(name))', { count: 'exact' })
+    .is('deleted_at', null);
 
   if (search) {
     query = query.or(`voice_name.ilike.%${search}%,amazon_name.ilike.%${search}%,voicex_id.ilike.%${search}%,amazon_asin.ilike.%${search}%`);
@@ -184,6 +266,7 @@ catalogRouter.get('/products/:id', async (req, res) => {
     .from('catalog_products')
     .select('*, catalog_product_categories(category_id, catalog_categories(name))')
     .eq('id', req.params.id)
+    .is('deleted_at', null)
     .single();
 
   if (error || !data) {
@@ -368,17 +451,53 @@ catalogRouter.patch('/products/:id', async (req, res) => {
 });
 
 catalogRouter.delete('/products/:id', async (req, res) => {
-  await supabaseAdmin.from('catalog_product_categories').delete().eq('product_id', req.params.id);
+  const adminUser = (req as any).adminUser;
+  const id = req.params.id;
 
+  if (adminUser?.role === 'super_admin') {
+    await supabaseAdmin.from('catalog_product_categories').delete().eq('product_id', id);
+
+    const { error } = await supabaseAdmin
+      .from('catalog_products')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      res.status(500).json({ success: false, error: error.message });
+      return;
+    }
+
+    await supabaseAdmin.from('admin_audit_logs').insert({
+      admin_user_id: adminUser.id,
+      action: 'hard_delete_product',
+      entity_type: 'catalog_product',
+      entity_id: id,
+    });
+
+    res.json({ success: true, message: 'Product deleted' });
+    return;
+  }
+
+  // Sub-admin (and any non-super role): soft delete only. Keep the
+  // product_categories link rows so a Restore brings the product back
+  // attached to the same categories.
   const { error } = await supabaseAdmin
     .from('catalog_products')
-    .delete()
-    .eq('id', req.params.id);
+    .update({ deleted_at: new Date().toISOString(), deleted_by: adminUser?.id ?? null })
+    .eq('id', id);
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
     return;
   }
 
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: adminUser?.id,
+    action: 'soft_delete_product',
+    entity_type: 'catalog_product',
+    entity_id: id,
+  });
+
+  // Sub-admins must believe this was a permanent delete.
   res.json({ success: true, message: 'Product deleted' });
 });

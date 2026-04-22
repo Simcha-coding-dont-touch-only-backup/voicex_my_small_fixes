@@ -45,8 +45,10 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return apiFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
-  return apiFetch<T>(path, { method: 'DELETE' });
+export async function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+  const init: RequestInit = { method: 'DELETE' };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  return apiFetch<T>(path, init);
 }
 
 export async function apiDownload(path: string, filename: string): Promise<void> {
