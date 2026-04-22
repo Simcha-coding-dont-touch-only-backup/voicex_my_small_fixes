@@ -251,29 +251,31 @@ catalogTrashRouter.delete('/categories', async (req, res) => {
     return;
   }
 
-  // Reject if any selected category still has live (non-deleted) products
-  // attached. We don't want hard delete to silently nuke the link rows
-  // and orphan products from a category they'd return to on restore of
-  // a sibling.
-  const { data: liveLinks, error: linkErr } = await supabaseAdmin
+  // Reject if any selected category still has ANY product links — live OR
+  // soft-deleted. category_id FK is ON DELETE CASCADE, so a hard delete
+  // would silently destroy links pointing to soft-deleted products and
+  // restoring those products from trash would bring them back without
+  // their prior category. Force the admin to detach products first.
+  const { data: anyLinks, error: linkErr } = await supabaseAdmin
     .from('catalog_product_categories')
     .select('category_id, catalog_products!inner(id, deleted_at)')
-    .in('category_id', validIds)
-    .is('catalog_products.deleted_at', null);
+    .in('category_id', validIds);
 
   if (linkErr) {
     res.status(500).json({ success: false, error: linkErr.message });
     return;
   }
 
-  if ((liveLinks || []).length > 0) {
-    const blockedIds = Array.from(new Set((liveLinks || []).map((l: any) => l.category_id)));
+  if ((anyLinks || []).length > 0) {
+    const hasTrashedOnly = (anyLinks || []).every((l: any) => l.catalog_products?.deleted_at != null);
+    const blockedIds = Array.from(new Set((anyLinks || []).map((l: any) => l.category_id)));
     const blockedNames = (trashed || [])
       .filter((c: any) => blockedIds.includes(c.id))
       .map((c: any) => c.name);
+    const detail = hasTrashedOnly ? 'trashed products' : 'products';
     res.status(409).json({
       success: false,
-      error: `Cannot permanently delete: still linked to live products: ${blockedNames.join(', ')}`,
+      error: `Cannot permanently delete: still linked to ${detail}: ${blockedNames.join(', ')}. Detach them first.`,
     });
     return;
   }
@@ -299,13 +301,9 @@ catalogTrashRouter.delete('/categories', async (req, res) => {
     return;
   }
 
-  // Clean up product link rows that point to soft-deleted products in
-  // these categories — those would be orphaned otherwise.
-  await supabaseAdmin
-    .from('catalog_product_categories')
-    .delete()
-    .in('category_id', validIds);
-
+  // No need to pre-delete catalog_product_categories rows: the link
+  // validation above guarantees there are none, and the FK is
+  // ON DELETE CASCADE anyway.
   const { error } = await supabaseAdmin
     .from('catalog_categories')
     .delete()

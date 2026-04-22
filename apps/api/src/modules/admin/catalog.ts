@@ -95,27 +95,37 @@ catalogRouter.delete('/categories/:id', async (req, res) => {
   const adminUser = (req as any).adminUser;
   const id = req.params.id;
 
-  // Block deletion (hard or soft) when the category still contains
-  // non-deleted products. Without this the category would silently lose
-  // its product links on hard delete, or leave orphaned link rows on soft
-  // delete that would re-attach the products on restore.
+  // Block deletion (hard or soft) when the category still has ANY product
+  // links — live OR soft-deleted. The category_id FK is ON DELETE CASCADE,
+  // so a hard delete would silently destroy link rows pointing to
+  // soft-deleted products; restoring those products from trash would then
+  // bring them back without their prior category. Force the admin to
+  // detach products first so the relationship is explicit.
   const { data: links, error: linkErr } = await supabaseAdmin
     .from('catalog_product_categories')
     .select('product_id, catalog_products!inner(id, deleted_at)')
-    .eq('category_id', id)
-    .is('catalog_products.deleted_at', null);
+    .eq('category_id', id);
 
   if (linkErr) {
     res.status(500).json({ success: false, error: linkErr.message });
     return;
   }
 
-  const liveProductCount = (links || []).length;
-  if (liveProductCount > 0) {
-    res.status(409).json({
-      success: false,
-      error: `Category still contains ${liveProductCount} product(s). Remove them before deleting.`,
-    });
+  const allLinks = links || [];
+  if (allLinks.length > 0) {
+    const liveCount = allLinks.filter((l: any) => l.catalog_products?.deleted_at == null).length;
+    const trashedCount = allLinks.length - liveCount;
+
+    let message: string;
+    if (liveCount > 0 && trashedCount > 0) {
+      message = `Category still contains ${liveCount} product(s) and ${trashedCount} trashed product(s). Remove them from the category before deleting.`;
+    } else if (liveCount > 0) {
+      message = `Category still contains ${liveCount} product(s). Remove them from the category before deleting.`;
+    } else {
+      message = `Category still contains ${trashedCount} trashed product(s). Restore and detach them, or permanently delete them from the trash, before deleting this category.`;
+    }
+
+    res.status(409).json({ success: false, error: message });
     return;
   }
 
