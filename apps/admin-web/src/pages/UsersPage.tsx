@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiDelete } from '../lib/api';
-import { Search, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Trash2, Eye } from 'lucide-react';
 
 export function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -96,7 +96,7 @@ export function UsersPage() {
               <th className="px-6 py-3 font-medium">Status</th>
               <th className="px-6 py-3 font-medium">Whitelisted</th>
               <th className="px-6 py-3 font-medium">Joined</th>
-              <th className="px-6 py-3 font-medium"></th>
+              <th className="px-6 py-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -123,13 +123,23 @@ export function UsersPage() {
                 <td className="px-6 py-4">{user.is_whitelisted ? 'Yes' : 'No'}</td>
                 <td className="px-6 py-4 text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
                 <td className="px-6 py-4">
-                  <button
-                    onClick={() => setDeleteTarget({ id: user.id, name: user.name })}
-                    className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                    title="Delete user"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <Link
+                      to={`/users/${user.id}`}
+                      className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-indigo-600"
+                      title="View user"
+                    >
+                      <Eye size={16} />
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget({ id: user.id, name: user.name })}
+                      className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                      title="Delete user"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
