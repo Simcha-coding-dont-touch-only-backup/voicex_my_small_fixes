@@ -11,6 +11,7 @@ import { supabaseAdmin } from './supabase.js';
 export type CheckoutEventType =
   // Flow entry / navigation
   | 'checkout_entered'              // user reached checkout (address or payment selection)
+  | 'address_attempted'             // each Google address validation call (per attempt/retry/re-enter)
   | 'address_selected'              // saved address picked or new one created
   | 'payment_method_selected'       // saved card picked or new one collected
   // Rye intent creation

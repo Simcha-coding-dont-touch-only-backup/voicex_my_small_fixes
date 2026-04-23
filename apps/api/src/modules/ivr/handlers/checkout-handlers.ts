@@ -106,6 +106,37 @@ registerHandler('address_full', async (ctx) => {
   try {
     const validation = await validateAddressFreeform(rawAddress.trim());
 
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'address_attempted',
+      severity: validation.isValid ? 'info' : 'warn',
+      details: {
+        attempt_number: retryCount + 1,
+        entry_mode: 'freeform',
+        raw_input: { transcript: rawAddress.trim() },
+        validation: {
+          isValid: validation.isValid,
+          action: validation.action,
+          formattedAddress: validation.formattedAddress,
+          address1: validation.address1,
+          address2: validation.address2,
+          city: validation.city,
+          state: validation.state,
+          zipCode: validation.zipCode,
+          validationGranularity: validation.validationGranularity,
+          addressComplete: validation.addressComplete,
+          hasSpellCorrections: validation.hasSpellCorrections,
+          hasReplacements: validation.hasReplacements,
+          hasInferences: validation.hasInferences,
+          hasUnresolvedTokens: validation.hasUnresolvedTokens,
+          dpvConfirmation: validation.dpvConfirmation,
+        },
+        google_raw: validation.rawResponse ?? null,
+        error: null,
+      },
+    });
+
     if (validation.isValid) {
       const fullAddress = validation.formattedAddress || `${validation.address1}, ${validation.address2 ? validation.address2 + ', ' : ''}${validation.city}, ${validation.state} ${validation.zipCode}`;
       const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
@@ -176,6 +207,21 @@ registerHandler('address_full', async (ctx) => {
   } catch (error) {
     console.error('Freeform address validation error:', error);
     const nextRetry = retryCount + 1;
+
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'address_attempted',
+      severity: 'error',
+      details: {
+        attempt_number: retryCount + 1,
+        entry_mode: 'freeform',
+        raw_input: { transcript: rawAddress.trim() },
+        validation: null,
+        google_raw: null,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
 
     if (nextRetry >= MAX_FREEFORM_RETRIES) {
       const fallbackNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'fallback');
@@ -429,6 +475,40 @@ registerHandler('address_zip', async (ctx) => {
 
   try {
     const validation = await validateAddress({ address1: line1, address2: line2 || undefined, city, state, zipCode: zip });
+
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'address_attempted',
+      severity: validation.isValid ? 'info' : 'warn',
+      details: {
+        attempt_number: 1,
+        entry_mode: 'structured',
+        raw_input: {
+          structured: { address1: line1, address2: line2 || '', city, state, zip },
+        },
+        validation: {
+          isValid: validation.isValid,
+          action: validation.action,
+          formattedAddress: validation.formattedAddress,
+          address1: validation.correctedAddress?.address1 || line1,
+          address2: line2 || '',
+          city: validation.correctedAddress?.city || city,
+          state: validation.correctedAddress?.state || state,
+          zipCode: validation.correctedAddress?.zipCode || zip,
+          validationGranularity: validation.validationGranularity,
+          addressComplete: validation.addressComplete,
+          hasSpellCorrections: validation.hasSpellCorrections,
+          hasReplacements: validation.hasReplacements,
+          hasInferences: validation.hasInferences,
+          hasUnresolvedTokens: validation.hasUnresolvedTokens,
+          dpvConfirmation: validation.dpvConfirmation,
+        },
+        google_raw: validation.rawResponse ?? null,
+        error: null,
+      },
+    });
+
     const fullAddress = validation.formattedAddress || `${line1}, ${line2 ? line2 + ', ' : ''}${city}, ${state} ${zip}`;
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 
@@ -452,6 +532,24 @@ registerHandler('address_zip', async (ctx) => {
     };
   } catch (error) {
     console.error('Address validation error:', error);
+
+    await logCheckoutEvent({
+      callSid: ctx.callSid,
+      userId,
+      eventType: 'address_attempted',
+      severity: 'error',
+      details: {
+        attempt_number: 1,
+        entry_mode: 'structured',
+        raw_input: {
+          structured: { address1: line1, address2: line2 || '', city, state, zip },
+        },
+        validation: null,
+        google_raw: null,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
+
     const fullAddress = `${line1}, ${line2 ? line2 + ', ' : ''}${city}, ${state} ${zip}`;
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
 

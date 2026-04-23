@@ -9,14 +9,19 @@ interface AddressValidationRequest {
   country?: string;
 }
 
-interface AddressValidationResult {
+export interface AddressValidationResult {
   isValid: boolean;
   action: 'ACCEPT' | 'CONFIRM' | 'CONFIRM_ADD_SUBPREMISES' | 'FIX';
   formattedAddress: string | null;
   correctedAddress: AddressValidationRequest | null;
+  validationGranularity: string;
+  addressComplete: boolean;
   hasSpellCorrections: boolean;
   hasReplacements: boolean;
   hasInferences: boolean;
+  hasUnresolvedTokens: boolean;
+  dpvConfirmation: string;
+  rawResponse?: unknown;
 }
 
 export async function validateAddress(
@@ -47,9 +52,14 @@ export async function validateAddress(
   const data = await resp.json();
   const verdict = data.result?.verdict || {};
   const addressObj = data.result?.address || {};
+  const uspsData = data.result?.uspsData || {};
 
   const action = verdict.possibleNextAction || 'ACCEPT';
   const formattedAddress = addressObj.formattedAddress || null;
+  const validationGranularity: string = verdict.validationGranularity || 'OTHER';
+  const addressComplete: boolean = verdict.addressComplete === true;
+  const hasUnresolvedTokens = (addressObj.unresolvedTokens || []).length > 0;
+  const dpvConfirmation: string = uspsData.dpvConfirmation || '';
 
   return {
     isValid: action === 'ACCEPT',
@@ -58,9 +68,14 @@ export async function validateAddress(
     correctedAddress: formattedAddress
       ? parseFormattedAddress(formattedAddress)
       : null,
+    validationGranularity,
+    addressComplete,
     hasSpellCorrections: verdict.hasSpellCorrectedComponents || false,
     hasReplacements: verdict.hasReplacedComponents || false,
     hasInferences: verdict.hasInferredComponents || false,
+    hasUnresolvedTokens,
+    dpvConfirmation,
+    rawResponse: data,
   };
 }
 

@@ -550,6 +550,7 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   checkout_entered: 'Entered checkout',
+  address_attempted: 'Address attempt',
   address_selected: 'Address selected',
   payment_method_selected: 'Payment method selected',
   rye_intent_created: 'Rye intent created',
@@ -782,6 +783,9 @@ function EventDetails({ event }: { event: any }) {
   switch (event.event_type) {
     case 'checkout_entered':
       return <span className="text-gray-600">Saved addresses: {d.saved_address_count ?? 0}</span>;
+
+    case 'address_attempted':
+      return <AddressAttemptDetails d={d} />;
 
     case 'address_selected':
       return (
@@ -1050,6 +1054,152 @@ function CartItemsStatusTable({ items }: { items: any[] | undefined }) {
         })}
       </tbody>
     </table>
+  );
+}
+
+function AddressAttemptDetails({ d }: { d: any }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const v = d.validation;
+  const raw = d.raw_input || {};
+  const isValid = v?.isValid === true;
+  const action = v?.action || (d.error ? 'ERROR' : 'UNKNOWN');
+  const granularityGood = v && (v.validationGranularity === 'PREMISE' || v.validationGranularity === 'SUB_PREMISE' || v.validationGranularity === 'PREMISE_PROXIMITY');
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 text-gray-700">
+        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-600">
+          attempt #{d.attempt_number ?? '?'}
+        </span>
+        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-600">
+          {d.entry_mode || 'unknown'}
+        </span>
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+          d.error ? 'bg-red-100 text-red-700'
+          : isValid ? 'bg-green-100 text-green-700'
+          : 'bg-amber-100 text-amber-700'
+        }`}>
+          {d.error ? 'ERROR' : isValid ? 'VALID' : 'INVALID'}
+        </span>
+        <span className="font-mono text-[10px] text-gray-500">action: {action}</span>
+      </div>
+
+      <div className="rounded border bg-white p-2 text-xs">
+        <div className="text-[10px] font-medium uppercase tracking-wide text-gray-500">User entered</div>
+        {raw.transcript ? (
+          <div className="mt-0.5 text-gray-800">"{raw.transcript}"</div>
+        ) : raw.structured ? (
+          <div className="mt-0.5 font-mono text-gray-800">
+            {raw.structured.address1}
+            {raw.structured.address2 ? `, ${raw.structured.address2}` : ''},{' '}
+            {raw.structured.city}, {raw.structured.state} {raw.structured.zip}
+          </div>
+        ) : (
+          <div className="mt-0.5 text-gray-400">—</div>
+        )}
+      </div>
+
+      {d.error && (
+        <div className="rounded border border-red-200 bg-red-50 p-2 text-xs">
+          <div className="text-[10px] font-medium uppercase tracking-wide text-red-700">Google API error</div>
+          <div className="mt-0.5 text-red-800">{String(d.error)}</div>
+        </div>
+      )}
+
+      {v && (
+        <>
+          {v.formattedAddress && (
+            <div className="rounded border bg-gray-50 p-2 text-xs">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-gray-500">Formatted</div>
+              <div className="mt-0.5 text-gray-800">{v.formattedAddress}</div>
+            </div>
+          )}
+
+          <div className="rounded border bg-white p-2">
+            <div className="text-[10px] font-medium uppercase tracking-wide text-gray-500">Verdict Details</div>
+            <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <div>
+                <dt className="text-[10px] text-gray-500">Validation Granularity</dt>
+                <dd className={`font-mono ${granularityGood ? 'text-green-700' : 'text-red-700'}`}>{v.validationGranularity || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] text-gray-500">Address Complete</dt>
+                <dd className={`font-mono ${v.addressComplete ? 'text-green-700' : 'text-red-700'}`}>
+                  {v.addressComplete ? 'Yes' : 'No'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[10px] text-gray-500">Unresolved Tokens</dt>
+                <dd className={`font-mono ${v.hasUnresolvedTokens ? 'text-red-700' : 'text-green-700'}`}>
+                  {v.hasUnresolvedTokens ? 'Yes' : 'No'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[10px] text-gray-500">USPS DPV Confirmation</dt>
+                <dd className={`font-mono ${
+                  v.dpvConfirmation === 'Y' ? 'text-green-700'
+                  : v.dpvConfirmation ? 'text-amber-700' : 'text-gray-400'
+                }`}>{v.dpvConfirmation || '—'}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="rounded border bg-white p-2">
+            <div className="text-[10px] font-medium uppercase tracking-wide text-gray-500">Parsed Components</div>
+            <div className="mt-0.5 mb-1 text-[10px] text-gray-400">These are the values that would be stored in the database.</div>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <div>
+                <dt className="text-[10px] text-gray-500">Address Line 1</dt>
+                <dd className="font-mono text-gray-800">{v.address1 || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] text-gray-500">Address Line 2 (Apt)</dt>
+                <dd className="font-mono text-gray-800">{v.address2 || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] text-gray-500">City</dt>
+                <dd className="font-mono text-gray-800">{v.city || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] text-gray-500">State</dt>
+                <dd className="font-mono text-gray-800">{v.state || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] text-gray-500">ZIP Code</dt>
+                <dd className="font-mono text-gray-800">{v.zipCode || '—'}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {(v.hasSpellCorrections || v.hasReplacements || v.hasInferences) && (
+            <div className="rounded border border-blue-200 bg-blue-50 p-2 text-xs">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-blue-900">Corrections Applied</div>
+              <ul className="mt-1 space-y-0.5 text-blue-700">
+                {v.hasSpellCorrections && <li>Spell corrections were applied</li>}
+                {v.hasReplacements && <li>Component replacements were made</li>}
+                {v.hasInferences && <li>Components were inferred</li>}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+
+      {d.google_raw && (
+        <div>
+          <button
+            onClick={() => setShowRaw((s) => !s)}
+            className="text-[11px] font-medium text-indigo-600 hover:text-indigo-800"
+          >
+            {showRaw ? 'Hide' : 'View'} raw Google JSON
+          </button>
+          {showRaw && (
+            <pre className="mt-1 max-h-96 overflow-auto rounded bg-gray-900 p-2 text-[10px] leading-tight text-gray-100">
+              {JSON.stringify(d.google_raw, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
