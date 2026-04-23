@@ -522,7 +522,7 @@ registerHandler('address_zip', async (ctx) => {
         sessionData: {
           call_sid: ctx.callSid, user_id: userId,
           node_key: nextNode?.node_key || 'checkout_address_confirm',
-          addr_line1: validation.correctedAddress?.address1 || line1, addr_line2: line2,
+          addr_line1: validation.correctedAddress?.address1 || line1, addr_line2: line2 || '',
           addr_city: validation.correctedAddress?.city || city,
           addr_state: validation.correctedAddress?.state || state,
           addr_zip: validation.correctedAddress?.zipCode || zip,
@@ -563,7 +563,7 @@ registerHandler('address_zip', async (ctx) => {
         sessionData: {
           call_sid: ctx.callSid, user_id: userId,
           node_key: nextNode?.node_key || 'checkout_address_confirm',
-          addr_line1: line1, addr_line2: line2, addr_city: city, addr_state: state, addr_zip: zip, addr_validated: '0',
+          addr_line1: line1, addr_line2: line2 || '', addr_city: city, addr_state: state, addr_zip: zip, addr_validated: '0',
         },
       }),
     };
