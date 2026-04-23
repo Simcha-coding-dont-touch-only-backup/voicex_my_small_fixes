@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { solaTokenize } from '../../lib/sola.js';
 
 export const usersRouter = Router();
 
@@ -344,6 +345,204 @@ usersRouter.delete('/:id/addresses/:addressId', async (req, res) => {
   });
 
   res.json({ success: true, message: 'Address deleted' });
+});
+
+// ============================================================
+// PAYMENT METHODS (saved cards)
+// ============================================================
+
+usersRouter.post('/:id/payment-methods', async (req, res) => {
+  const { card_number, exp_month, exp_year, cvv, zip, is_default } = req.body;
+
+  const cleanNum = String(card_number || '').replace(/\D/g, '');
+  if (cleanNum.length < 13 || cleanNum.length > 19) {
+    res.status(400).json({ success: false, error: 'Invalid card number' });
+    return;
+  }
+
+  const monthInt = parseInt(String(exp_month), 10);
+  const yearInt = parseInt(String(exp_year), 10);
+  if (!monthInt || monthInt < 1 || monthInt > 12) {
+    res.status(400).json({ success: false, error: 'Invalid expiration month' });
+    return;
+  }
+  if (!yearInt || yearInt < 2000) {
+    res.status(400).json({ success: false, error: 'Invalid expiration year' });
+    return;
+  }
+
+  // Sola expects MMYY format
+  const expMM = String(monthInt).padStart(2, '0');
+  const expYY = String(yearInt % 100).padStart(2, '0');
+  const expCombined = `${expMM}${expYY}`;
+
+  const cleanCvv = cvv ? String(cvv).replace(/\D/g, '') : undefined;
+  const cleanZip = zip ? String(zip).replace(/\D/g, '') : undefined;
+
+  let solaResult;
+  try {
+    solaResult = await solaTokenize(cleanNum, expCombined, cleanCvv, cleanZip);
+  } catch (err: any) {
+    res.status(502).json({ success: false, error: err?.message || 'Card tokenization failed' });
+    return;
+  }
+
+  if (solaResult.xResult !== 'A') {
+    res.status(400).json({
+      success: false,
+      error: solaResult.xError || 'Card could not be verified',
+    });
+    return;
+  }
+
+  const last4 = cleanNum.slice(-4);
+
+  const { data: savedCard, error } = await supabaseAdmin
+    .from('payment_methods')
+    .insert({
+      user_id: req.params.id,
+      sola_token: solaResult.xToken,
+      card_last4: last4,
+      card_brand: solaResult.xCardType || null,
+      card_exp_month: monthInt,
+      card_exp_year: yearInt,
+      is_default: !!is_default,
+    })
+    .select()
+    .single();
+
+  if (error || !savedCard) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to save card' });
+    return;
+  }
+
+  if (is_default) {
+    const { error: unsetError } = await supabaseAdmin
+      .from('payment_methods')
+      .update({ is_default: false })
+      .eq('user_id', req.params.id)
+      .neq('id', savedCard.id);
+
+    if (unsetError) {
+      res.status(500).json({
+        success: false,
+        error: `Card saved but failed to unset other defaults: ${unsetError.message}`,
+      });
+      return;
+    }
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'create_payment_method',
+    entity_type: 'payment_method',
+    entity_id: savedCard.id,
+    changes: {
+      card_last4: last4,
+      card_brand: savedCard.card_brand,
+      card_exp_month: monthInt,
+      card_exp_year: yearInt,
+    },
+  });
+
+  res.status(201).json({
+    success: true,
+    data: {
+      id: savedCard.id,
+      card_last4: savedCard.card_last4,
+      card_brand: savedCard.card_brand,
+      card_exp_month: savedCard.card_exp_month,
+      card_exp_year: savedCard.card_exp_year,
+      is_default: savedCard.is_default,
+    },
+  });
+});
+
+usersRouter.patch('/:id/payment-methods/:paymentMethodId', async (req, res) => {
+  const { is_default } = req.body;
+
+  const updates: Record<string, unknown> = {};
+  if (is_default !== undefined) updates.is_default = !!is_default;
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ success: false, error: 'No editable fields provided' });
+    return;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('payment_methods')
+    .update(updates)
+    .eq('id', req.params.paymentMethodId)
+    .eq('user_id', req.params.id)
+    .select('id, card_last4, card_brand, card_exp_month, card_exp_year, is_default')
+    .single();
+
+  if (error || !data) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to update card' });
+    return;
+  }
+
+  if (is_default) {
+    const { error: unsetError } = await supabaseAdmin
+      .from('payment_methods')
+      .update({ is_default: false })
+      .eq('user_id', req.params.id)
+      .neq('id', req.params.paymentMethodId);
+
+    if (unsetError) {
+      res.status(500).json({
+        success: false,
+        error: `Card updated but failed to unset other defaults: ${unsetError.message}`,
+      });
+      return;
+    }
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'update_payment_method',
+    entity_type: 'payment_method',
+    entity_id: req.params.paymentMethodId,
+    changes: updates,
+  });
+
+  res.json({ success: true, data });
+});
+
+usersRouter.delete('/:id/payment-methods/:paymentMethodId', async (req, res) => {
+  const { count: orderCount } = await supabaseAdmin
+    .from('orders')
+    .select('*', { count: 'exact', head: true })
+    .eq('payment_method_id', req.params.paymentMethodId);
+
+  if (orderCount && orderCount > 0) {
+    res.status(409).json({
+      success: false,
+      error: `Cannot delete card: it is referenced by ${orderCount} order(s).`,
+    });
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('payment_methods')
+    .delete()
+    .eq('id', req.params.paymentMethodId)
+    .eq('user_id', req.params.id);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'delete_payment_method',
+    entity_type: 'payment_method',
+    entity_id: req.params.paymentMethodId,
+    changes: null,
+  });
+
+  res.json({ success: true, message: 'Card deleted' });
 });
 
 usersRouter.get('/:id/login-history', async (req, res) => {
