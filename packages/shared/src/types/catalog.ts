@@ -10,6 +10,11 @@ export interface CatalogCategory {
   deleted_by: string | null;
 }
 
+export interface CatalogProductImage {
+  url: string;
+  is_featured: boolean;
+}
+
 export interface CatalogProduct {
   id: string;
   voicex_id: string;
@@ -25,6 +30,12 @@ export interface CatalogProduct {
   local_price_cents: number | null;
   amazon_star_rating: number | null;
   amazon_ratings_total: number | null;
+  /** Full Amazon image gallery (hotlinked URLs). Lazy-loaded in lightbox. */
+  amazon_image_urls: CatalogProductImage[] | null;
+  /** Storage path inside the `product-images` Supabase bucket for the featured thumbnail. */
+  thumbnail_path: string | null;
+  /** Server-decorated absolute public URL for `thumbnail_path` (admin API only). */
+  thumbnail_url?: string | null;
   is_active: boolean;
   lifetime_qty_sold: number;
   created_at: string;

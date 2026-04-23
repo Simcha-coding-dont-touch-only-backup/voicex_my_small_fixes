@@ -6,6 +6,7 @@ import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/
 import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
+import { ProductThumbnail } from '../components/ProductThumbnail';
 
 interface AsinLookupData {
   asin: string;
@@ -117,6 +118,7 @@ export function ProductsPage() {
         amazon_name: lookupData.name,
         amazon_description: lookupData.description,
         amazon_price_cents: lookupData.price_cents,
+        amazon_image_urls: lookupData.images || [],
         voice_name: createOverrides.voice_name || null,
         voice_description: createOverrides.voice_description || null,
         custom_price_cents: createOverrides.custom_price_cents ? parseInt(createOverrides.custom_price_cents) : null,
@@ -254,6 +256,23 @@ export function ProductsPage() {
                 <div>
                   <h4 className="mb-3 text-sm font-semibold text-gray-700">Amazon Data (auto-fetched)</h4>
                   <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                    {lookupData.images && lookupData.images.length > 0 && (
+                      <div className="flex items-start gap-3">
+                        <ProductThumbnail
+                          thumbnailUrl={
+                            (lookupData.images.find((i) => i.is_featured) || lookupData.images[0])?.url || null
+                          }
+                          images={lookupData.images}
+                          alt={lookupData.name || lookupData.asin}
+                          size={88}
+                        />
+                        <div className="text-xs text-gray-500">
+                          {lookupData.images.length} image{lookupData.images.length === 1 ? '' : 's'} found.
+                          <br />
+                          The featured one will be saved as a thumbnail; click to preview the full gallery.
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <span className="text-xs font-medium text-gray-500">Name</span>
                       <p className="text-sm text-gray-800">{lookupData.name || '-'}</p>
@@ -405,6 +424,7 @@ export function ProductsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
+              <th className="px-3 py-3 font-medium w-16">Image</th>
               <th className="px-6 py-3 font-medium">VoiceX ID</th>
               <th className="px-6 py-3 font-medium">Name</th>
               <th className="px-6 py-3 font-medium">ASIN</th>
@@ -420,6 +440,14 @@ export function ProductsPage() {
             {products.map((p) => (
               <Fragment key={p.id}>
                 <tr className={`border-b hover:bg-gray-50 ${editingId === p.id ? 'bg-indigo-50' : ''}`}>
+                  <td className="px-3 py-2">
+                    <ProductThumbnail
+                      thumbnailUrl={p.thumbnail_url}
+                      images={p.amazon_image_urls}
+                      alt={p.voice_name || p.amazon_name || p.voicex_id}
+                      size={48}
+                    />
+                  </td>
                   <td className="px-6 py-3 font-mono">{p.voicex_id}</td>
                   <td className="px-6 py-3">
                     <Link to={`/products/${p.id}`} className="text-indigo-600 hover:underline">
@@ -468,7 +496,7 @@ export function ProductsPage() {
                 </tr>
                 {editingId === p.id && (
                   <tr className="border-b bg-indigo-50/50">
-                    <td colSpan={9} className="px-6 py-4">
+                    <td colSpan={10} className="px-6 py-4">
                       <div className="rounded-lg border border-indigo-200 bg-white p-5">
                         <h4 className="mb-4 text-sm font-semibold text-gray-700">Edit Product</h4>
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

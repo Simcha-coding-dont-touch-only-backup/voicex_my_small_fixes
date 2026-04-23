@@ -2023,6 +2023,8 @@ registerHandler('checkout_pay', async (ctx) => {
     });
 
     // --- Step 2: Create order in DB ---
+    // Snapshot card_brand + card_last4 onto the order so it stays visible
+    // even if the user later deletes this saved payment method.
     const { data: order } = await supabaseAdmin
       .from('orders')
       .insert({
@@ -2030,6 +2032,8 @@ registerHandler('checkout_pay', async (ctx) => {
         rye_checkout_intent_id: ryeIntentId,
         status: 'processing', subtotal_cents: subtotal, shipping_cents: shippingCents,
         tax_cents: taxCents, total_cents: totalCents,
+        card_brand_snapshot: paymentMethod.card_brand ?? null,
+        card_last4_snapshot: paymentMethod.card_last4 ?? null,
       })
       .select()
       .single();

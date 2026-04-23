@@ -5,6 +5,7 @@ import { Plus } from 'lucide-react';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
+import { ProductThumbnail } from '../components/ProductThumbnail';
 
 export function ProductDetailPage() {
   const { id } = useParams();
@@ -69,6 +70,12 @@ export function ProductDetailPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <button onClick={() => navigate('/products')} className="text-sm text-indigo-600 hover:underline">&larr; Back</button>
+        <ProductThumbnail
+          thumbnailUrl={product.thumbnail_url}
+          images={product.amazon_image_urls}
+          alt={product.voice_name || product.amazon_name || product.voicex_id}
+          size={64}
+        />
         <h2 className="text-2xl font-bold text-gray-800">Product: {product.voice_name || product.amazon_name || product.voicex_id}</h2>
       </div>
 

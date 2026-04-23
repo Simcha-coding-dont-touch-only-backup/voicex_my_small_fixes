@@ -1,6 +1,17 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { ryeClient, fetchAmazonProductReviews } from '../../lib/rye.js';
+import {
+  downloadAndStoreFeaturedThumbnail,
+  pickFeaturedImageUrl,
+  getThumbnailPublicUrl,
+  deleteThumbnailsForAsin,
+  type ProductImageInput,
+} from '../../lib/product-images.js';
+
+function decorateProductWithThumbnail<T extends { thumbnail_path?: string | null }>(p: T): T & { thumbnail_url: string | null } {
+  return { ...p, thumbnail_url: getThumbnailPublicUrl(p.thumbnail_path ?? null) };
+}
 
 export const catalogRouter = Router();
 
@@ -263,7 +274,7 @@ catalogRouter.get('/products', async (req, res) => {
 
   res.json({
     success: true,
-    data,
+    data: (data || []).map(decorateProductWithThumbnail),
     total: count || 0,
     page: parseInt(page as string),
     per_page: parseInt(per_page as string),
@@ -284,7 +295,7 @@ catalogRouter.get('/products/:id', async (req, res) => {
     return;
   }
 
-  res.json({ success: true, data });
+  res.json({ success: true, data: decorateProductWithThumbnail(data) });
 });
 
 catalogRouter.post('/products/lookup-asin', async (req, res) => {
@@ -339,6 +350,7 @@ catalogRouter.post('/products', async (req, res) => {
     amazon_price_cents,
     amazon_star_rating,
     amazon_ratings_total,
+    amazon_image_urls,
     voice_name,
     voice_description,
     custom_price_cents,
@@ -359,6 +371,16 @@ catalogRouter.post('/products', async (req, res) => {
     finalVoicexId = String(maxNumeric + 1).padStart(7, '0');
   }
 
+  const images: ProductImageInput[] | null = Array.isArray(amazon_image_urls)
+    ? amazon_image_urls
+        .filter((img: any) => img && typeof img.url === 'string')
+        .map((img: any) => ({ url: img.url, is_featured: !!img.is_featured }))
+    : null;
+  const featuredUrl = pickFeaturedImageUrl(images);
+  const thumbnailPath = featuredUrl && amazon_asin
+    ? await downloadAndStoreFeaturedThumbnail(amazon_asin, featuredUrl)
+    : null;
+
   const { data: product, error } = await supabaseAdmin
     .from('catalog_products')
     .insert({
@@ -370,6 +392,8 @@ catalogRouter.post('/products', async (req, res) => {
       amazon_price_cents,
       amazon_star_rating: amazon_star_rating ?? null,
       amazon_ratings_total: amazon_ratings_total ?? null,
+      amazon_image_urls: images,
+      thumbnail_path: thumbnailPath,
       voice_name,
       voice_description,
       custom_price_cents,
@@ -400,7 +424,7 @@ catalogRouter.post('/products', async (req, res) => {
     changes: { voicex_id: finalVoicexId, amazon_asin },
   });
 
-  res.status(201).json({ success: true, data: product });
+  res.status(201).json({ success: true, data: decorateProductWithThumbnail(product) });
 });
 
 catalogRouter.patch('/products/:id', async (req, res) => {
@@ -457,7 +481,7 @@ catalogRouter.patch('/products/:id', async (req, res) => {
     changes: updates,
   });
 
-  res.json({ success: true, data });
+  res.json({ success: true, data: data ? decorateProductWithThumbnail(data) : data });
 });
 
 catalogRouter.delete('/products/:id', async (req, res) => {
@@ -465,6 +489,12 @@ catalogRouter.delete('/products/:id', async (req, res) => {
   const id = req.params.id;
 
   if (adminUser?.role === 'super_admin') {
+    const { data: existing } = await supabaseAdmin
+      .from('catalog_products')
+      .select('amazon_asin')
+      .eq('id', id)
+      .single();
+
     await supabaseAdmin.from('catalog_product_categories').delete().eq('product_id', id);
 
     const { error } = await supabaseAdmin
@@ -475,6 +505,10 @@ catalogRouter.delete('/products/:id', async (req, res) => {
     if (error) {
       res.status(500).json({ success: false, error: error.message });
       return;
+    }
+
+    if (existing?.amazon_asin) {
+      await deleteThumbnailsForAsin(existing.amazon_asin);
     }
 
     await supabaseAdmin.from('admin_audit_logs').insert({

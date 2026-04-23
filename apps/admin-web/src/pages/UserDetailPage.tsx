@@ -46,6 +46,7 @@ function ConfirmDialog({
   open,
   title,
   message,
+  warning,
   confirmLabel = 'Delete',
   onConfirm,
   onCancel,
@@ -54,6 +55,7 @@ function ConfirmDialog({
   open: boolean;
   title: string;
   message: string;
+  warning?: string | null;
   confirmLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
@@ -71,6 +73,14 @@ function ConfirmDialog({
       >
         <h3 className="text-base font-semibold text-gray-900">{title}</h3>
         <p className="mt-2 text-sm text-gray-600">{message}</p>
+        {warning && (
+          <div className="mt-3 flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 flex-shrink-0">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+            </svg>
+            <span>{warning}</span>
+          </div>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <button
             onClick={onCancel}
@@ -326,6 +336,7 @@ export function UserDetailPage() {
   const [confirmState, setConfirmState] = useState<{
     title: string;
     message: string;
+    warning?: string | null;
     onConfirm: () => Promise<void>;
   } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -470,11 +481,29 @@ export function UserDetailPage() {
     }
   };
 
-  const handleDeleteCard = (card: any) => {
+  const handleDeleteCard = async (card: any) => {
     const label = `${card.card_brand || 'Card'} ending in ${card.card_last4}`;
+
+    let warning: string | null = null;
+    try {
+      const usage = await apiGet<{ data: { active_order_count: number } }>(
+        `/users/${id}/payment-methods/${card.id}/usage`
+      );
+      const active = usage.data.active_order_count;
+      if (active > 0) {
+        warning =
+          active === 1
+            ? 'There is 1 active order on this card (not yet completed, failed, or cancelled). Deleting now means you cannot re-charge or re-authorize that order with this card if needed.'
+            : `There are ${active} active orders on this card (not yet completed, failed, or cancelled). Deleting now means you cannot re-charge or re-authorize those orders with this card if needed.`;
+      }
+    } catch {
+      // Usage check is advisory only; never block the delete flow on it.
+    }
+
     setConfirmState({
       title: 'Delete saved card?',
-      message: `This will permanently remove ${label} from this user. This cannot be undone.`,
+      message: `This will permanently remove ${label} from this user. Past orders will keep showing the card brand and last 4 digits, but the card itself can no longer be charged.`,
+      warning,
       onConfirm: async () => {
         try {
           await apiDelete(`/users/${id}/payment-methods/${card.id}`);
@@ -796,6 +825,7 @@ export function UserDetailPage() {
         open={!!confirmState}
         title={confirmState?.title || ''}
         message={confirmState?.message || ''}
+        warning={confirmState?.warning ?? null}
         busy={confirmBusy}
         onCancel={() => {
           if (confirmBusy) return;

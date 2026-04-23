@@ -3,7 +3,11 @@ export interface Order {
   user_id: string;
   cart_id: string;
   address_id: string;
-  payment_method_id: string;
+  payment_method_id: string | null;
+  /** Snapshot of card brand at order placement; survives payment method deletion. */
+  card_brand_snapshot: string | null;
+  /** Snapshot of card last4 at order placement; survives payment method deletion. */
+  card_last4_snapshot: string | null;
   rye_checkout_intent_id: string | null;
   status: OrderStatus;
   subtotal_cents: number;

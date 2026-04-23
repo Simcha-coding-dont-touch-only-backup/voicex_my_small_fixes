@@ -509,20 +509,31 @@ usersRouter.patch('/:id/payment-methods/:paymentMethodId', async (req, res) => {
   res.json({ success: true, data });
 });
 
-usersRouter.delete('/:id/payment-methods/:paymentMethodId', async (req, res) => {
-  const { count: orderCount } = await supabaseAdmin
-    .from('orders')
-    .select('*', { count: 'exact', head: true })
-    .eq('payment_method_id', req.params.paymentMethodId);
+// Statuses where the card may still be needed (re-auth, capture, refund routing).
+// Orders outside this list are terminal (`completed`, `failed`, `cancelled`)
+// and don't block anything; they keep their card snapshot for display only.
+const ACTIVE_ORDER_STATUSES = ['pending', 'processing', 'awaiting_confirmation', 'confirmed'];
 
-  if (orderCount && orderCount > 0) {
-    res.status(409).json({
-      success: false,
-      error: `Cannot delete card: it is referenced by ${orderCount} order(s).`,
-    });
+usersRouter.get('/:id/payment-methods/:paymentMethodId/usage', async (req, res) => {
+  const { count, error } = await supabaseAdmin
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('payment_method_id', req.params.paymentMethodId)
+    .in('status', ACTIVE_ORDER_STATUSES);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
     return;
   }
 
+  res.json({ success: true, data: { active_order_count: count || 0 } });
+});
+
+usersRouter.delete('/:id/payment-methods/:paymentMethodId', async (req, res) => {
+  // We don't block deletion when orders reference this card. The orders
+  // table already snapshots `card_brand_snapshot` / `card_last4_snapshot`
+  // at order creation, and the FK is `ON DELETE SET NULL`, so historical
+  // orders keep showing the card details that were used.
   const { error } = await supabaseAdmin
     .from('payment_methods')
     .delete()
