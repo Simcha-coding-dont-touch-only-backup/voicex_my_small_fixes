@@ -82,7 +82,7 @@ export function ContactPage() {
   return (
     <>
       <PageHero />
-      <section className="bg-white pb-24">
+      <section className="bg-white pt-10 pb-24 sm:pt-12 lg:pt-14">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-3 lg:gap-16">
             <ContactInfo />
