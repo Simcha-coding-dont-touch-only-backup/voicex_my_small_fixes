@@ -7,6 +7,7 @@ import './modules/ivr/init-handlers.js';
 import { teltechRouter } from './modules/teltech/routes.js';
 import { adminRouter } from './modules/admin/routes.js';
 import { webhookRouter } from './modules/orders/webhook-routes.js';
+import { contactRouter } from './modules/contact/routes.js';
 import { handleCallStatus } from './modules/teltech/handlers/call-status.js';
 import { handleErrorWebhook } from './modules/teltech/handlers/error-webhook.js';
 
@@ -25,6 +26,8 @@ app.use(cors({ origin: config.adminUrl, credentials: true }));
 app.use('/api/ivr', express.json(), express.urlencoded({ extended: true }), teltechRouter);
 
 app.use('/api/webhooks', express.json(), webhookRouter);
+
+app.use('/api/contact-submissions', express.json(), contactRouter);
 
 app.use('/api/admin', express.json(), adminRouter);
 

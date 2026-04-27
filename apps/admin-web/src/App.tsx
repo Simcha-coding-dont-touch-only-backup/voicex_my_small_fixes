@@ -21,6 +21,7 @@ import { AddressTestPage } from './pages/AddressTestPage';
 import { SubAdminsPage } from './pages/SubAdminsPage';
 import { DeletedProductsPage } from './pages/DeletedProductsPage';
 import { DeletedCategoriesPage } from './pages/DeletedCategoriesPage';
+import { SupportPage } from './pages/SupportPage';
 import { MarketingLayout } from './components/marketing/MarketingLayout';
 import { HomePage } from './pages/marketing/HomePage';
 import { FeaturesPage } from './pages/marketing/FeaturesPage';
@@ -142,6 +143,7 @@ function ProtectedAdminRoutes() {
         <Route path="/reports" element={<RequireFullAdmin><ReportsPage /></RequireFullAdmin>} />
         <Route path="/ivr" element={<RequireFullAdmin><IvrFlowsPage /></RequireFullAdmin>} />
         <Route path="/logs" element={<RequireFullAdmin><LogsPage /></RequireFullAdmin>} />
+        <Route path="/support" element={<RequireFullAdmin><SupportPage /></RequireFullAdmin>} />
         <Route path="/address-test" element={<RequireFullAdmin><AddressTestPage /></RequireFullAdmin>} />
 
         {/* Sub-admin management is super-admin only. */}

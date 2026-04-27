@@ -15,9 +15,9 @@ export function OrderDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/orders')} className="text-sm text-indigo-600 hover:underline">&larr; Back</button>
-        <h2 className="text-2xl font-bold text-gray-800">Order {order.id.slice(-8).toUpperCase()}</h2>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <button type="button" onClick={() => navigate('/orders')} className="shrink-0 text-sm text-indigo-600 hover:underline">&larr; Back</button>
+        <h2 className="min-w-0 break-words text-xl font-bold text-gray-800 sm:text-2xl">Order {order.id.slice(-8).toUpperCase()}</h2>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -53,6 +53,7 @@ export function OrderDetailPage() {
         <div className="space-y-6">
           <div className="rounded-xl bg-white p-6 shadow-sm">
             <h3 className="mb-4 text-lg font-semibold">Items</h3>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-gray-500">
@@ -73,6 +74,7 @@ export function OrderDetailPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           <div className="rounded-xl bg-white p-6 shadow-sm">

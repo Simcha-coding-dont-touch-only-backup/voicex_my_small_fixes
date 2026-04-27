@@ -4,7 +4,7 @@ import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
   ChevronsLeft, ChevronsRight, AlertTriangle, MapPin,
-  Wrench, ChevronDown, ShieldCheck,
+  Wrench, ChevronDown, ShieldCheck, Inbox,
 } from 'lucide-react';
 import type { AdminPermissionKey } from '@voicex/shared';
 import { useAuth } from '../lib/auth-context';
@@ -35,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/admin/reports', label: 'Reports', icon: BarChart3, requires: { kind: 'fullAdmin' } },
   { to: '/admin/ivr', label: 'IVR Flows', icon: Phone, requires: { kind: 'fullAdmin' } },
   { to: '/admin/logs', label: 'Logs', icon: AlertTriangle, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/support', label: 'Support', icon: Inbox, requires: { kind: 'fullAdmin' } },
 ];
 
 const TOOLS_ITEMS: NavItem[] = [
@@ -186,17 +187,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 items-center border-b bg-white px-6 shadow-sm">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-16 shrink-0 items-center border-b bg-white px-4 shadow-sm sm:px-6">
           <button className="lg:hidden" onClick={() => setSidebarOpen(true)}>
             <Menu size={20} />
           </button>
-          <h1 className="ml-4 text-lg font-semibold text-gray-800 lg:ml-0">
+          <h1 className="ml-3 min-w-0 truncate text-lg font-semibold text-gray-800 sm:ml-4 lg:ml-0">
             Admin Portal
           </h1>
         </header>
 
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-auto p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );

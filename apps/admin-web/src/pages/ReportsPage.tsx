@@ -56,7 +56,7 @@ export function ReportsPage() {
       </div>
 
       {data !== null && (
-        <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
           {data.length === 0 ? (
             <div className="flex items-center justify-center gap-3 py-12 text-gray-400">
               <FileSpreadsheet size={24} />

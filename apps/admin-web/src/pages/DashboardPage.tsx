@@ -104,36 +104,38 @@ export function DashboardPage() {
           ) : stats.recentOrders.length === 0 ? (
             <p className="text-gray-500">No orders yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-gray-500">
-                  <th className="pb-3 font-medium">Order ID</th>
-                  <th className="pb-3 font-medium">Customer</th>
-                  <th className="pb-3 font-medium">Status</th>
-                  <th className="pb-3 font-medium">Total</th>
-                  <th className="pb-3 font-medium">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.recentOrders.map((order: any) => (
-                  <tr key={order.id} className="border-b last:border-0">
-                    <td className="py-3 font-mono text-xs">{order.id.slice(-8)}</td>
-                    <td className="py-3">{order.users?.name || 'N/A'}</td>
-                    <td className="py-3">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                        order.status === 'completed' ? 'bg-green-100 text-green-700' :
-                        order.status === 'failed' ? 'bg-red-100 text-red-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="py-3">${(order.total_cents / 100).toFixed(2)}</td>
-                    <td className="py-3 text-gray-500">{new Date(order.created_at).toLocaleDateString()}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-gray-500">
+                    <th className="pb-3 font-medium">Order ID</th>
+                    <th className="pb-3 font-medium">Customer</th>
+                    <th className="pb-3 font-medium">Status</th>
+                    <th className="pb-3 font-medium">Total</th>
+                    <th className="pb-3 font-medium">Date</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {stats.recentOrders.map((order: any) => (
+                    <tr key={order.id} className="border-b last:border-0">
+                      <td className="py-3 font-mono text-xs">{order.id.slice(-8)}</td>
+                      <td className="py-3">{order.users?.name || 'N/A'}</td>
+                      <td className="py-3">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                          order.status === 'completed' ? 'bg-green-100 text-green-700' :
+                          order.status === 'failed' ? 'bg-red-100 text-red-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="py-3">${(order.total_cents / 100).toFixed(2)}</td>
+                      <td className="py-3 text-gray-500">{new Date(order.created_at).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

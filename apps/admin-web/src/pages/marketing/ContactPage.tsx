@@ -54,9 +54,20 @@ export function ContactPage() {
     setErrorMsg('');
 
     try {
-      // Frontend-only: simulate submission, then mark success.
-      // Wire this up to a real endpoint when the backend route is ready.
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      const resp = await fetch('/api/contact-submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...form,
+          source_path: window.location.pathname,
+        }),
+      });
+
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || 'Something went wrong. Please try again or email us directly.');
+      }
+
       setStatus('success');
     } catch (err) {
       setStatus('error');

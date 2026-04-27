@@ -89,11 +89,11 @@ function Hero() {
         {/* Phone-mockup illustration */}
         <div className="mx-auto mt-16 max-w-4xl">
           <div className="relative rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-indigo-100/60">
-            <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-3">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-              <span className="ml-3 text-xs font-medium text-slate-400">
+            <div className="flex min-w-0 items-center gap-2 border-b border-slate-200 px-4 py-3 sm:px-5">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-rose-400" />
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400" />
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-400" />
+              <span className="ml-1 min-w-0 flex-1 truncate text-xs font-medium text-slate-400 sm:ml-3">
                 Live call · 845-422-4025
               </span>
             </div>
@@ -234,8 +234,8 @@ function Problem() {
   return (
     <section className="bg-white py-20 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
-          <div>
+        <div className="grid gap-12 lg:grid-cols-2 lg:items-stretch lg:gap-16">
+          <div className="flex flex-col">
             <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
               The problem
             </p>
@@ -260,24 +260,24 @@ function Problem() {
               />
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid h-full min-h-0 gap-5 sm:grid-cols-2 sm:gap-5 lg:grid-rows-2 lg:gap-6">
             <ProblemCard
-              icon={<Phone size={20} />}
+              icon={<Phone size={26} strokeWidth={2} />}
               title="No internet required"
               text="Works on any landline, flip phone, or restricted device."
             />
             <ProblemCard
-              icon={<Headphones size={20} />}
+              icon={<Headphones size={26} strokeWidth={2} />}
               title="No call center"
               text="Fully automated. Scales infinitely. No staffing costs."
             />
             <ProblemCard
-              icon={<ShieldCheck size={20} />}
+              icon={<ShieldCheck size={26} strokeWidth={2} />}
               title="Secure by design"
               text="PIN authentication, saved cards, encrypted at every step."
             />
             <ProblemCard
-              icon={<Zap size={20} />}
+              icon={<Zap size={26} strokeWidth={2} />}
               title="Fulfilled instantly"
               text="Connected to live retail catalogs and shipping providers."
             />
@@ -298,12 +298,16 @@ function ProblemCard({
   text: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-5">
-      <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white text-indigo-600 ring-1 ring-slate-200">
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50/50 p-6 sm:p-7 lg:p-8">
+      <div className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 ring-1 ring-slate-200">
         {icon}
       </div>
-      <h3 className="mt-4 text-base font-semibold text-slate-900">{title}</h3>
-      <p className="mt-1 text-sm leading-relaxed text-slate-600">{text}</p>
+      <h3 className="mt-5 text-lg font-semibold text-slate-900 sm:text-xl">
+        {title}
+      </h3>
+      <p className="mt-2 flex-1 text-base leading-relaxed text-slate-600">
+        {text}
+      </p>
     </div>
   );
 }
@@ -401,8 +405,8 @@ function FeatureHighlights() {
   return (
     <section className="bg-white py-20 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col items-end justify-between gap-6 sm:flex-row">
-          <div className="max-w-2xl">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+          <div className="w-full max-w-2xl sm:w-auto">
             <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
               Built for scale
             </p>

@@ -51,12 +51,18 @@ function PageHero() {
   );
 }
 
+const MISSION_QUOTES = [
+  "The most underserved segment in commerce isn't a geography or a demographic — it's everyone whose phone doesn't run apps. VoiceX is the platform built for them.",
+  "Commerce shouldn't require a smartphone, an app store, or a tutorial. If you can use a keypad, you should be able to browse, check out, and hear where your order is — on the same call.",
+  "We meet people on the channel they already trust — the voice line — and connect them to real catalogs, verified addresses, and the same payment rigor shoppers expect everywhere else.",
+];
+
 function Mission() {
   return (
     <section className="bg-white py-20 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
-          <div>
+        <div className="grid gap-12 lg:grid-cols-2 lg:items-stretch lg:gap-16">
+          <div className="flex flex-col">
             <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
               Our mission
             </p>
@@ -82,13 +88,22 @@ function Mission() {
               />
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-8 sm:p-10">
-            <blockquote className="text-xl leading-relaxed text-slate-800 sm:text-2xl">
-              "The most underserved segment in commerce isn't a geography or a
-              demographic — it's everyone whose phone doesn't run apps. VoiceX
-              is the platform built for them."
-            </blockquote>
-            <div className="mt-6 flex items-center gap-3">
+          <div className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-slate-50 p-6 sm:p-8 lg:h-full">
+            <div className="flex flex-1 flex-col gap-5 sm:gap-6 lg:gap-7">
+              {MISSION_QUOTES.map((quote, i) => (
+                <blockquote
+                  key={i}
+                  className={`text-base leading-relaxed text-slate-800 sm:text-lg ${
+                    i > 0
+                      ? 'border-t border-slate-200 pt-5 sm:pt-6 lg:pt-7'
+                      : ''
+                  }`}
+                >
+                  &ldquo;{quote}&rdquo;
+                </blockquote>
+              ))}
+            </div>
+            <div className="mt-6 flex shrink-0 items-center gap-3 border-t border-slate-200 pt-6 sm:mt-7 sm:pt-7">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 text-sm font-semibold text-white">
                 VX
               </div>
