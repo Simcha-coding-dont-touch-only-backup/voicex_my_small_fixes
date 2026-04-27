@@ -32,8 +32,8 @@ export function MarketingLayout() {
       <header
         className={`sticky top-0 z-40 w-full transition-all duration-200 ${
           scrolled
-            ? 'border-b border-slate-200/70 bg-white/85 backdrop-blur-md'
-            : 'bg-transparent'
+            ? 'border-b border-slate-200/70 bg-slate-50/85 backdrop-blur-md'
+            : 'bg-slate-50'
         }`}
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -89,7 +89,7 @@ export function MarketingLayout() {
         </div>
 
         {mobileOpen && (
-          <div className="md:hidden border-t border-slate-200 bg-white">
+          <div className="md:hidden border-t border-slate-200 bg-slate-50">
             <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
               <nav className="flex flex-col gap-1">
                 {NAV_LINKS.map(({ to, label }) => (

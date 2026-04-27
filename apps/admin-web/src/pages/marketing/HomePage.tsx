@@ -11,6 +11,9 @@ import {
   CreditCard,
   MapPin,
   PhoneCall,
+  Clock,
+  BadgeCheck,
+  type LucideIcon,
 } from 'lucide-react';
 
 export function HomePage() {
@@ -86,7 +89,7 @@ function Hero() {
               <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
               <span className="ml-3 text-xs font-medium text-slate-400">
-                Live call · 1-800-VOICE-X
+                Live call · 845-422-4025
               </span>
             </div>
             <div className="grid grid-cols-1 gap-6 p-6 sm:p-8 md:grid-cols-2">
@@ -184,24 +187,38 @@ function CartPreview() {
 }
 
 function TrustBar() {
-  const stats = [
-    { label: 'Average call time', value: '< 4 min' },
-    { label: 'Catalog size', value: '10,000+ SKUs' },
-    { label: 'Order accuracy', value: '99.7%' },
-    { label: 'Coverage', value: 'Any phone' },
+  const stats: { label: string; value: string; icon: LucideIcon }[] = [
+    { label: 'Average call time', value: '< 4 min', icon: Clock },
+    { label: 'Catalog size', value: '10,000+ SKUs', icon: Package },
+    { label: 'Order accuracy', value: '99.7%', icon: BadgeCheck },
+    { label: 'Coverage', value: 'Any phone', icon: Phone },
   ];
   return (
     <section className="border-y border-slate-200 bg-white">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
-          {stats.map((s) => (
-            <div key={s.label}>
-              <p className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                {s.value}
-              </p>
-              <p className="mt-1 text-sm text-slate-500">{s.label}</p>
-            </div>
-          ))}
+          {stats.map((s) => {
+            const Icon = s.icon;
+            return (
+              <div
+                key={s.label}
+                className="flex flex-col items-center text-center"
+              >
+                <span
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100/80"
+                  aria-hidden
+                >
+                  <Icon size={22} strokeWidth={2} />
+                </span>
+                <p className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                  {s.value}
+                </p>
+                <p className="mt-1 max-w-[12rem] text-sm leading-snug text-slate-500">
+                  {s.label}
+                </p>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -218,7 +235,7 @@ function Problem() {
               The problem
             </p>
             <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-              Millions of people are left out of e-commerce.
+              Tens of thousands of people are left out of e-commerce.
             </h2>
             <p className="mt-4 text-lg leading-relaxed text-slate-600">
               Seniors, communities that opt out of the open internet, people with
@@ -230,6 +247,13 @@ function Problem() {
               by humans. Both options leave money on the table and customers
               underserved.
             </p>
+            <div className="mt-10 overflow-hidden rounded-2xl bg-slate-100 shadow-sm ring-1 ring-slate-200/50">
+              <img
+                src="/assets/landline-desk.jpg"
+                alt="Classic landline phone on a desk"
+                className="h-64 w-full object-cover sm:h-80"
+              />
+            </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <ProblemCard
@@ -297,7 +321,7 @@ function HowItWorks() {
       n: '03',
       icon: <MapPin size={22} />,
       title: 'Verify & checkout',
-      text: 'Address verification via Google. Payment via saved card or Stripe. Confirmed in under a minute.',
+      text: 'Address verification via Google. Payment via saved card or Sola. Confirmed in under a minute.',
     },
     {
       n: '04',
@@ -360,16 +384,8 @@ function FeatureHighlights() {
       text: 'Google Address Validation built in. No more failed deliveries from typos.',
     },
     {
-      title: 'Configurable IVR flows',
-      text: 'A drag-and-drop flow editor lets ops teams change call logic without engineering.',
-    },
-    {
-      title: 'Real-time order tracking',
-      text: 'Every order, event, and call log is queryable from a single admin portal.',
-    },
-    {
-      title: 'Role-based admin access',
-      text: 'Super admins, full admins, and scoped sub-admins — granular permissions for ops teams.',
+      title: 'Order status when you call',
+      text: 'Check recent orders and hear delivery updates over the phone — same call, same keypad. No tracking links or apps.',
     },
     {
       title: 'Fraud-aware checkout',

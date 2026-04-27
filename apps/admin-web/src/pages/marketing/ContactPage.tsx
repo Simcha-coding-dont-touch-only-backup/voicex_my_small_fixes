@@ -240,8 +240,8 @@ function ContactInfo() {
         <ContactRow
           icon={<Phone size={18} />}
           label="Phone"
-          value="+1 (555) 010-VOICE"
-          href="tel:+15550108642"
+          value="845-422-4025"
+          href="tel:+18454224025"
         />
         <ContactRow
           icon={<MapPin size={18} />}

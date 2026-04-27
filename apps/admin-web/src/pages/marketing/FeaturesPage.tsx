@@ -80,7 +80,7 @@ const CALLER_FEATURES = [
   {
     icon: <CreditCard size={22} />,
     title: 'Saved cards & secure payment',
-    text: 'PCI-compliant payment via Stripe and Sola/Cardknox. Returning customers check out in seconds with a tokenized card on file.',
+    text: 'PCI-compliant payment via Sola/Cardknox. Returning customers check out in seconds with a tokenized card on file.',
   },
 ];
 
@@ -167,7 +167,7 @@ function IntegrationsAndSecurity() {
     },
     {
       label: 'Payments',
-      detail: 'Stripe and Sola Payments (Cardknox) for tokenized, PCI-compliant cards.',
+      detail: 'Sola Payments (Cardknox) for tokenized, PCI-compliant cards.',
     },
     {
       label: 'Auth',
@@ -177,27 +177,42 @@ function IntegrationsAndSecurity() {
   return (
     <section className="bg-white py-20 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <SectionHeader
-          eyebrow="Integrations & security"
-          title="Production-grade infrastructure."
-          description="Built on services that retailers and security teams already trust."
-        />
-        <div className="mt-12 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <ul className="divide-y divide-slate-200">
-            {integrations.map((row) => (
-              <li
-                key={row.label}
-                className="grid gap-1 px-6 py-5 sm:grid-cols-3 sm:gap-6"
-              >
-                <p className="text-sm font-semibold text-slate-900">
-                  {row.label}
-                </p>
-                <p className="text-sm text-slate-600 sm:col-span-2">
-                  {row.detail}
-                </p>
-              </li>
-            ))}
-          </ul>
+        <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
+              Integrations & security
+            </p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+              Production-grade infrastructure.
+            </h2>
+            <p className="mt-4 text-lg leading-relaxed text-slate-600">
+              Built on services that retailers and security teams already trust.
+            </p>
+            <div className="mt-10 overflow-hidden rounded-2xl bg-slate-100 shadow-sm ring-1 ring-slate-200/50">
+              <img
+                src="/assets/secure-data.jpg"
+                alt="Secure digital data flowing through fiber optic cables"
+                className="h-64 w-full object-cover sm:h-80"
+              />
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <ul className="divide-y divide-slate-200">
+              {integrations.map((row) => (
+                <li
+                  key={row.label}
+                  className="grid gap-1 px-6 py-5 sm:grid-cols-3 sm:gap-6"
+                >
+                  <p className="text-sm font-semibold text-slate-900">
+                    {row.label}
+                  </p>
+                  <p className="text-sm text-slate-600 sm:col-span-2">
+                    {row.detail}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
     </section>

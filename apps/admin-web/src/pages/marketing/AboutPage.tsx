@@ -61,6 +61,13 @@ function Mission() {
               any merchant can serve any customer, on any phone, at any hour,
               without compromising on selection, price, or trust.
             </p>
+            <div className="mt-10 overflow-hidden rounded-2xl bg-slate-100 shadow-sm ring-1 ring-slate-200/50">
+              <img
+                src="/assets/warehouse-boxes.jpg"
+                alt="Neatly stacked shipping boxes in a modern fulfillment center"
+                className="h-64 w-full object-cover sm:h-80"
+              />
+            </div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-8 sm:p-10">
             <blockquote className="text-xl leading-relaxed text-slate-800 sm:text-2xl">
