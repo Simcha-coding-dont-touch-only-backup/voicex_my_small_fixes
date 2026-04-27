@@ -32,18 +32,23 @@ export function HomePage() {
 
 function Hero() {
   return (
-    <section className="relative overflow-hidden">
-      {/* Decorative gradient background */}
+    <section className="relative overflow-hidden bg-white">
+      {/* Full-width banner background using inline style to ensure Vite/Tailwind loads it */}
       <div
         aria-hidden
-        className="absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50/70 via-white to-white"
+        className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-70"
+        style={{ backgroundImage: "url('/assets/hero-banner-flip-phone-v2.jpg')" }}
       />
       <div
         aria-hidden
-        className="absolute -top-40 right-1/2 -z-10 h-[600px] w-[1200px] translate-x-1/2 rounded-full bg-gradient-to-tr from-indigo-200/40 via-violet-200/40 to-transparent blur-3xl"
+        className="absolute inset-0 z-[1] bg-gradient-to-b from-white/40 via-white/70 to-white"
+      />
+      <div
+        aria-hidden
+        className="absolute -top-40 right-1/2 z-[2] h-[600px] w-[1200px] translate-x-1/2 rounded-full bg-gradient-to-tr from-indigo-200/20 via-violet-200/20 to-transparent blur-3xl"
       />
 
-      <div className="mx-auto max-w-7xl px-4 pt-20 pb-24 sm:px-6 sm:pt-28 sm:pb-32 lg:px-8">
+      <div className="relative z-10 mx-auto max-w-7xl px-4 pt-20 pb-24 sm:px-6 sm:pt-28 sm:pb-32 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 backdrop-blur">
             <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -235,7 +240,7 @@ function Problem() {
               The problem
             </p>
             <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-              Tens of thousands of people are left out of e-commerce.
+              Millions of people are left out of e-commerce.
             </h2>
             <p className="mt-4 text-lg leading-relaxed text-slate-600">
               Seniors, communities that opt out of the open internet, people with
@@ -376,8 +381,8 @@ function HowItWorks() {
 function FeatureHighlights() {
   const features = [
     {
-      title: 'Hierarchical product catalog',
-      text: 'Up to three levels of categories. Pricing overrides, ASIN linking, and image management.',
+      title: 'Browse by category on the call',
+      text: 'Callers step through departments and submenus with the keypad, hear item names and live prices.',
     },
     {
       title: 'Address validation',
@@ -385,7 +390,7 @@ function FeatureHighlights() {
     },
     {
       title: 'Order status when you call',
-      text: 'Check recent orders and hear delivery updates over the phone — same call, same keypad. No tracking links or apps.',
+      text: 'Check recent orders and hear delivery updates over the phone — same call, same keypad.',
     },
     {
       title: 'Fraud-aware checkout',

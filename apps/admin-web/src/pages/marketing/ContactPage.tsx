@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mail, MapPin, Phone, CheckCircle2 } from 'lucide-react';
+import { Mail, MapPin, Phone, CheckCircle2, ChevronDown } from 'lucide-react';
 
 interface FormState {
   name: string;
@@ -13,11 +13,11 @@ const EMPTY: FormState = {
   name: '',
   email: '',
   company: '',
-  role: 'merchant',
+  role: '',
   message: '',
 };
 
-const CONTACT_EMAIL = 'hello@voicex.com';
+const CONTACT_EMAIL = 'support@voicexservice.com';
 
 type Status = 'idle' | 'submitting' | 'success' | 'error';
 
@@ -25,13 +25,31 @@ export function ContactPage() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    if (errors[key]) {
+      setErrors((prev) => ({ ...prev, [key]: '' }));
+    }
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const newErrors: Record<string, string> = {};
+    if (!form.name.trim()) newErrors.name = 'Name is required';
+    if (!form.email.trim()) newErrors.email = 'Email is required';
+    else if (!/^\S+@\S+\.\S+$/.test(form.email)) newErrors.email = 'Please enter a valid email';
+    if (!form.role.trim()) newErrors.role = 'Please choose how we should think of you';
+    if (!form.message.trim()) newErrors.message = 'Message is required';
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setErrors({});
     setStatus('submitting');
     setErrorMsg('');
 
@@ -63,12 +81,14 @@ export function ContactPage() {
                   name={form.name}
                   onAnother={() => {
                     setForm(EMPTY);
+                    setErrors({});
                     setStatus('idle');
                   }}
                 />
               ) : (
                 <form
                   onSubmit={onSubmit}
+                  noValidate
                   className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
                 >
                   <h2 className="text-2xl font-bold tracking-tight text-slate-900">
@@ -80,59 +100,77 @@ export function ContactPage() {
                   </p>
 
                   <div className="mt-6 grid gap-5 sm:grid-cols-2">
-                    <Field label="Full name" required>
+                    <Field label="Full name" required error={errors.name}>
                       <input
                         type="text"
-                        required
                         value={form.name}
                         onChange={(e) => update('name', e.target.value)}
-                        className={inputCls}
-                        placeholder="Jane Cooper"
+                        className={getInputCls(!!errors.name)}
+                        placeholder="Marvin Cooper"
                       />
                     </Field>
-                    <Field label="Email" required>
+                    <Field label="Email" required error={errors.email}>
                       <input
                         type="email"
-                        required
                         value={form.email}
                         onChange={(e) => update('email', e.target.value)}
-                        className={inputCls}
-                        placeholder="jane@company.com"
+                        className={getInputCls(!!errors.email)}
+                        placeholder="marvin@company.com"
                       />
                     </Field>
-                    <Field label="Company">
+                    <Field label="Company" error={errors.company}>
                       <input
                         type="text"
                         value={form.company}
                         onChange={(e) => update('company', e.target.value)}
-                        className={inputCls}
+                        className={getInputCls(!!errors.company)}
                         placeholder="Company, Inc."
                       />
                     </Field>
-                    <Field label="I'm a..." required>
-                      <select
-                        required
-                        value={form.role}
-                        onChange={(e) => update('role', e.target.value)}
-                        className={inputCls}
-                      >
-                        <option value="merchant">Merchant or retailer</option>
-                        <option value="investor">Investor</option>
-                        <option value="partner">Partner / integrator</option>
-                        <option value="press">Press</option>
-                        <option value="other">Other</option>
-                      </select>
+                    <Field
+                      label="I'm a..."
+                      required
+                      error={errors.role}
+                      errorId="contact-role-error"
+                    >
+                      <div className="relative">
+                        <select
+                          value={form.role}
+                          onChange={(e) => update('role', e.target.value)}
+                          aria-invalid={!!errors.role}
+                          aria-describedby={errors.role ? 'contact-role-error' : undefined}
+                          className={getSelectCls(!!errors.role)}
+                        >
+                          <option value="" disabled>
+                            Select your role
+                          </option>
+                          <option value="merchant">Merchant or retailer</option>
+                          <option value="investor">Investor</option>
+                          <option value="partner">Partner / integrator</option>
+                          <option value="press">Press</option>
+                          <option value="other">Other</option>
+                        </select>
+                        <span
+                          className={`pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg border-l ${
+                            errors.role
+                              ? 'border-rose-200 bg-rose-50/80 text-rose-600'
+                              : 'border-slate-200 bg-slate-50 text-slate-500'
+                          }`}
+                          aria-hidden
+                        >
+                          <ChevronDown className="h-4 w-4 shrink-0 opacity-80" strokeWidth={2} />
+                        </span>
+                      </div>
                     </Field>
                   </div>
 
                   <div className="mt-5">
-                    <Field label="How can we help?" required>
+                    <Field label="How can we help?" required error={errors.message}>
                       <textarea
-                        required
                         rows={5}
                         value={form.message}
                         onChange={(e) => update('message', e.target.value)}
-                        className={inputCls}
+                        className={getInputCls(!!errors.message)}
                         placeholder="Tell us a bit about what you're looking for…"
                       />
                     </Field>
@@ -173,16 +211,39 @@ export function ContactPage() {
   );
 }
 
-const inputCls =
-  'block w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200';
+const getInputCls = (hasError?: boolean) =>
+  `block w-full rounded-lg border bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm focus:outline-none focus:ring-2 ${
+    hasError
+      ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200'
+      : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-200'
+  }`;
+
+/** Native select: strip OS chrome, room for trailing chevron panel, hover/focus polish */
+const getSelectCls = (hasError?: boolean) =>
+  [
+    'block w-full cursor-pointer rounded-lg border bg-white py-2.5 pl-3.5 pr-11 text-sm text-slate-900 shadow-sm transition-colors',
+    'appearance-none [-webkit-appearance:none] [-moz-appearance:none]',
+    'focus:outline-none focus:ring-2',
+    hasError
+      ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200'
+      : 'border-slate-300 hover:border-slate-400 focus:border-indigo-500 focus:ring-indigo-200',
+    !hasError && 'hover:bg-slate-50/80',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
 function Field({
   label,
   required,
+  error,
+  errorId,
   children,
 }: {
   label: string;
   required?: boolean;
+  error?: string;
+  /** When set, error message span gets this id (e.g. for aria-describedby on inputs). */
+  errorId?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -192,23 +253,41 @@ function Field({
         {required && <span className="ml-0.5 text-rose-500">*</span>}
       </span>
       {children}
+      {error && (
+        <span id={errorId} className="mt-1.5 block text-sm text-rose-500">
+          {error}
+        </span>
+      )}
     </label>
   );
 }
 
 function PageHero() {
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden bg-white">
+      {/* Full-width banner background using inline style to ensure Vite/Tailwind loads it */}
       <div
         aria-hidden
-        className="absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50/70 to-white"
+        className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-70"
+        style={{ backgroundImage: "url('/assets/contact-hero-banner.jpg')" }}
       />
-      <div className="mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 sm:py-24 lg:px-8">
-        <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
-          Contact
-        </p>
-        <h1 className="mt-3 text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
-          Let's talk.
+      <div
+        aria-hidden
+        className="absolute inset-0 z-[1] bg-gradient-to-b from-white/40 via-white/70 to-white"
+      />
+      <div
+        aria-hidden
+        className="absolute -top-40 right-1/2 z-[2] h-[600px] w-[1200px] translate-x-1/2 rounded-full bg-gradient-to-tr from-indigo-200/20 via-violet-200/20 to-transparent blur-3xl"
+      />
+
+      <div className="relative z-10 mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 sm:py-24 lg:px-8">
+        <h1 className="font-bold tracking-tight text-slate-900">
+          <span className="block text-3xl font-bold uppercase tracking-wide text-indigo-600 sm:text-4xl">
+            Contact
+          </span>
+          <span className="mt-4 block text-4xl sm:text-5xl">
+            Let's talk.
+          </span>
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-600">
           Demos, partnerships, investment, press — drop us a note and we'll

@@ -15,17 +15,30 @@ export function AboutPage() {
 
 function PageHero() {
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden bg-white">
+      {/* Full-width banner background using inline style to ensure Vite/Tailwind loads it */}
       <div
         aria-hidden
-        className="absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50/70 to-white"
+        className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-70"
+        style={{ backgroundImage: "url('/assets/about-hero-banner.jpg')" }}
       />
-      <div className="mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 sm:py-24 lg:px-8">
-        <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
-          About VoiceX
-        </p>
-        <h1 className="mt-3 text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
-          Commerce should work for everyone — not just the connected.
+      <div
+        aria-hidden
+        className="absolute inset-0 z-[1] bg-gradient-to-b from-white/40 via-white/70 to-white"
+      />
+      <div
+        aria-hidden
+        className="absolute -top-40 right-1/2 z-[2] h-[600px] w-[1200px] translate-x-1/2 rounded-full bg-gradient-to-tr from-indigo-200/20 via-violet-200/20 to-transparent blur-3xl"
+      />
+
+      <div className="relative z-10 mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 sm:py-24 lg:px-8">
+        <h1 className="font-bold tracking-tight text-slate-900">
+          <span className="block text-3xl font-bold uppercase tracking-wide text-indigo-600 sm:text-4xl">
+            About VoiceX
+          </span>
+          <span className="mt-4 block text-4xl sm:text-5xl">
+            Commerce should work for everyone — not just the connected.
+          </span>
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-600">
           We started VoiceX after watching family members struggle to order the
@@ -96,19 +109,19 @@ function Mission() {
 function Story() {
   const items = [
     {
-      year: '2024',
+      year: '2025',
       title: 'The first prototype',
       text: 'Built as a side project to help a family member order weekly essentials without a smartphone. The first call placed a real Amazon order in under 90 seconds.',
     },
     {
-      year: '2025',
-      title: 'Migrated to a JSON-native IVR',
-      text: 'Replaced the original Twilio TwiML stack with TelTech\'s JSON API for radically lower per-minute economics and faster iteration.',
+      year: '2026',
+      title: 'Production-grade voice platform',
+      text: 'We rebuilt the early stack into a professional production system—built for real call volume, healthier economics, and fast iteration once we moved past the prototype.',
     },
     {
-      year: '2026',
-      title: 'Operator platform & multi-merchant',
-      text: 'Shipped the full admin portal: catalog, IVR flow editor, sub-admins, audit logs, and reporting. Now ready for partner merchants.',
+      year: '2027',
+      title: 'Strategic scale and partnerships',
+      text: 'Looking ahead: more merchant partners, larger rollouts, and deeper product investment so voice commerce can scale—without losing the clarity and trust we built in the first chapters.',
     },
   ];
   return (

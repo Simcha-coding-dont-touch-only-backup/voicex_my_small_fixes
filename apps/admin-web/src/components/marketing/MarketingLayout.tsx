@@ -193,10 +193,10 @@ function Footer() {
               </li>
               <li>
                 <a
-                  href="mailto:hello@voicex.com"
+                  href="mailto:support@voicexservice.com"
                   className="text-slate-600 hover:text-slate-900"
                 >
-                  hello@voicex.com
+                  support@voicexservice.com
                 </a>
               </li>
             </ul>

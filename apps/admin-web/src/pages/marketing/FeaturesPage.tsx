@@ -3,14 +3,8 @@ import {
   Phone,
   ShoppingCart,
   Package,
-  FolderTree,
-  ShieldCheck,
   CreditCard,
   MapPin,
-  BarChart3,
-  Workflow,
-  Users,
-  AlertTriangle,
   KeyRound,
   ArrowRight,
 } from 'lucide-react';
@@ -20,7 +14,6 @@ export function FeaturesPage() {
     <>
       <PageHero />
       <CallerExperience />
-      <OperatorPlatform />
       <IntegrationsAndSecurity />
       <CTA />
     </>
@@ -29,21 +22,34 @@ export function FeaturesPage() {
 
 function PageHero() {
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden bg-white">
+      {/* Full-width banner background using inline style to ensure Vite/Tailwind loads it */}
       <div
         aria-hidden
-        className="absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50/70 to-white"
+        className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-70"
+        style={{ backgroundImage: "url('/assets/features-hero-banner.jpg')" }}
       />
-      <div className="mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 sm:py-24 lg:px-8">
-        <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
-          Features
-        </p>
-        <h1 className="mt-3 text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
-          Everything you need to run a phone-first commerce business.
+      <div
+        aria-hidden
+        className="absolute inset-0 z-[1] bg-gradient-to-b from-white/40 via-white/70 to-white"
+      />
+      <div
+        aria-hidden
+        className="absolute -top-40 right-1/2 z-[2] h-[600px] w-[1200px] translate-x-1/2 rounded-full bg-gradient-to-tr from-indigo-200/20 via-violet-200/20 to-transparent blur-3xl"
+      />
+
+      <div className="relative z-10 mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 sm:py-24 lg:px-8">
+        <h1 className="font-bold tracking-tight text-slate-900">
+          <span className="block text-3xl font-bold uppercase tracking-wide text-indigo-600 sm:text-4xl">
+            Features
+          </span>
+          <span className="mt-4 block text-4xl sm:text-5xl">
+            Everything you need to shop—without an app or a browser.
+          </span>
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-600">
-          VoiceX is more than an IVR. It's a complete commerce platform —
-          catalog, checkout, fulfillment, and operations — purpose-built for
+          VoiceX is more than an IVR. It's a complete commerce experience on
+          the call—catalog, cart, checkout, and delivery updates—purpose-built for
           customers who shop by phone.
         </p>
       </div>
@@ -86,7 +92,7 @@ const CALLER_FEATURES = [
 
 function CallerExperience() {
   return (
-    <section className="bg-white py-20 sm:py-24">
+    <section className="bg-slate-50 py-20 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeader
           eyebrow="Caller experience"
@@ -99,67 +105,22 @@ function CallerExperience() {
   );
 }
 
-const OPERATOR_FEATURES = [
-  {
-    icon: <BarChart3 size={22} />,
-    title: 'Unified admin dashboard',
-    text: 'Real-time metrics across calls, carts, orders, and revenue — with drill-down into every event.',
-  },
-  {
-    icon: <FolderTree size={22} />,
-    title: 'Three-level catalog management',
-    text: 'Organize products into categories and subcategories. Set per-product overrides for price, name, and description.',
-  },
-  {
-    icon: <Workflow size={22} />,
-    title: 'Visual IVR flow builder',
-    text: 'Design and publish call flows with a drag-and-drop editor. Iterate without redeploying code.',
-  },
-  {
-    icon: <Users size={22} />,
-    title: 'Customer & order management',
-    text: 'Search, freeze, or restore users. Reset PINs. Inspect every order with line items, status, and event log.',
-  },
-  {
-    icon: <ShieldCheck size={22} />,
-    title: 'Granular role-based access',
-    text: 'Super-admins, admins, and scoped sub-admins. Permissions are enforced server-side and reflected in the UI.',
-  },
-  {
-    icon: <AlertTriangle size={22} />,
-    title: 'Audit logs & error tracking',
-    text: 'Every admin action and IVR error is logged and searchable. Built for compliance and post-mortems.',
-  },
-];
-
-function OperatorPlatform() {
-  return (
-    <section className="bg-slate-50 py-20 sm:py-24">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <SectionHeader
-          eyebrow="Operator platform"
-          title="Run the whole business from one console."
-          description="Operators get a modern web admin with everything they need to run catalog, customer service, and analytics."
-        />
-        <FeatureGrid features={OPERATOR_FEATURES} />
-      </div>
-    </section>
-  );
-}
-
 function IntegrationsAndSecurity() {
   const integrations = [
     {
       label: 'Telephony',
-      detail: 'TelTech JSON-API IVR. DTMF-driven, fire-and-forget webhooks.',
+      detail:
+        'Cloud-hosted JSON IVR. DTMF-driven, fire-and-forget webhooks.',
     },
     {
       label: 'Database',
-      detail: 'Supabase (Postgres) with row-level security on all admin tables.',
+      detail:
+        'PostgreSQL with row-level security on sensitive tables and admin data.',
     },
     {
       label: 'Fulfillment',
-      detail: 'Rye API for connected retailer checkout. Pluggable per merchant.',
+      detail:
+        'Connected retailer checkout. Pluggable integrations per merchant.',
     },
     {
       label: 'Address validation',
@@ -171,7 +132,8 @@ function IntegrationsAndSecurity() {
     },
     {
       label: 'Auth',
-      detail: 'Supabase Auth for operators; phone-based PIN for end users.',
+      detail:
+        'Secure web sign-in for operators; phone-based PIN for end users.',
     },
   ];
   return (
