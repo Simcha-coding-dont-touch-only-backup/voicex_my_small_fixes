@@ -204,7 +204,7 @@ function Footer() {
         </div>
 
         <div className="mt-10 flex flex-col items-start justify-between gap-3 border-t border-slate-200 pt-6 text-xs text-slate-500 sm:flex-row sm:items-center">
-          <p>© {year} VoiceX. All rights reserved.</p>
+          <p>© {year} VoiceX LLC. All rights reserved.</p>
           <p>Voice-powered phone commerce.</p>
         </div>
       </div>

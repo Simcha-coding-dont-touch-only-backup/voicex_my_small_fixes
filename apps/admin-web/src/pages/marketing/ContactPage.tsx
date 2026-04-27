@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Mail, MapPin, Phone, CheckCircle2, ChevronDown } from 'lucide-react';
 
 interface FormState {
@@ -18,6 +18,8 @@ const EMPTY: FormState = {
 };
 
 const CONTACT_EMAIL = 'support@voicexservice.com';
+const CONTACT_PHONE_DISPLAY = '929-579-1954';
+const CONTACT_PHONE_TEL = 'tel:+19295791954';
 
 type Status = 'idle' | 'submitting' | 'success' | 'error';
 
@@ -330,13 +332,17 @@ function ContactInfo() {
         <ContactRow
           icon={<Phone size={18} />}
           label="Phone"
-          value="845-422-4025"
-          href="tel:+18454224025"
+          value={CONTACT_PHONE_DISPLAY}
+          href={CONTACT_PHONE_TEL}
         />
         <ContactRow
           icon={<MapPin size={18} />}
           label="Office"
-          value="Remote-first · United States"
+          value={
+            <>
+              <span className="font-bold">VoiceX LLC</span> 194 Skillman St Apt 2R Brooklyn, NY 11205
+            </>
+          }
         />
       </ul>
 
@@ -360,7 +366,7 @@ function ContactRow({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: string;
+  value: ReactNode;
   href?: string;
 }) {
   const Inner = (
