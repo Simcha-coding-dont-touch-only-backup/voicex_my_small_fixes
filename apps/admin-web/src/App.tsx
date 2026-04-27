@@ -21,6 +21,11 @@ import { AddressTestPage } from './pages/AddressTestPage';
 import { SubAdminsPage } from './pages/SubAdminsPage';
 import { DeletedProductsPage } from './pages/DeletedProductsPage';
 import { DeletedCategoriesPage } from './pages/DeletedCategoriesPage';
+import { MarketingLayout } from './components/marketing/MarketingLayout';
+import { HomePage } from './pages/marketing/HomePage';
+import { FeaturesPage } from './pages/marketing/FeaturesPage';
+import { AboutPage } from './pages/marketing/AboutPage';
+import { ContactPage } from './pages/marketing/ContactPage';
 
 /**
  * Renders children if the current admin has the given permission, otherwise
@@ -30,7 +35,7 @@ import { DeletedCategoriesPage } from './pages/DeletedCategoriesPage';
  */
 function RequirePermission({ permission, children }: { permission: AdminPermissionKey; children: React.ReactNode }) {
   const { hasPermission } = useAuth();
-  if (!hasPermission(permission)) return <Navigate to="/" replace />;
+  if (!hasPermission(permission)) return <Navigate to="/admin" replace />;
   return <>{children}</>;
 }
 
@@ -40,7 +45,7 @@ function RequirePermission({ permission, children }: { permission: AdminPermissi
  */
 function RequireSuperAdmin({ children }: { children: React.ReactNode }) {
   const { isSuperAdmin } = useAuth();
-  if (!isSuperAdmin()) return <Navigate to="/" replace />;
+  if (!isSuperAdmin()) return <Navigate to="/admin" replace />;
   return <>{children}</>;
 }
 
@@ -52,12 +57,12 @@ function RequireSuperAdmin({ children }: { children: React.ReactNode }) {
 function RequireFullAdmin({ children }: { children: React.ReactNode }) {
   const { adminUser } = useAuth();
   if (adminUser?.role !== 'super_admin' && adminUser?.role !== 'admin') {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/admin" replace />;
   }
   return <>{children}</>;
 }
 
-function ProtectedRoutes() {
+function ProtectedAdminRoutes() {
   const { session, adminUser, loading, authError, signOut } = useAuth();
 
   if (loading) {
@@ -142,7 +147,7 @@ function ProtectedRoutes() {
         {/* Sub-admin management is super-admin only. */}
         <Route path="/sub-admins" element={<RequireSuperAdmin><SubAdminsPage /></RequireSuperAdmin>} />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     </Layout>
   );
@@ -152,8 +157,19 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        {/* Public marketing site */}
+        <Route element={<MarketingLayout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/features" element={<FeaturesPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+        </Route>
+
+        {/* Auth */}
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/*" element={<ProtectedRoutes />} />
+
+        {/* Authenticated admin portal */}
+        <Route path="/admin/*" element={<ProtectedAdminRoutes />} />
       </Routes>
     </AuthProvider>
   );

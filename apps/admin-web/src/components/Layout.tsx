@@ -23,22 +23,22 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, requires: { kind: 'all' } },
-  { to: '/users', label: 'Users', icon: Users, requires: { kind: 'fullAdmin' } },
+  { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, requires: { kind: 'all' } },
+  { to: '/admin/users', label: 'Users', icon: Users, requires: { kind: 'fullAdmin' } },
   // Sub-admin management is the only super-admin only nav item.
-  { to: '/sub-admins', label: 'Sub-Admins', icon: ShieldCheck, requires: { kind: 'super' } },
-  { to: '/categories', label: 'Categories', icon: FolderTree, requires: { kind: 'permission', key: 'manageProducts' } },
-  { to: '/products', label: 'Products', icon: Package, requires: { kind: 'permission', key: 'manageProducts' } },
-  { to: '/carts', label: 'Carts', icon: ShoppingBag, requires: { kind: 'fullAdmin' } },
-  { to: '/orders', label: 'Orders', icon: ShoppingCart, requires: { kind: 'fullAdmin' } },
-  { to: '/settings', label: 'Settings', icon: Settings, requires: { kind: 'fullAdmin' } },
-  { to: '/reports', label: 'Reports', icon: BarChart3, requires: { kind: 'fullAdmin' } },
-  { to: '/ivr', label: 'IVR Flows', icon: Phone, requires: { kind: 'fullAdmin' } },
-  { to: '/logs', label: 'Logs', icon: AlertTriangle, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/sub-admins', label: 'Sub-Admins', icon: ShieldCheck, requires: { kind: 'super' } },
+  { to: '/admin/categories', label: 'Categories', icon: FolderTree, requires: { kind: 'permission', key: 'manageProducts' } },
+  { to: '/admin/products', label: 'Products', icon: Package, requires: { kind: 'permission', key: 'manageProducts' } },
+  { to: '/admin/carts', label: 'Carts', icon: ShoppingBag, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/orders', label: 'Orders', icon: ShoppingCart, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/settings', label: 'Settings', icon: Settings, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/reports', label: 'Reports', icon: BarChart3, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/ivr', label: 'IVR Flows', icon: Phone, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/logs', label: 'Logs', icon: AlertTriangle, requires: { kind: 'fullAdmin' } },
 ];
 
 const TOOLS_ITEMS: NavItem[] = [
-  { to: '/address-test', label: 'Address Test', icon: MapPin, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/address-test', label: 'Address Test', icon: MapPin, requires: { kind: 'fullAdmin' } },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -101,7 +101,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <NavLink
               key={to}
               to={to}
-              end={to === '/'}
+              end={to === '/admin'}
               className={({ isActive }) =>
                 `flex items-center rounded-lg text-sm font-medium transition-colors ${
                   collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'

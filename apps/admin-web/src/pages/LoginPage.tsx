@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
 
 export function LoginPage() {
@@ -14,7 +14,7 @@ export function LoginPage() {
   // Only redirect once we've confirmed the session belongs to a real
   // admin_users row. Otherwise the auth context will sign them back out.
   if (session && adminUser) {
-    navigate('/', { replace: true });
+    navigate('/admin', { replace: true });
     return null;
   }
 
@@ -38,7 +38,9 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-50 to-white px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-indigo-600">VoiceX</h1>
+          <Link to="/" className="inline-block">
+            <h1 className="text-3xl font-bold text-indigo-600">VoiceX</h1>
+          </Link>
           <p className="mt-2 text-gray-500">Admin Portal</p>
         </div>
 
@@ -132,6 +134,15 @@ export function LoginPage() {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
+
+        <div className="mt-6 text-center">
+          <Link
+            to="/"
+            className="text-sm text-gray-500 hover:text-indigo-600"
+          >
+            ← Back to home
+          </Link>
+        </div>
       </div>
     </div>
   );
