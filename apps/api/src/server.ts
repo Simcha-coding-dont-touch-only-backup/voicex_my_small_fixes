@@ -27,6 +27,7 @@ app.use('/api/ivr', express.json(), express.urlencoded({ extended: true }), telt
 
 app.use('/api/webhooks', express.json(), webhookRouter);
 
+// Marketing site contact form — POST /api/contact-submissions (included in API deploy).
 app.use('/api/contact-submissions', express.json(), contactRouter);
 
 app.use('/api/admin', express.json(), adminRouter);
