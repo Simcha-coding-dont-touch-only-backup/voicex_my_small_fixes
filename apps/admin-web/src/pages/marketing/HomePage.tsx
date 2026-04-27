@@ -464,8 +464,8 @@ function Metrics() {
             </p>
           </div>
           <div className="grid grid-cols-2 gap-6">
-            <MetricCard value="65M+" label="US households without smartphones or limited internet" />
-            <MetricCard value="$80B" label="Estimated TAM for voice-first commerce in the US alone" />
+            <MetricCard value="10M+" label="US households without smartphones or limited internet" />
+            <MetricCard value="$1.2B" label="Estimated TAM for voice-first commerce in the US alone" />
             <MetricCard value="3.5x" label="Higher repeat-order rate vs. traditional call-center models" />
             <MetricCard value="100%" label="Automated — no live agent required" />
           </div>
