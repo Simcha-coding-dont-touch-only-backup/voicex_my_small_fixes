@@ -18,15 +18,10 @@ const app = express();
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(morgan('combined'));
-app.use(cors({ origin: config.adminUrl, credentials: true }));
 
-app.use('/api/ivr', express.json(), teltechRouter);
-
-app.use('/api/webhooks', express.json(), webhookRouter);
-
-// Marketing site contact form — POST /api/contact-submissions.
-// Marketing pages (www.voicexshop.com etc.) are a separate origin from the API,
-// so this route gets its own permissive CORS.
+// Public marketing-site contact form has its own CORS (allows public marketing
+// origins, no credentials) — mounted BEFORE the admin-scoped global CORS so the
+// admin CORS doesn't leak headers onto the public endpoint.
 const contactCors = cors({
   origin: [
     'https://www.voicexshop.com',
@@ -39,6 +34,13 @@ const contactCors = cors({
 });
 app.options('/api/contact-submissions', contactCors);
 app.use('/api/contact-submissions', contactCors, express.json(), contactRouter);
+
+// Admin/API CORS for everything else (admin portal posting from config.adminUrl).
+app.use(cors({ origin: config.adminUrl, credentials: true }));
+
+app.use('/api/ivr', express.json(), teltechRouter);
+
+app.use('/api/webhooks', express.json(), webhookRouter);
 
 app.use('/api/admin', express.json(), adminRouter);
 
