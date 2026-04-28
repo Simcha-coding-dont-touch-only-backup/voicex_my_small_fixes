@@ -56,14 +56,19 @@ export function ContactPage() {
     setErrorMsg('');
 
     try {
-      const resp = await fetch('/api/contact-submissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          source_path: window.location.pathname,
-        }),
-      });
+      // Marketing site is a separate origin from the API; post directly to the
+      // public API URL like a third-party site would. No Vercel/env config needed.
+      const resp = await fetch(
+        'https://voicex-seven.vercel.app/api/contact-submissions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...form,
+            source_path: window.location.pathname,
+          }),
+        }
+      );
 
       if (!resp.ok) {
         const body = await resp.json().catch(() => ({}));

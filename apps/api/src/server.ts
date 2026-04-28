@@ -27,8 +27,21 @@ app.use('/api/ivr', express.json(), express.urlencoded({ extended: true }), telt
 
 app.use('/api/webhooks', express.json(), webhookRouter);
 
-// Marketing site contact form — POST /api/contact-submissions (included in API deploy).
-app.use('/api/contact-submissions', express.json(), contactRouter);
+// Marketing site contact form — POST /api/contact-submissions.
+// The marketing site (e.g. www.voicexshop.com) is a separate origin from the API,
+// so this route gets its own CORS that allows the public marketing domains.
+const contactCors = cors({
+  origin: [
+    'https://www.voicexshop.com',
+    'https://voicexshop.com',
+    'https://www.voicexservice.com',
+    'https://voicexservice.com',
+    config.adminUrl,
+  ],
+  methods: ['POST', 'OPTIONS'],
+});
+app.options('/api/contact-submissions', contactCors);
+app.use('/api/contact-submissions', contactCors, express.json(), contactRouter);
 
 app.use('/api/admin', express.json(), adminRouter);
 
