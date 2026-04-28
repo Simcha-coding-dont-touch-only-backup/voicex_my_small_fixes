@@ -8,6 +8,7 @@ import { config } from '../apps/api/src/config.js';
 import { teltechRouter } from '../apps/api/src/modules/teltech/routes.js';
 import { adminRouter } from '../apps/api/src/modules/admin/routes.js';
 import { webhookRouter } from '../apps/api/src/modules/orders/webhook-routes.js';
+import { contactRouter } from '../apps/api/src/modules/contact/routes.js';
 import '../apps/api/src/modules/ivr/init-handlers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,6 +23,22 @@ app.use(cors({ origin: config.adminUrl, credentials: true }));
 app.use('/api/ivr', express.json(), teltechRouter);
 
 app.use('/api/webhooks', express.json(), webhookRouter);
+
+// Marketing site contact form — POST /api/contact-submissions.
+// Marketing pages (www.voicexshop.com etc.) are a separate origin from the API,
+// so this route gets its own permissive CORS.
+const contactCors = cors({
+  origin: [
+    'https://www.voicexshop.com',
+    'https://voicexshop.com',
+    'https://www.voicexservice.com',
+    'https://voicexservice.com',
+    config.adminUrl,
+  ],
+  methods: ['POST', 'OPTIONS'],
+});
+app.options('/api/contact-submissions', contactCors);
+app.use('/api/contact-submissions', contactCors, express.json(), contactRouter);
 
 app.use('/api/admin', express.json(), adminRouter);
 
