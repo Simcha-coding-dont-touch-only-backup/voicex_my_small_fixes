@@ -13,8 +13,6 @@
     "build:admin": "npm run build -w apps/admin-web",
     "build:shared": "npm run build -w packages/shared",
     "build": "npm run build:shared && npm run build:api && npm run build:admin",
-    "vercel:build": "npm run build:shared && npm run build:admin",
-    "vercel:build:static-root": "npm run vercel:build && node scripts/vercel-collect-admin-dist.mjs",
     "lint": "npm run lint -w apps/api -w apps/admin-web",
     "db:migrate": "node --env-file=.env scripts/supabase-db-push.mjs",
     "create-admin": "node --env-file=.env scripts/create-admin-user.mjs",
