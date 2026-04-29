@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import type { AdminPermissionKey } from '@voicex/shared';
 import { AuthProvider, useAuth } from './lib/auth-context';
 import { Layout } from './components/Layout';
@@ -157,6 +157,11 @@ function ProtectedAdminRoutes() {
   );
 }
 
+function LegacyOrderRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/admin/orders/${id}`} replace />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -171,6 +176,10 @@ export default function App() {
 
         {/* Auth */}
         <Route path="/login" element={<LoginPage />} />
+
+        {/* Legacy admin order URLs from earlier absolute links */}
+        <Route path="/orders" element={<Navigate to="/admin/orders" replace />} />
+        <Route path="/orders/:id" element={<LegacyOrderRedirect />} />
 
         {/* Authenticated admin portal */}
         <Route path="/admin/*" element={<ProtectedAdminRoutes />} />

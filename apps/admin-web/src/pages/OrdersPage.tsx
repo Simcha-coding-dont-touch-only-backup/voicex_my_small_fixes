@@ -62,7 +62,7 @@ export function OrdersPage() {
             {orders.map((order) => (
               <tr key={order.id} className="border-b hover:bg-gray-50">
                 <td className="px-6 py-3">
-                  <Link to={`/orders/${order.id}`} className="font-mono text-xs text-indigo-600 hover:underline">
+                  <Link to={`/admin/orders/${order.id}`} className="font-mono text-xs text-indigo-600 hover:underline">
                     {order.id.slice(-8)}
                   </Link>
                 </td>

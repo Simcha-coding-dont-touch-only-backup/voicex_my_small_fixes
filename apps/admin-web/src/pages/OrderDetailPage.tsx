@@ -16,7 +16,7 @@ export function OrderDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-        <button type="button" onClick={() => navigate('/orders')} className="shrink-0 text-sm text-indigo-600 hover:underline">&larr; Back</button>
+        <button type="button" onClick={() => navigate('/admin/orders')} className="shrink-0 text-sm text-indigo-600 hover:underline">&larr; Back</button>
         <h2 className="min-w-0 break-words text-xl font-bold text-gray-800 sm:text-2xl">Order {order.id.slice(-8).toUpperCase()}</h2>
       </div>
 
