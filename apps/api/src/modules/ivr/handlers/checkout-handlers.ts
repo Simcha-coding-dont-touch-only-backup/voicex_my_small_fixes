@@ -5,6 +5,7 @@ import { validateAddress, validateAddressFreeform } from '../../../lib/google-ad
 import { createRyeIntent, confirmRyeIntent, findCartItemForFailure } from '../../../lib/rye-checkout.js';
 import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
 import { solaTokenize, solaAuthOnly, solaCapture, solaVoidRelease } from '../../../lib/sola.js';
+import { calculateManualPricing } from '../../../lib/manual-pricing.js';
 import { getProductDisplayName, getCartItemSavingsCents } from '@voicex/shared';
 import type { FulfillmentProvider } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
@@ -1259,11 +1260,32 @@ registerHandler('final_confirm', async (ctx) => {
     const fulfillmentProvider = await getActiveFulfillmentProvider();
     if (fulfillmentProvider === 'manual') {
       const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+      const pricing = await calculateManualPricing(subtotal, address.state);
+      const shippingStr = pricing.shippingCents > 0
+        ? `Shipping is ${formatCurrency(pricing.shippingCents)}. `
+        : 'Shipping is free. ';
+
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        eventType: 'manual_pricing_calculated',
+        details: {
+          address_state: pricing.stateCode,
+          tax_rate_source: pricing.taxRateSource,
+          tax_rate_percent: pricing.taxRatePercent,
+          subtotal_cents: pricing.subtotalCents,
+          free_shipping_cutoff_cents: pricing.freeShippingCutoffCents,
+          shipping_fee_cents: pricing.shippingFeeCents,
+          shipping_cents: pricing.shippingCents,
+          tax_cents: pricing.taxCents,
+          total_cents: pricing.totalCents,
+        },
+      });
 
       return {
         type: 'actions',
         response: buildGather({
-          prompt: `Your order total is ${formatCurrency(subtotal)}. Press 1 to confirm and pay, or press 2 to cancel.`,
+          prompt: `Your order total is ${formatCurrency(pricing.totalCents)}. ${shippingStr}Tax is ${formatCurrency(pricing.taxCents)}. Press 1 to confirm and pay, or press 2 to cancel.`,
           actionPath: '/api/ivr/voice/gather',
           numDigits: 1,
           timeout: 15,
@@ -1272,8 +1294,8 @@ registerHandler('final_confirm', async (ctx) => {
             node_key: 'checkout_pay',
             address_id: addressId, payment_method_id: paymentMethodId,
             fulfillment_provider: 'manual',
-            shipping_cents: '0',
-            tax_cents: '0',
+            shipping_cents: String(pricing.shippingCents),
+            tax_cents: String(pricing.taxCents),
             surcharge_cents: '0',
           },
         }),

@@ -570,6 +570,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   sola_void_release: 'Sola void/release',
   order_completed: 'Order completed',
   order_failed: 'Order failed',
+  manual_pricing_calculated: 'Manual pricing calculated',
   manual_fulfillment_queued: 'Manual fulfillment queued',
   manual_fulfillment_marked_ordered: 'Manual fulfillment ordered',
   manual_fulfillment_needs_review: 'Manual fulfillment needs review',
@@ -937,6 +938,19 @@ function EventDetails({ event }: { event: any }) {
           Released hold of {formatCents(d.amount_cents)}
           <span className="ml-2 text-xs font-mono text-gray-500">ref {d.sola_ref_num}</span>
           {d.error && <div className="mt-1 text-xs text-red-600">{String(d.error)}</div>}
+        </div>
+      );
+
+    case 'manual_pricing_calculated':
+      return (
+        <div className="space-y-1 text-gray-700">
+          <div>
+            Subtotal {formatCents(d.subtotal_cents)}, shipping {formatCents(d.shipping_cents)},
+            tax {formatCents(d.tax_cents)} → <span className="font-medium">total {formatCents(d.total_cents)}</span>
+          </div>
+          <div className="text-xs text-gray-500">
+            State {d.address_state || 'unknown'} used {d.tax_rate_source === 'state_override' ? 'state override' : 'default'} tax rate
+          </div>
         </div>
       );
 

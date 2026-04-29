@@ -35,6 +35,7 @@ export type CheckoutEventType =
   | 'order_completed'               // order.status set to completed
   | 'order_failed'                  // order.status set to failed
   // Manual fulfillment
+  | 'manual_pricing_calculated'           // manual tax/shipping calculated before auth hold
   | 'manual_fulfillment_queued'          // order is waiting for admin Amazon placement
   | 'manual_fulfillment_marked_ordered'  // admin supplied external order id and captured
   | 'manual_fulfillment_needs_review'    // admin flagged order without capture/void
