@@ -11,6 +11,7 @@ import { cartsRouter } from './carts.js';
 import { addressTestRouter } from './address-test.js';
 import { subAdminsRouter } from './sub-admins.js';
 import { supportRouter } from './support.js';
+import { fulfillmentRouter } from './fulfillment.js';
 import {
   authMiddleware,
   requirePermission,
@@ -64,6 +65,7 @@ adminRouter.use('/logs', requireFullAdmin, logsRouter);
 adminRouter.use('/carts', requireFullAdmin, cartsRouter);
 adminRouter.use('/address-test', requireFullAdmin, addressTestRouter);
 adminRouter.use('/support', requireFullAdmin, supportRouter);
+adminRouter.use('/fulfillment', requireFullAdmin, fulfillmentRouter);
 
 // Sub-admin management is super_admin only — only the top-level admin
 // (the "Asteroid Band") can create or modify other admin accounts.

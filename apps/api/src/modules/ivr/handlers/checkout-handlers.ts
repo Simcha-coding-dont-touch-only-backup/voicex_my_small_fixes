@@ -6,11 +6,27 @@ import { createRyeIntent, confirmRyeIntent, findCartItemForFailure } from '../..
 import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
 import { solaTokenize, solaAuthOnly, solaCapture, solaVoidRelease } from '../../../lib/sola.js';
 import { getProductDisplayName, getCartItemSavingsCents } from '@voicex/shared';
+import type { FulfillmentProvider } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 import { logCheckoutEvent } from '../../../lib/checkout-logger.js';
 
 const MAX_STOCK_RETRIES_PER_ITEM = 3;
 const MAX_UNAVAILABLE_RECOVERY_CYCLES = 3;
+
+async function getActiveFulfillmentProvider(): Promise<FulfillmentProvider> {
+  const { data, error } = await supabaseAdmin
+    .from('settings')
+    .select('value')
+    .eq('key', 'active_fulfillment_provider')
+    .maybeSingle();
+
+  if (error) {
+    console.error('[checkout] Failed to load active fulfillment provider; defaulting to Rye.', error);
+    return 'rye';
+  }
+
+  return data?.value === 'manual' ? 'manual' : 'rye';
+}
 
 registerHandler('address_choice', async (ctx) => {
   const userId = ctx.sessionData.user_id;
@@ -1190,7 +1206,7 @@ registerHandler('order_confirm', async (ctx) => {
     return {
       type: 'actions',
       response: buildSay(
-        'Please hold while we verify your order with Amazon.',
+        'Please hold while we verify your order.',
         '/api/ivr/voice/gather',
         {
           call_sid: ctx.callSid, user_id: userId,
@@ -1238,6 +1254,30 @@ registerHandler('final_confirm', async (ctx) => {
     const { data: cartItems } = await supabaseAdmin.from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
     if (!cartItems || cartItems.length === 0) {
       return { type: 'actions', response: buildSay('Your cart is empty.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }) };
+    }
+
+    const fulfillmentProvider = await getActiveFulfillmentProvider();
+    if (fulfillmentProvider === 'manual') {
+      const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+
+      return {
+        type: 'actions',
+        response: buildGather({
+          prompt: `Your order total is ${formatCurrency(subtotal)}. Press 1 to confirm and pay, or press 2 to cancel.`,
+          actionPath: '/api/ivr/voice/gather',
+          numDigits: 1,
+          timeout: 15,
+          sessionData: {
+            call_sid: ctx.callSid, user_id: userId,
+            node_key: 'checkout_pay',
+            address_id: addressId, payment_method_id: paymentMethodId,
+            fulfillment_provider: 'manual',
+            shipping_cents: '0',
+            tax_cents: '0',
+            surcharge_cents: '0',
+          },
+        }),
+      };
     }
 
     const session = await ivrRuntime.getSession(ctx.callSid);
@@ -1537,6 +1577,7 @@ registerHandler('final_confirm', async (ctx) => {
           call_sid: ctx.callSid, user_id: userId,
           node_key: 'checkout_pay',
           address_id: addressId, payment_method_id: paymentMethodId,
+          fulfillment_provider: 'rye',
           rye_intent_id: intentResult.intent.id,
           shipping_cents: String(intentResult.shippingCents),
           tax_cents: String(intentResult.taxCents),
@@ -1896,6 +1937,7 @@ registerHandler('checkout_pay', async (ctx) => {
   const addressId = ctx.sessionData.address_id;
   const paymentMethodId = ctx.sessionData.payment_method_id;
   const ryeIntentId = ctx.sessionData.rye_intent_id;
+  const fulfillmentProvider: FulfillmentProvider = ctx.sessionData.fulfillment_provider === 'manual' ? 'manual' : 'rye';
   const shippingCents = parseInt(ctx.sessionData.shipping_cents || '0', 10);
   const taxCents = parseInt(ctx.sessionData.tax_cents || '0', 10);
   const surchargeCents = parseInt(ctx.sessionData.surcharge_cents || '0', 10);
@@ -1905,7 +1947,7 @@ registerHandler('checkout_pay', async (ctx) => {
       callSid: ctx.callSid,
       userId,
       eventType: 'checkout_cancelled',
-      details: { stage: 'pay_prompt', rye_intent_id: ryeIntentId ?? null },
+      details: { stage: 'pay_prompt', fulfillment_provider: fulfillmentProvider, rye_intent_id: ryeIntentId ?? null },
     });
     return {
       type: 'actions',
@@ -2029,7 +2071,9 @@ registerHandler('checkout_pay', async (ctx) => {
       .from('orders')
       .insert({
         user_id: userId, cart_id: cart.id, address_id: addressId, payment_method_id: paymentMethodId,
-        rye_checkout_intent_id: ryeIntentId,
+        rye_checkout_intent_id: fulfillmentProvider === 'rye' ? ryeIntentId : null,
+        fulfillment_provider: fulfillmentProvider,
+        fulfillment_status: fulfillmentProvider === 'manual' ? 'queued' : 'none',
         status: 'processing', subtotal_cents: subtotal, shipping_cents: shippingCents,
         tax_cents: taxCents, total_cents: totalCents,
         card_brand_snapshot: paymentMethod.card_brand ?? null,
@@ -2045,6 +2089,8 @@ registerHandler('checkout_pay', async (ctx) => {
       product_name: getProductDisplayName(ci.catalog_products),
       quantity: ci.quantity, unit_price_cents: ci.unit_price_cents,
       amazon_price_cents: ci.amazon_price_cents,
+      amazon_asin: ci.catalog_products?.amazon_asin ?? null,
+      amazon_url: ci.catalog_products?.amazon_url ?? null,
       local_price_cents: ci.local_price_cents ?? null,
       markup_percent: ci.markup_percent,
     }));
@@ -2052,7 +2098,7 @@ registerHandler('checkout_pay', async (ctx) => {
     await supabaseAdmin.from('order_items').insert(orderItems);
     await supabaseAdmin.from('order_events').insert({
       order_id: order.id, status: 'processing', source: 'system',
-      details: { action: 'order_created', sola_ref_num: solaRefNum },
+      details: { action: 'order_created', fulfillment_provider: fulfillmentProvider, sola_ref_num: solaRefNum },
     });
     await supabaseAdmin.from('order_holds').insert({
       order_id: order.id, sola_ref_num: solaRefNum, amount_cents: totalCents, status: 'held',
@@ -2066,6 +2112,7 @@ registerHandler('checkout_pay', async (ctx) => {
       eventType: 'order_persisted',
       details: {
         order_id: order.id,
+        fulfillment_provider: fulfillmentProvider,
         rye_intent_id: ryeIntentId,
         sola_ref_num: solaRefNum,
         subtotal_cents: subtotal,
@@ -2080,10 +2127,55 @@ registerHandler('checkout_pay', async (ctx) => {
           quantity: oi.quantity,
           unit_price_cents: oi.unit_price_cents,
           amazon_price_cents: oi.amazon_price_cents,
+          amazon_asin: oi.amazon_asin,
+          amazon_url: oi.amazon_url,
           line_total_cents: oi.unit_price_cents * oi.quantity,
         })),
       },
     });
+
+    if (fulfillmentProvider === 'manual') {
+      await supabaseAdmin.from('order_events').insert({
+        order_id: order.id, status: 'processing', source: 'system',
+        details: {
+          action: 'manual_fulfillment_queued',
+          sola_ref_num: solaRefNum,
+          total_cents: totalCents,
+        },
+      });
+
+      await logCheckoutEvent({
+        callSid: ctx.callSid,
+        userId,
+        orderId: order.id,
+        eventType: 'manual_fulfillment_queued',
+        details: {
+          order_id: order.id,
+          sola_ref_num: solaRefNum,
+          total_cents: totalCents,
+          item_count: orderItems.length,
+          items: orderItems.map((oi) => ({
+            product_id: oi.product_id,
+            voicex_id: oi.voicex_id,
+            product_name: oi.product_name,
+            quantity: oi.quantity,
+            amazon_asin: oi.amazon_asin,
+            amazon_url: oi.amazon_url,
+          })),
+        },
+      });
+
+      return {
+        type: 'actions',
+        response: buildSay(
+          'Your order has been received.',
+          '/api/ivr/voice/gather',
+          { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
+        ),
+      };
+    }
+
+    if (!ryeIntentId) throw new Error('Missing Rye checkout intent id');
 
     // --- Step 3: Confirm with Rye using drawdown ---
     let ryeSuccess = false;
@@ -2286,9 +2378,9 @@ registerHandler('checkout_pay', async (ctx) => {
     await logCheckoutEvent({
       callSid: ctx.callSid,
       userId,
-      eventType: 'rye_intent_failed',
+      eventType: 'order_failed',
       severity: 'error',
-      details: { stage: 'checkout_pay', error: String(error) },
+      details: { stage: 'checkout_pay', fulfillment_provider: fulfillmentProvider, error: String(error) },
     });
     return { type: 'actions', response: buildHangup('We had trouble placing your order. Please try again later.') };
   }

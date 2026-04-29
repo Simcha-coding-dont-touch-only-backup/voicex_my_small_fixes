@@ -36,6 +36,8 @@ export function OrderDetailPage() {
             <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Shipping</dt><dd>${(order.shipping_cents / 100).toFixed(2)}</dd></div>
             <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Tax</dt><dd>${(order.tax_cents / 100).toFixed(2)}</dd></div>
             <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Total</dt><dd className="font-bold">${(order.total_cents / 100).toFixed(2)}</dd></div>
+            <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Fulfillment</dt><dd>{order.fulfillment_provider || 'rye'}{order.fulfillment_status && order.fulfillment_status !== 'none' ? ` · ${order.fulfillment_status}` : ''}</dd></div>
+            {order.external_order_id && <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">External Order</dt><dd className="font-mono">{order.external_order_id}</dd></div>}
             <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Date</dt><dd>{new Date(order.created_at).toLocaleString()}</dd></div>
           </dl>
 
@@ -58,6 +60,7 @@ export function OrderDetailPage() {
               <thead>
                 <tr className="border-b text-left text-gray-500">
                   <th className="pb-2 font-medium">Product</th>
+                  <th className="pb-2 font-medium">ASIN</th>
                   <th className="pb-2 font-medium">Qty</th>
                   <th className="pb-2 font-medium">Unit Price</th>
                   <th className="pb-2 font-medium">Total</th>
@@ -67,6 +70,7 @@ export function OrderDetailPage() {
                 {order.order_items?.map((item: any) => (
                   <tr key={item.id} className="border-b">
                     <td className="py-2">{item.product_name}<span className="ml-2 text-xs text-gray-400">({item.voicex_id})</span></td>
+                    <td className="py-2 font-mono text-xs text-gray-500">{item.amazon_asin || '-'}</td>
                     <td className="py-2">{item.quantity}</td>
                     <td className="py-2">${(item.unit_price_cents / 100).toFixed(2)}</td>
                     <td className="py-2">${((item.unit_price_cents * item.quantity) / 100).toFixed(2)}</td>

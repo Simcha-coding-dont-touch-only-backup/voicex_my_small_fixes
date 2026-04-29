@@ -27,6 +27,33 @@ export function SettingsPage() {
     max_cart_items: 'Max Cart Items',
     call_timeout_seconds: 'Call Timeout (seconds)',
     max_pin_retries: 'Max PIN Retries',
+    active_fulfillment_provider: 'Active Fulfillment Provider',
+    amazon_associate_tag: 'Amazon Associate Tag',
+  };
+
+  const renderSettingInput = (s: any) => {
+    const value = edits[s.key] !== undefined ? edits[s.key] : s.value;
+
+    if (s.key === 'active_fulfillment_provider') {
+      return (
+        <select
+          value={value}
+          onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}
+          className="w-32 rounded border px-3 py-1.5 text-sm"
+        >
+          <option value="rye">Rye</option>
+          <option value="manual">Manual</option>
+        </select>
+      );
+    }
+
+    return (
+      <input
+        value={value}
+        onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}
+        className="w-32 rounded border px-3 py-1.5 text-right text-sm"
+      />
+    );
   };
 
   return (
@@ -41,11 +68,7 @@ export function SettingsPage() {
               {s.description && <p className="text-xs text-gray-400">{s.description}</p>}
             </div>
             <div className="flex items-center gap-3">
-              <input
-                value={edits[s.key] !== undefined ? edits[s.key] : s.value}
-                onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}
-                className="w-32 rounded border px-3 py-1.5 text-right text-sm"
-              />
+              {renderSettingInput(s)}
               {edits[s.key] !== undefined && edits[s.key] !== s.value && (
                 <button
                   onClick={() => handleSave(s.key)}

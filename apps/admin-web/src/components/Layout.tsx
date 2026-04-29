@@ -4,7 +4,7 @@ import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
   ChevronsLeft, ChevronsRight, AlertTriangle, MapPin,
-  Wrench, ChevronDown, ShieldCheck, Inbox,
+  Wrench, ChevronDown, ShieldCheck, Inbox, Truck,
 } from 'lucide-react';
 import type { AdminPermissionKey } from '@voicex/shared';
 import { useAuth } from '../lib/auth-context';
@@ -31,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/admin/products', label: 'Products', icon: Package, requires: { kind: 'permission', key: 'manageProducts' } },
   { to: '/admin/carts', label: 'Carts', icon: ShoppingBag, requires: { kind: 'fullAdmin' } },
   { to: '/admin/orders', label: 'Orders', icon: ShoppingCart, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/fulfillment', label: 'Fulfillment', icon: Truck, requires: { kind: 'fullAdmin' } },
   { to: '/admin/settings', label: 'Settings', icon: Settings, requires: { kind: 'fullAdmin' } },
   { to: '/admin/reports', label: 'Reports', icon: BarChart3, requires: { kind: 'fullAdmin' } },
   { to: '/admin/ivr', label: 'IVR Flows', icon: Phone, requires: { kind: 'fullAdmin' } },

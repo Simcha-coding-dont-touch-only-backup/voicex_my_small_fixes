@@ -9,6 +9,12 @@ export interface Order {
   /** Snapshot of card last4 at order placement; survives payment method deletion. */
   card_last4_snapshot: string | null;
   rye_checkout_intent_id: string | null;
+  fulfillment_provider: FulfillmentProvider;
+  fulfillment_status: FulfillmentStatus;
+  external_order_id: string | null;
+  fulfillment_notes: string | null;
+  fulfilled_by: string | null;
+  fulfilled_at: string | null;
   status: OrderStatus;
   subtotal_cents: number;
   shipping_cents: number;
@@ -28,6 +34,15 @@ export type OrderStatus =
   | 'failed'
   | 'cancelled';
 
+export type FulfillmentProvider = 'rye' | 'manual';
+
+export type FulfillmentStatus =
+  | 'none'
+  | 'queued'
+  | 'ordered'
+  | 'needs_review'
+  | 'cancelled';
+
 export interface OrderItem {
   id: string;
   order_id: string;
@@ -37,6 +52,8 @@ export interface OrderItem {
   quantity: number;
   unit_price_cents: number;
   amazon_price_cents: number;
+  amazon_asin: string | null;
+  amazon_url: string | null;
   /** Snapshot from cart line at order placement. */
   local_price_cents?: number | null;
   markup_percent: number;

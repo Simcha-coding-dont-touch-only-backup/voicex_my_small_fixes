@@ -271,9 +271,10 @@ logsRouter.get('/checkout', async (req, res) => {
     if (ev.order_id) call.order_id = ev.order_id;
 
     // Outcome classification (latest meaningful event wins).
-    if (ev.event_type === 'order_completed') call.outcome = 'order_completed';
-    else if (ev.event_type === 'order_failed') call.outcome = 'order_failed';
-    else if (ev.event_type === 'checkout_cancelled' && call.outcome === 'in_progress') call.outcome = 'cancelled';
+    if (ev.event_type === 'order_completed' || ev.event_type === 'manual_fulfillment_marked_ordered') call.outcome = 'order_completed';
+    else if (ev.event_type === 'order_failed' || ev.event_type === 'manual_capture_failed') call.outcome = 'order_failed';
+    else if (ev.event_type === 'manual_fulfillment_needs_review') call.outcome = 'cart_review_needed';
+    else if ((ev.event_type === 'checkout_cancelled' || ev.event_type === 'manual_fulfillment_cancelled') && call.outcome === 'in_progress') call.outcome = 'cancelled';
 
     call.events.push({
       id: ev.id,

@@ -34,6 +34,14 @@ export type CheckoutEventType =
   | 'sola_void_release'             // Sola hold released after Rye failure
   | 'order_completed'               // order.status set to completed
   | 'order_failed'                  // order.status set to failed
+  // Manual fulfillment
+  | 'manual_fulfillment_queued'          // order is waiting for admin Amazon placement
+  | 'manual_fulfillment_marked_ordered'  // admin supplied external order id and captured
+  | 'manual_fulfillment_needs_review'    // admin flagged order without capture/void
+  | 'manual_fulfillment_cancelled'       // admin cancelled manual fulfillment
+  | 'manual_capture_succeeded'           // Sola capture succeeded from admin queue
+  | 'manual_capture_failed'              // Sola capture failed from admin queue
+  | 'manual_void_release'                // Sola hold released from admin queue
   // Cancellation / abandonment
   | 'checkout_cancelled';           // user pressed cancel at confirmation prompt
 

@@ -53,6 +53,7 @@ export function OrdersPage() {
               <th className="px-6 py-3 font-medium">Customer</th>
               <th className="px-6 py-3 font-medium">Items</th>
               <th className="px-6 py-3 font-medium">Total</th>
+              <th className="px-6 py-3 font-medium">Fulfillment</th>
               <th className="px-6 py-3 font-medium">Status</th>
               <th className="px-6 py-3 font-medium">Date</th>
             </tr>
@@ -69,6 +70,14 @@ export function OrdersPage() {
                 <td className="px-6 py-3 text-gray-500">{order.order_items?.length || 0}</td>
                 <td className="px-6 py-3">${(order.total_cents / 100).toFixed(2)}</td>
                 <td className="px-6 py-3">
+                  <div className="text-xs">
+                    <span className="font-medium uppercase text-gray-700">{order.fulfillment_provider || 'rye'}</span>
+                    {order.fulfillment_status && order.fulfillment_status !== 'none' && (
+                      <span className="ml-1 text-gray-500">· {order.fulfillment_status}</span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-6 py-3">
                   <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                     order.status === 'completed' ? 'bg-green-100 text-green-700' :
                     order.status === 'failed' ? 'bg-red-100 text-red-700' :
@@ -80,7 +89,7 @@ export function OrdersPage() {
               </tr>
             ))}
             {orders.length === 0 && (
-              <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">No orders found</td></tr>
+              <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">No orders found</td></tr>
             )}
           </tbody>
         </table>

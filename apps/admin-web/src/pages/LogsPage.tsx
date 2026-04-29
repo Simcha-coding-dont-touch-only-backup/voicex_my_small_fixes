@@ -570,6 +570,13 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   sola_void_release: 'Sola void/release',
   order_completed: 'Order completed',
   order_failed: 'Order failed',
+  manual_fulfillment_queued: 'Manual fulfillment queued',
+  manual_fulfillment_marked_ordered: 'Manual fulfillment ordered',
+  manual_fulfillment_needs_review: 'Manual fulfillment needs review',
+  manual_fulfillment_cancelled: 'Manual fulfillment cancelled',
+  manual_capture_succeeded: 'Manual capture succeeded',
+  manual_capture_failed: 'Manual capture failed',
+  manual_void_release: 'Manual void/release',
   checkout_cancelled: 'Checkout cancelled',
 };
 
@@ -891,9 +898,10 @@ function EventDetails({ event }: { event: any }) {
 
     case 'sola_auth_succeeded':
     case 'sola_capture_succeeded':
+    case 'manual_capture_succeeded':
       return (
         <span className="text-gray-700">
-          {formatCents(d.amount_cents)} on ····{d.card_last4}
+          {formatCents(d.amount_cents)}{d.card_last4 && <> on ····{d.card_last4}</>}
           <span className="ml-2 text-xs font-mono text-gray-500">ref {d.sola_ref_num}</span>
         </span>
       );
@@ -908,17 +916,22 @@ function EventDetails({ event }: { event: any }) {
       );
 
     case 'sola_capture_failed':
+    case 'manual_capture_failed':
       return (
         <div className="space-y-0.5 text-gray-700">
-          <div className="font-medium text-red-700">CRITICAL: capture failed after Rye succeeded</div>
-          <div className="text-xs">{formatCents(d.amount_cents)} on ····{d.card_last4}</div>
+          <div className="font-medium text-red-700">
+            {event.event_type === 'manual_capture_failed' ? 'Manual fulfillment capture failed' : 'CRITICAL: capture failed after Rye succeeded'}
+          </div>
+          <div className="text-xs">{formatCents(d.amount_cents)}{d.card_last4 && <> on ····{d.card_last4}</>}</div>
           <div className="text-xs font-mono text-gray-500">ref {d.sola_ref_num}</div>
+          {d.external_order_id && <div className="text-xs">Amazon order <span className="font-mono">{d.external_order_id}</span></div>}
           {d.error && <div className="text-xs text-red-600">{String(d.error)}</div>}
           {d.note && <div className="text-xs text-gray-600">{d.note}</div>}
         </div>
       );
 
     case 'sola_void_release':
+    case 'manual_void_release':
       return (
         <div className="text-gray-700">
           Released hold of {formatCents(d.amount_cents)}
@@ -926,6 +939,39 @@ function EventDetails({ event }: { event: any }) {
           {d.error && <div className="mt-1 text-xs text-red-600">{String(d.error)}</div>}
         </div>
       );
+
+    case 'manual_fulfillment_queued':
+      return (
+        <div className="space-y-1 text-gray-700">
+          <div>
+            Order <span className="font-mono">{(d.order_id || '').slice(-6).toUpperCase()}</span> queued for manual fulfillment —
+            total {formatCents(d.total_cents)}
+          </div>
+          {Array.isArray(d.items) && (
+            <ul className="ml-5 list-disc text-xs text-gray-600">
+              {d.items.map((it: any, i: number) => (
+                <li key={i}>
+                  {it.product_name} x {it.quantity}
+                  {it.amazon_asin && <span className="ml-1 font-mono text-gray-400">{it.amazon_asin}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+
+    case 'manual_fulfillment_marked_ordered':
+      return (
+        <span className="text-gray-700">
+          Marked ordered with Amazon order <span className="font-mono">{d.external_order_id || 'N/A'}</span>
+        </span>
+      );
+
+    case 'manual_fulfillment_needs_review':
+      return <span className="text-orange-700">Needs review{d.notes && <span className="ml-1 text-gray-600">— {String(d.notes)}</span>}</span>;
+
+    case 'manual_fulfillment_cancelled':
+      return <span className="text-gray-700">Manual fulfillment cancelled{d.reason && <span className="ml-1 text-gray-500">— {String(d.reason)}</span>}</span>;
 
     case 'order_persisted':
       return (
