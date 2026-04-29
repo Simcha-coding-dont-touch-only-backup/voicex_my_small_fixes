@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import type { AdminPermissionKey } from '@voicex/shared';
 import { useAuth } from '../lib/auth-context';
+import { apiGet } from '../lib/api';
 
 type NavRequirement =
   | { kind: 'all' }
@@ -20,6 +21,13 @@ interface NavItem {
   label: string;
   icon: typeof LayoutDashboard;
   requires: NavRequirement;
+}
+
+interface FulfillmentCountResponse {
+  success: boolean;
+  data: {
+    count: number;
+  };
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -47,9 +55,48 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { signOut, hasPermission, isSuperAdmin, adminUser } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [pendingFulfillmentCount, setPendingFulfillmentCount] = useState(0);
   const location = useLocation();
 
   const isFullAdmin = adminUser?.role === 'super_admin' || adminUser?.role === 'admin';
+
+  const loadFulfillmentCount = useCallback(async () => {
+    if (!isFullAdmin) {
+      setPendingFulfillmentCount(0);
+      return;
+    }
+
+    try {
+      const res = await apiGet<FulfillmentCountResponse>('/fulfillment/manual-queue/count');
+      setPendingFulfillmentCount(res.data.count || 0);
+    } catch {
+      setPendingFulfillmentCount(0);
+    }
+  }, [isFullAdmin]);
+
+  useEffect(() => {
+    void loadFulfillmentCount();
+    if (!isFullAdmin) return;
+
+    const handleRefresh = (event: Event) => {
+      const count = (event as CustomEvent<{ count?: number }>).detail?.count;
+      if (typeof count === 'number') {
+        setPendingFulfillmentCount(count);
+        return;
+      }
+      void loadFulfillmentCount();
+    };
+
+    window.addEventListener('focus', loadFulfillmentCount);
+    window.addEventListener('voicex:fulfillment-count-refresh', handleRefresh);
+    const interval = window.setInterval(loadFulfillmentCount, 60_000);
+
+    return () => {
+      window.removeEventListener('focus', loadFulfillmentCount);
+      window.removeEventListener('voicex:fulfillment-count-refresh', handleRefresh);
+      window.clearInterval(interval);
+    };
+  }, [isFullAdmin, loadFulfillmentCount]);
 
   const isAllowed = (item: NavItem) => {
     switch (item.requires.kind) {
@@ -69,6 +116,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const toolsActive = visibleTools.some((item) => location.pathname === item.to);
   const [toolsOpen, setToolsOpen] = useState(toolsActive);
+  const fulfillmentBadge = pendingFulfillmentCount > 99 ? '99+' : String(pendingFulfillmentCount);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -99,27 +147,45 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className={`flex-1 overflow-y-auto mt-4 space-y-1 ${collapsed ? 'px-2' : 'px-3'}`}>
-          {visibleNav.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/admin'}
-              className={({ isActive }) =>
-                `flex items-center rounded-lg text-sm font-medium transition-colors ${
-                  collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'
-                } ${
-                  isActive
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                }`
-              }
-              onClick={() => setSidebarOpen(false)}
-              title={collapsed ? label : undefined}
-            >
-              <Icon size={18} className="shrink-0" />
-              {!collapsed && <span>{label}</span>}
-            </NavLink>
-          ))}
+          {visibleNav.map(({ to, label, icon: Icon }) => {
+            const showFulfillmentBadge = to === '/admin/fulfillment' && pendingFulfillmentCount > 0;
+            const title = showFulfillmentBadge
+              ? `${label} (${pendingFulfillmentCount} pending)`
+              : label;
+
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/admin'}
+                className={({ isActive }) =>
+                  `relative flex items-center rounded-lg text-sm font-medium transition-colors ${
+                    collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'
+                  } ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-700'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  }`
+                }
+                onClick={() => setSidebarOpen(false)}
+                title={collapsed || showFulfillmentBadge ? title : undefined}
+              >
+                <Icon size={18} className="shrink-0" />
+                {!collapsed && <span className="flex-1">{label}</span>}
+                {showFulfillmentBadge && (
+                  <span
+                    className={`inline-flex items-center justify-center rounded-full bg-rose-500 text-[10px] font-semibold leading-none text-white ${
+                      collapsed
+                        ? 'absolute right-1 top-1 h-4 min-w-4 px-1'
+                        : 'ml-auto h-5 min-w-5 px-1.5'
+                    }`}
+                  >
+                    {fulfillmentBadge}
+                  </span>
+                )}
+              </NavLink>
+            );
+          })}
 
           {visibleTools.length > 0 && (
             collapsed ? (

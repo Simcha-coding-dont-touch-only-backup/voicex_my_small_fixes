@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Clipboard, ExternalLink, RefreshCw, Save, XCircle } from 'lucide-react';
-import { apiGet, apiPatch, apiPost } from '../lib/api';
-
-type Provider = 'rye' | 'manual';
+import { AlertTriangle, Clipboard, ExternalLink, RefreshCw, Save, XCircle } from 'lucide-react';
+import { apiGet, apiPost } from '../lib/api';
 
 interface ProviderResponse {
   success: boolean;
   data: {
-    active_provider: Provider;
-    providers: Provider[];
     amazon_associate_tag: string;
   };
 }
@@ -87,11 +83,9 @@ function statusBadge(status: string) {
 }
 
 export function FulfillmentPage() {
-  const [activeProvider, setActiveProvider] = useState<Provider>('rye');
   const [associateTag, setAssociateTag] = useState('voicexshop20-20');
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [savingProvider, setSavingProvider] = useState<Provider | null>(null);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
   const [externalIds, setExternalIds] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -106,9 +100,12 @@ export function FulfillmentPage() {
         apiGet<ProviderResponse>('/fulfillment/provider'),
         apiGet<QueueResponse>('/fulfillment/manual-queue'),
       ]);
-      setActiveProvider(providerRes.data.active_provider);
       setAssociateTag(providerRes.data.amazon_associate_tag || 'voicexshop20-20');
-      setOrders(queueRes.data || []);
+      const queue = queueRes.data || [];
+      setOrders(queue);
+      window.dispatchEvent(new CustomEvent('voicex:fulfillment-count-refresh', {
+        detail: { count: queue.length },
+      }));
     } catch (err: any) {
       setError(err?.message || 'Failed to load fulfillment data');
     } finally {
@@ -119,19 +116,6 @@ export function FulfillmentPage() {
   useEffect(() => { load(); }, []);
 
   const queueCount = useMemo(() => orders.length, [orders]);
-
-  const switchProvider = async (provider: Provider) => {
-    setSavingProvider(provider);
-    setError('');
-    try {
-      await apiPatch('/fulfillment/provider', { provider });
-      setActiveProvider(provider);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update provider');
-    } finally {
-      setSavingProvider(null);
-    }
-  };
 
   const copyText = async (key: string, text: string) => {
     await navigator.clipboard.writeText(text);
@@ -166,7 +150,6 @@ export function FulfillmentPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Fulfillment</h2>
-          <p className="mt-1 text-sm text-gray-500">Choose the checkout provider and manage manual Amazon handoff orders.</p>
         </div>
         <button
           type="button"
@@ -185,52 +168,12 @@ export function FulfillmentPage() {
         </div>
       )}
 
-      <section className="rounded-xl bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-gray-800">Active Provider</h3>
-        <p className="mt-1 text-sm text-gray-500">Provider changes affect new checkouts only. Existing orders keep their original provider.</p>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {(['rye', 'manual'] as Provider[]).map((provider) => {
-            const active = activeProvider === provider;
-            return (
-              <button
-                key={provider}
-                type="button"
-                onClick={() => switchProvider(provider)}
-                disabled={savingProvider !== null || active}
-                className={`rounded-xl border p-4 text-left transition ${
-                  active ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200 hover:bg-gray-50'
-                } disabled:opacity-70`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="text-base font-semibold capitalize text-gray-800">{provider}</div>
-                  {active && <CheckCircle2 size={18} className="text-indigo-600" />}
-                </div>
-                <p className="mt-1 text-sm text-gray-500">
-                  {provider === 'rye'
-                    ? 'Automated Rye checkout intent, drawdown, then Sola capture.'
-                    : 'Queue orders for admin Amazon placement after Sola authorization.'}
-                </p>
-                {!active && (
-                  <div className="mt-3 text-xs font-medium text-indigo-600">
-                    {savingProvider === provider ? 'Saving...' : `Switch to ${provider}`}
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
       <section className="rounded-xl bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
           <div>
             <h3 className="text-lg font-semibold text-gray-800">Manual Fulfillment Queue</h3>
             <p className="text-sm text-gray-500">{queueCount} queued or review order{queueCount === 1 ? '' : 's'}</p>
           </div>
-          {activeProvider === 'manual' && (
-            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">Manual active</span>
-          )}
         </div>
 
         {loading ? (

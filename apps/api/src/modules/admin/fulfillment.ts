@@ -170,6 +170,21 @@ fulfillmentRouter.get('/manual-queue', async (_req, res) => {
   res.json({ success: true, data: data || [] });
 });
 
+fulfillmentRouter.get('/manual-queue/count', async (_req, res) => {
+  const { count, error } = await supabaseAdmin
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('fulfillment_provider', 'manual')
+    .in('fulfillment_status', ['queued', 'needs_review']);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  res.json({ success: true, data: { count: count || 0 } });
+});
+
 fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) => {
   const parsed = markOrderedSchema.safeParse(req.body);
   if (!parsed.success) {
