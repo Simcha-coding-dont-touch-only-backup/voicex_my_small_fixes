@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiGet } from '../lib/api';
+import { OrderEtaEditor, normalizeEtaRows, type EtaFormRow } from '../components/OrderEtaEditor';
 
 export function OrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [order, setOrder] = useState<any>(null);
+  const [etaRows, setEtaRows] = useState<EtaFormRow[]>([]);
 
   useEffect(() => {
-    apiGet<any>(`/orders/${id}`).then((r) => setOrder(r.data));
+    apiGet<any>(`/orders/${id}`).then((r) => {
+      setOrder(r.data);
+      setEtaRows(normalizeEtaRows(r.data?.order_fulfillment_etas));
+    });
   }, [id]);
 
   if (!order) return <div className="text-gray-500">Loading...</div>;
@@ -50,6 +55,15 @@ export function OrderDetailPage() {
               </p>
             </div>
           )}
+
+          <div className="mt-4 border-t pt-4">
+            <OrderEtaEditor
+              orderId={order.id}
+              value={etaRows}
+              onChange={setEtaRows}
+              onSaved={(updatedOrder) => setOrder(updatedOrder)}
+            />
+          </div>
         </div>
 
         <div className="space-y-6">

@@ -21,6 +21,7 @@ export interface Order {
   tax_cents: number;
   total_cents: number;
   estimated_delivery: string | null;
+  order_fulfillment_etas?: OrderFulfillmentEta[];
   created_at: string;
   updated_at: string;
 }
@@ -42,6 +43,16 @@ export type FulfillmentStatus =
   | 'ordered'
   | 'needs_review'
   | 'cancelled';
+
+export interface OrderFulfillmentEta {
+  id: string;
+  order_id: string;
+  eta_date: string;
+  sort_order: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface OrderItem {
   id: string;

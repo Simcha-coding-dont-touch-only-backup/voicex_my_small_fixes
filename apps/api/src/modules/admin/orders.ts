@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { etaPayloadSchema, replaceOrderFulfillmentEtas, sortOrderFulfillmentEtas } from './order-etas.js';
 
 export const ordersRouter = Router();
 
 const ORDERS_SORTABLE_COLUMNS = ['created_at', 'status', 'user_id', 'id', 'total_cents'];
+const ORDER_DETAIL_SELECT = '*, users(name, email), order_items(*), order_events(*), addresses(*), order_fulfillment_etas(*)';
 
 ordersRouter.get('/', async (req, res) => {
   const {
@@ -60,7 +62,7 @@ ordersRouter.get('/', async (req, res) => {
 ordersRouter.get('/:id', async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('*, users(name, email), order_items(*), order_events(*), addresses(*)')
+    .select(ORDER_DETAIL_SELECT)
     .eq('id', req.params.id)
     .single();
 
@@ -69,5 +71,55 @@ ordersRouter.get('/:id', async (req, res) => {
     return;
   }
 
-  res.json({ success: true, data });
+  res.json({ success: true, data: sortOrderFulfillmentEtas(data as any) });
+});
+
+ordersRouter.put('/:id/etas', async (req, res) => {
+  const parsed = etaPayloadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid ETA request' });
+    return;
+  }
+
+  const { data: order, error: orderError } = await supabaseAdmin
+    .from('orders')
+    .select('id, status')
+    .eq('id', req.params.id)
+    .single();
+
+  if (orderError || !order) {
+    res.status(404).json({ success: false, error: 'Order not found' });
+    return;
+  }
+
+  try {
+    await replaceOrderFulfillmentEtas(order.id, parsed.data.etas, req.adminUser?.id);
+
+    await supabaseAdmin.from('admin_audit_logs').insert({
+      admin_user_id: req.adminUser?.id ?? null,
+      action: 'update_order_etas',
+      entity_type: 'order',
+      entity_id: order.id,
+      changes: { etas: parsed.data.etas },
+    });
+
+    await supabaseAdmin.from('order_events').insert({
+      order_id: order.id,
+      status: order.status,
+      source: 'admin',
+      details: { action: 'update_order_etas', etas: parsed.data.etas },
+    });
+
+    const { data: updated, error } = await supabaseAdmin
+      .from('orders')
+      .select(ORDER_DETAIL_SELECT)
+      .eq('id', order.id)
+      .single();
+
+    if (error || !updated) throw new Error(error?.message || 'Failed to reload order');
+
+    res.json({ success: true, data: sortOrderFulfillmentEtas(updated as any) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to update ETAs' });
+  }
 });

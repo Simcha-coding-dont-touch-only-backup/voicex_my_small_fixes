@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { solaCapture, solaVoidRelease } from '../../lib/sola.js';
 import { logCheckoutEvent, type CheckoutEventType } from '../../lib/checkout-logger.js';
+import { etaInputArraySchema, replaceOrderFulfillmentEtas, sortOrderFulfillmentEtas } from './order-etas.js';
 
 export const fulfillmentRouter = Router();
 
 const PROVIDERS = ['rye', 'manual'] as const;
+const MANUAL_ORDER_SELECT = '*, users(name, email), addresses(*), order_items(*), order_holds(*), order_fulfillment_etas(*)';
 
 const providerSchema = z.object({
   provider: z.enum(PROVIDERS),
@@ -15,6 +17,7 @@ const providerSchema = z.object({
 const markOrderedSchema = z.object({
   external_order_id: z.string().trim().min(1, 'Amazon order number is required').max(200),
   fulfillment_notes: z.string().trim().max(10000).optional(),
+  etas: etaInputArraySchema.optional(),
 });
 
 const notesSchema = z.object({
@@ -54,12 +57,12 @@ async function setSetting(key: string, value: string, adminUserId: string | unde
 async function loadManualOrder(orderId: string) {
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('*, users(name, email), addresses(*), order_items(*), order_holds(*)')
+    .select(MANUAL_ORDER_SELECT)
     .eq('id', orderId)
     .single();
 
   if (error || !data) return null;
-  return data as any;
+  return sortOrderFulfillmentEtas(data as any);
 }
 
 function getHeldHold(order: any) {
@@ -157,7 +160,7 @@ fulfillmentRouter.patch('/provider', async (req, res) => {
 fulfillmentRouter.get('/manual-queue', async (_req, res) => {
   const { data, error } = await supabaseAdmin
     .from('orders')
-    .select('*, users(name, email), addresses(*), order_items(*), order_holds(*)')
+    .select(MANUAL_ORDER_SELECT)
     .eq('fulfillment_provider', 'manual')
     .in('fulfillment_status', ['queued', 'needs_review'])
     .order('created_at', { ascending: true });
@@ -167,7 +170,7 @@ fulfillmentRouter.get('/manual-queue', async (_req, res) => {
     return;
   }
 
-  res.json({ success: true, data: data || [] });
+  res.json({ success: true, data: (data || []).map((order: any) => sortOrderFulfillmentEtas(order)) });
 });
 
 fulfillmentRouter.get('/manual-queue/count', async (_req, res) => {
@@ -207,6 +210,10 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
   }
 
   try {
+    if (parsed.data.etas) {
+      await replaceOrderFulfillmentEtas(order.id, parsed.data.etas, req.adminUser?.id);
+    }
+
     const capture = await solaCapture(hold.sola_ref_num, hold.amount_cents);
     if (capture.xResult !== 'A') {
       throw new Error(capture.xError || 'Sola capture was declined');
@@ -231,7 +238,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
       .from('orders')
       .update(updates)
       .eq('id', order.id)
-      .select('*, users(name, email), addresses(*), order_items(*), order_holds(*)')
+      .select(MANUAL_ORDER_SELECT)
       .single();
 
     if (error || !updated) throw new Error(error?.message || 'Failed to update order');
@@ -240,8 +247,12 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
       external_order_id: parsed.data.external_order_id,
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
+      etas: parsed.data.etas ?? null,
     });
-    await logAdminAudit(req.adminUser?.id, 'manual_fulfillment_mark_ordered', order.id, updates);
+    await logAdminAudit(req.adminUser?.id, 'manual_fulfillment_mark_ordered', order.id, {
+      ...updates,
+      etas: parsed.data.etas ?? null,
+    });
     await logCheckoutForOrder(order.id, 'manual_capture_succeeded', 'info', {
       order_id: order.id,
       external_order_id: parsed.data.external_order_id,
@@ -260,7 +271,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
       });
     }
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: sortOrderFulfillmentEtas(updated as any) });
   } catch (error: any) {
     console.error('[manual fulfillment] capture failed:', error);
     await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('id', hold.id).eq('status', 'held');
@@ -329,7 +340,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/cancel', async (req, res) => {
       .from('orders')
       .update(updates)
       .eq('id', order.id)
-      .select('*, users(name, email), addresses(*), order_items(*), order_holds(*)')
+      .select(MANUAL_ORDER_SELECT)
       .single();
 
     if (error || !updated) throw new Error(error?.message || 'Failed to update order');
@@ -349,7 +360,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/cancel', async (req, res) => {
       reason: parsed.data.fulfillment_notes || null,
     });
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: sortOrderFulfillmentEtas(updated as any) });
   } catch (error: any) {
     console.error('[manual fulfillment] void release failed:', error);
     await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('id', hold.id).eq('status', 'held');
@@ -394,7 +405,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/needs-review', async (req, res) =
     .from('orders')
     .update(updates)
     .eq('id', order.id)
-    .select('*, users(name, email), addresses(*), order_items(*), order_holds(*)')
+    .select(MANUAL_ORDER_SELECT)
     .single();
 
   if (error || !updated) {
@@ -411,5 +422,5 @@ fulfillmentRouter.post('/manual-queue/:orderId/needs-review', async (req, res) =
     notes: updates.fulfillment_notes,
   });
 
-  res.json({ success: true, data: updated });
+  res.json({ success: true, data: sortOrderFulfillmentEtas(updated as any) });
 });

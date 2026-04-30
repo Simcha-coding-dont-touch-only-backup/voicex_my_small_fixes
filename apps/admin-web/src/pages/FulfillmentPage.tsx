@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Clipboard, ExternalLink, RefreshCw, Save, XCircle } from 'lucide-react';
 import { apiGet, apiPost } from '../lib/api';
+import { OrderEtaEditor, normalizeEtaRows, serializeEtaRows, type EtaFormRow } from '../components/OrderEtaEditor';
 
 interface ProviderResponse {
   success: boolean;
@@ -89,6 +90,7 @@ export function FulfillmentPage() {
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
   const [externalIds, setExternalIds] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [etaRows, setEtaRows] = useState<Record<string, EtaFormRow[]>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -103,6 +105,9 @@ export function FulfillmentPage() {
       setAssociateTag(providerRes.data.amazon_associate_tag || 'voicexshop20-20');
       const queue = queueRes.data || [];
       setOrders(queue);
+      setEtaRows(Object.fromEntries(
+        queue.map((order) => [order.id, normalizeEtaRows(order.order_fulfillment_etas)])
+      ));
       window.dispatchEvent(new CustomEvent('voicex:fulfillment-count-refresh', {
         detail: { count: queue.length },
       }));
@@ -128,13 +133,17 @@ export function FulfillmentPage() {
       setError('Amazon order number is required before capturing payment.');
       return;
     }
+    if (action === 'mark-ordered' && (etaRows[orderId] || []).some((row) => !row.eta_date)) {
+      setError('Choose a date for each ETA, or remove the blank ETA row.');
+      return;
+    }
     if (action === 'cancel' && !window.confirm('Void the Sola hold and cancel this manual order?')) return;
 
     setActionOrderId(orderId);
     setError('');
     try {
       const body = action === 'mark-ordered'
-        ? { external_order_id: externalIds[orderId], fulfillment_notes: notes[orderId] }
+        ? { external_order_id: externalIds[orderId], fulfillment_notes: notes[orderId], etas: serializeEtaRows(etaRows[orderId] || []) }
         : { fulfillment_notes: notes[orderId] };
       await apiPost(`/fulfillment/manual-queue/${orderId}/${action}`, body);
       await load();
@@ -278,6 +287,15 @@ export function FulfillmentPage() {
                           placeholder="Optional fulfillment notes"
                         />
                       </div>
+                      <OrderEtaEditor
+                        orderId={order.id}
+                        value={etaRows[order.id] || []}
+                        onChange={(rows) => setEtaRows((prev) => ({ ...prev, [order.id]: rows }))}
+                        onSaved={(updatedOrder) => {
+                          setOrders((prev) => prev.map((existing) => existing.id === updatedOrder.id ? updatedOrder : existing));
+                        }}
+                        disabled={acting}
+                      />
                       <div className="grid gap-2 sm:grid-cols-3">
                         <button
                           type="button"
