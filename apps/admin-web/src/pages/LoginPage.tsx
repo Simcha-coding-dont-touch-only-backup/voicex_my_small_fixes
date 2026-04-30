@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { BrandLogo } from '../components/BrandLogo';
 import { useAuth } from '../lib/auth-context';
 
 export function LoginPage() {
@@ -39,7 +40,7 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <Link to="/" className="inline-block">
-            <h1 className="text-3xl font-bold text-indigo-600">VoiceX</h1>
+            <BrandLogo className="mx-auto h-16 w-auto" />
           </Link>
           <p className="mt-2 text-gray-500">Admin Portal</p>
         </div>

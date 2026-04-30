@@ -7,6 +7,7 @@ import {
   Wrench, ChevronDown, ShieldCheck, Inbox, Truck,
 } from 'lucide-react';
 import type { AdminPermissionKey } from '@voicex/shared';
+import { BrandLogo } from './BrandLogo';
 import { useAuth } from '../lib/auth-context';
 import { apiGet } from '../lib/api';
 
@@ -133,7 +134,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         } ${collapsed ? 'w-16' : 'w-64'}`}
       >
         <div className={`flex h-16 shrink-0 items-center border-b ${collapsed ? 'justify-center px-2' : 'justify-between px-6'}`}>
-          {!collapsed && <span className="text-xl font-bold text-indigo-600">VoiceX</span>}
+          {!collapsed && (
+            <BrandLogo className="h-9 w-auto max-w-36 object-contain" />
+          )}
           <button className="lg:hidden" onClick={() => setSidebarOpen(false)}>
             <X size={20} />
           </button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Menu, X, Phone } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
+import { BrandLogo } from '../BrandLogo';
 
 const NAV_LINKS = [
   { to: '/', label: 'Home' },
@@ -38,10 +39,7 @@ export function MarketingLayout() {
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link to="/" className="flex items-center gap-2 group">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-sm group-hover:shadow-md transition-shadow">
-              <Phone size={18} strokeWidth={2.5} />
-            </span>
-            <span className="text-lg font-bold tracking-tight">VoiceX</span>
+            <BrandLogo className="h-10 w-auto transition-opacity group-hover:opacity-90" />
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
@@ -145,10 +143,7 @@ function Footer() {
         <div className="grid gap-8 md:grid-cols-4">
           <div className="md:col-span-2">
             <Link to="/" className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 text-white">
-                <Phone size={18} strokeWidth={2.5} />
-              </span>
-              <span className="text-lg font-bold tracking-tight">VoiceX</span>
+              <BrandLogo className="h-10 w-auto" />
             </Link>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-600">
               Voice-first commerce for the millions of customers who can't or
