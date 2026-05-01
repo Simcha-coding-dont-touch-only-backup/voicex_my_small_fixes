@@ -9,7 +9,7 @@ export function BrandLogo({ className = 'h-9 w-auto' }: BrandLogoProps) {
       alt="VoiceX"
       width={903}
       height={350}
-      className={className}
+      className={`block ${className}`}
       draggable={false}
     />
   );

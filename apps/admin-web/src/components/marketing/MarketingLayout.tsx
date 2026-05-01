@@ -39,7 +39,7 @@ export function MarketingLayout() {
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link to="/" className="flex items-center gap-2 group">
-            <BrandLogo className="h-10 w-auto transition-opacity group-hover:opacity-90" />
+            <BrandLogo className="h-[3.75rem] w-auto transition-opacity group-hover:opacity-90" />
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
