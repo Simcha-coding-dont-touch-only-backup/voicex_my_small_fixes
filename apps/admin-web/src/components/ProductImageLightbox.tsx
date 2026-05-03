@@ -98,14 +98,14 @@ export function ProductImageLightbox({ open, onClose, images, alt }: Props) {
       )}
 
       <div
-        className="flex max-h-[90vh] max-w-[90vw] flex-col items-center gap-4"
+        className="flex max-h-[95vh] max-w-[90vw] flex-col items-center gap-3 py-4"
         onClick={(e) => e.stopPropagation()}
       >
         {current ? (
           <img
             src={current.url}
             alt={alt || `Product image ${index + 1}`}
-            className="max-h-[80vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+            className="min-h-0 max-h-[65vh] max-w-[90vw] flex-shrink rounded-lg object-contain shadow-2xl"
             loading="eager"
             referrerPolicy="no-referrer"
           />
@@ -117,7 +117,7 @@ export function ProductImageLightbox({ open, onClose, images, alt }: Props) {
         )}
 
         {images.length > 1 && (
-          <div className="flex items-center gap-3 rounded-full bg-white/10 px-4 py-2 text-sm text-white">
+          <div className="flex flex-shrink-0 items-center gap-3 rounded-full bg-white/10 px-4 py-2 text-sm text-white">
             <span>
               {index + 1} / {images.length}
             </span>
@@ -125,7 +125,7 @@ export function ProductImageLightbox({ open, onClose, images, alt }: Props) {
         )}
 
         {images.length > 1 && (
-          <div className="flex max-w-[90vw] gap-2 overflow-x-auto px-2 pb-2">
+          <div className="flex max-w-[90vw] flex-shrink-0 gap-2 overflow-x-auto px-2 py-2">
             {images.map((img, i) => (
               <button
                 key={img.url + i}

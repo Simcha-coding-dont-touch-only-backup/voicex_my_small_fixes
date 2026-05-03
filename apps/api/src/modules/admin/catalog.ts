@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
-import { ryeClient, fetchAmazonProductReviews } from '../../lib/rye.js';
+import { fetchAmazonProduct, RyeProductLookupError } from '../../lib/rye.js';
 import {
   downloadAndStoreFeaturedThumbnail,
   pickFeaturedImageUrl,
@@ -306,37 +306,29 @@ catalogRouter.post('/products/lookup-asin', async (req, res) => {
     return;
   }
 
-  const url = `https://www.amazon.com/dp/${asin.trim().toUpperCase()}`;
+  const normalizedAsin = asin.trim().toUpperCase();
 
   try {
-    const [product, reviews] = await Promise.all([
-      ryeClient.products.lookup({ url }),
-      fetchAmazonProductReviews(asin.trim().toUpperCase()),
-    ]);
-    res.json({
-      success: true,
-      data: {
-        asin: asin.trim().toUpperCase(),
-        url,
-        name: product.name || null,
-        description: product.description || null,
-        price_cents: product.price?.amountSubunits ?? null,
-        currency: product.price?.currencyCode || 'USD',
-        availability: product.availability || 'unknown',
-        is_purchasable: product.isPurchasable ?? false,
-        images: product.images?.map((img: any) => ({ url: img.url, is_featured: img.isFeatured })) || [],
-        brand: product.brand || null,
-        star_rating: reviews?.rating ?? null,
-        ratings_total: reviews?.ratingsTotal ?? null,
-      },
-    });
+    const product = await fetchAmazonProduct(normalizedAsin);
+
+    if (!product) {
+      res.status(404).json({
+        success: false,
+        error: `Product with ASIN "${normalizedAsin}" was not found on Amazon.`,
+      });
+      return;
+    }
+
+    res.json({ success: true, data: product });
   } catch (err: any) {
-    const status = err.status || 500;
-    const message =
-      status === 404 ? `Product with ASIN "${asin}" was not found on Amazon.`
-      : status === 401 ? 'Rye API authentication failed. Check your API key.'
-      : `Failed to look up product: ${err.message || 'Unknown error'}`;
-    res.status(status >= 500 ? 502 : status).json({ success: false, error: message });
+    if (err instanceof RyeProductLookupError) {
+      res.status(err.status).json({ success: false, error: err.message });
+      return;
+    }
+    res.status(502).json({
+      success: false,
+      error: `Failed to look up product: ${err?.message || 'Unknown error'}`,
+    });
   }
 });
 
