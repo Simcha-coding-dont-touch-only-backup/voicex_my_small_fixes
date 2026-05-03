@@ -41,6 +41,8 @@ interface RyeGraphQLAmazonProduct {
   isAvailable?: boolean | null;
   ratingsTotal?: number | null;
   reviewsTotal?: number | null;
+  // Rye GraphQL `Price.value` is the integer amount in subunits (cents for USD).
+  // See https://docs.rye.com/get-started/intro-to-graphql — example: `{ value: 798, displayValue: "$7.98" }`.
   price?: { value?: number | null; currency?: string | null } | null;
   images?: Array<{ url?: string | null }> | null;
   specifications?: Array<{ name: string; value: string }> | null;
@@ -230,6 +232,7 @@ export async function fetchAmazonProduct(asin: string): Promise<AmazonProductLoo
     url: product.url || `https://www.amazon.com/dp/${normalizedAsin}`,
     name: product.title ?? null,
     description: product.description ?? null,
+    // `price.value` is already in subunits (cents) per Rye's GraphQL schema.
     price_cents: product.price?.value ?? null,
     currency: product.price?.currency || 'USD',
     availability,
