@@ -11,7 +11,7 @@ function formatEtaDateForSpeech(etaDate: string): string {
     timeZone: 'UTC',
   });
 }
-      
+
 function getSortedEtaDates(order: any): string[] {
   return [...(order.order_fulfillment_etas || [])]
     .sort((a, b) => {
