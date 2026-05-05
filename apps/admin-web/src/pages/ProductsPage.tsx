@@ -209,7 +209,7 @@ export function ProductsPage() {
         <div className="flex items-center gap-2">
           {isSuper && (
             <Link
-              to="/products/deleted"
+              to="/admin/products/deleted"
               className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               <Trash size={16} /> Deleted Products
@@ -450,7 +450,7 @@ export function ProductsPage() {
                   </td>
                   <td className="px-6 py-3 font-mono">{p.voicex_id}</td>
                   <td className="px-6 py-3">
-                    <Link to={`/products/${p.id}`} className="text-indigo-600 hover:underline">
+                    <Link to={`/admin/products/${p.id}`} className="text-indigo-600 hover:underline">
                       {p.voice_name || p.amazon_name || '-'}
                     </Link>
                   </td>

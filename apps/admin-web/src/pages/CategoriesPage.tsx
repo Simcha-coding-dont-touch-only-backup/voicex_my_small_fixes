@@ -73,7 +73,7 @@ export function CategoriesPage() {
         <div className="flex items-center gap-2">
           {isSuper && (
             <Link
-              to="/categories/deleted"
+              to="/admin/categories/deleted"
               className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               <Trash size={16} /> Deleted Categories

@@ -528,7 +528,7 @@ export function UserDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/users')} className="text-sm text-indigo-600 hover:underline">&larr; Back</button>
+        <button onClick={() => navigate('/admin/users')} className="text-sm text-indigo-600 hover:underline">&larr; Back</button>
         <h2 className="text-2xl font-bold text-gray-800">{user.name}</h2>
       </div>
 

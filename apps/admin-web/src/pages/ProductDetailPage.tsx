@@ -61,7 +61,7 @@ export function ProductDetailPage() {
   const handleDelete = async () => {
     if (!confirm('Delete this product?')) return;
     await apiDelete(`/catalog/products/${id}`);
-    navigate('/products');
+    navigate('/admin/products');
   };
 
   if (!product) return <div className="text-gray-500">Loading...</div>;
@@ -69,7 +69,7 @@ export function ProductDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/products')} className="text-sm text-indigo-600 hover:underline">&larr; Back</button>
+        <button onClick={() => navigate('/admin/products')} className="text-sm text-indigo-600 hover:underline">&larr; Back</button>
         <ProductThumbnail
           thumbnailUrl={product.thumbnail_url}
           images={product.amazon_image_urls}

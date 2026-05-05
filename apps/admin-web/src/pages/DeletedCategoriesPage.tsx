@@ -97,7 +97,7 @@ export function DeletedCategoriesPage() {
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
-            to="/categories"
+            to="/admin/categories"
             className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
           >
             <ArrowLeft size={16} /> Back to Categories

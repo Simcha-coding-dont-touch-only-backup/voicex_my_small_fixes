@@ -103,7 +103,7 @@ export function UsersPage() {
             {users.map((user) => (
               <tr key={user.id} className="border-b hover:bg-gray-50">
                 <td className="px-6 py-4">
-                  <Link to={`/users/${user.id}`} className="font-medium text-indigo-600 hover:underline">
+                  <Link to={`/admin/users/${user.id}`} className="font-medium text-indigo-600 hover:underline">
                     {user.name}
                   </Link>
                 </td>
@@ -125,7 +125,7 @@ export function UsersPage() {
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-1">
                     <Link
-                      to={`/users/${user.id}`}
+                      to={`/admin/users/${user.id}`}
                       className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-indigo-600"
                       title="View user"
                     >

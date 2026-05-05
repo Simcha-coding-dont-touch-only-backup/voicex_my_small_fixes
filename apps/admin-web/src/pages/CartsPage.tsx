@@ -121,7 +121,7 @@ export function CartsPage() {
                       {cart.id.slice(-8)}
                     </td>
                     <td className="px-6 py-3">
-                      <Link to={`/users/${cart.user_id}`} className="text-indigo-600 hover:underline">
+                      <Link to={`/admin/users/${cart.user_id}`} className="text-indigo-600 hover:underline">
                         {cart.users?.name || 'N/A'}
                       </Link>
                       <div className="text-xs text-gray-400">
