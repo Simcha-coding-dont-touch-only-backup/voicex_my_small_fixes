@@ -39,16 +39,28 @@ interface MeResponse {
   error?: string;
 }
 
+interface FetchAdminMeResult {
+  user: AdminUser | null;
+  error: string | null;
+  aborted?: boolean;
+  /** True when the session token is no longer valid (expired/revoked). Distinct from 403 (valid token, not an admin). */
+  tokenInvalid?: boolean;
+}
+
 async function fetchAdminMe(
   token: string,
   signal?: AbortSignal
-): Promise<{ user: AdminUser | null; error: string | null; aborted?: boolean }> {
+): Promise<FetchAdminMeResult> {
   try {
     const resp = await fetch('/api/admin/me', {
       headers: { Authorization: `Bearer ${token}` },
       signal,
     });
-    if (resp.status === 401 || resp.status === 403) {
+    if (resp.status === 401) {
+      const body = (await resp.json().catch(() => ({}))) as MeResponse;
+      return { user: null, error: body.error || 'Session expired', tokenInvalid: true };
+    }
+    if (resp.status === 403) {
       const body = (await resp.json().catch(() => ({}))) as MeResponse;
       return { user: null, error: body.error || 'Not an admin user' };
     }
@@ -74,6 +86,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  const applyAdminResult = useCallback((result: FetchAdminMeResult) => {
+    if (result.error) {
+      setAdminUser(null);
+      setAuthError(result.error);
+      return;
+    }
+    setAdminUser(result.user);
+    setAuthError(null);
+  }, []);
+
   const loadAdmin = useCallback(
     async (currentSession: Session | null, signal?: AbortSignal) => {
       if (signal?.aborted) return;
@@ -83,24 +105,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthError(null);
         return;
       }
-      const { user, error, aborted } = await fetchAdminMe(
-        currentSession.access_token,
-        signal
-      );
-      if (aborted || signal?.aborted) return;
-      if (error) {
-        // Don't auto-signOut here: doing so would fire onAuthStateChange and
-        // re-enter loadAdmin in a loop, and would also clear `authError`
-        // before the user could read it. Just expose the error; the
-        // ProtectedRoutes wrapper will surface it.
-        setAdminUser(null);
-        setAuthError(error);
+      const result = await fetchAdminMe(currentSession.access_token, signal);
+      if (result.aborted || signal?.aborted) return;
+      if (result.tokenInvalid) {
+        // Access token rejected (expired/revoked). Try a one-shot refresh
+        // before giving up — Supabase normally auto-refreshes but the user
+        // may have left the tab idle long enough for the cached token to
+        // expire before the next refresh fires. On failure, sign out so the
+        // user is sent back to login instead of being stuck on an "Invalid
+        // token" error screen.
+        const refresh = await supabase.auth.refreshSession();
+        if (signal?.aborted) return;
+        if (refresh.error || !refresh.data.session) {
+          await supabase.auth.signOut();
+          if (signal?.aborted) return;
+          setSession(null);
+          setAdminUser(null);
+          setAuthError(null);
+          return;
+        }
+        // Drive state directly from the freshly returned session rather
+        // than relying on onAuthStateChange to re-enter loadAdmin. When
+        // _callRefreshToken (auth-js) detects an in-flight refresh — e.g.
+        // the SDK's auto-refresh timer raced us — it returns the existing
+        // deferred without firing TOKEN_REFRESHED to *this* caller, so the
+        // callback path is not guaranteed. We have the new session in
+        // hand; using it is both faster and race-free.
+        setSession(refresh.data.session);
+        const retry = await fetchAdminMe(refresh.data.session.access_token, signal);
+        if (retry.aborted || signal?.aborted) return;
+        if (retry.tokenInvalid) {
+          // The brand-new token is already being rejected. Don't loop —
+          // sign out and let the user re-authenticate.
+          await supabase.auth.signOut();
+          if (signal?.aborted) return;
+          setSession(null);
+          setAdminUser(null);
+          setAuthError(null);
+          return;
+        }
+        applyAdminResult(retry);
         return;
       }
-      setAdminUser(user);
-      setAuthError(null);
+      // Genuine non-recoverable error (e.g. 403 not-an-admin) is handled
+      // inside applyAdminResult — we do NOT auto-signOut for 403, since
+      // doing so would fire onAuthStateChange and re-enter loadAdmin in a
+      // loop, and would also clear `authError` before the user could read
+      // it. ProtectedRoutes surfaces the error with a manual sign-out
+      // affordance instead.
+      applyAdminResult(result);
     },
-    []
+    [applyAdminResult]
   );
 
   useEffect(() => {
