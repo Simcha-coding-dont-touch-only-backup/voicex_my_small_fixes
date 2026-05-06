@@ -4,7 +4,7 @@ import { buildGather, buildGatherFromNode, buildSay, formatCurrency } from '../.
 import { normalizeInput, normalizeVoicexId } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName, getProductPriceCents } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
-import { fetchAmazonProductReviews } from '../../../lib/rye.js';
+import { fetchAmazonProductReviews } from '../../../lib/rainforest.js';
 
 registerHandler('lookup_product', async (ctx) => {
   const digits = ctx.req.body.digits;

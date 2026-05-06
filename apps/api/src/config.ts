@@ -24,6 +24,10 @@ export const config = {
     apiKey: process.env.RYE_API_KEY!,
   },
 
+  rainforest: {
+    apiKey: process.env.RAINFOREST_API_KEY!,
+  },
+
   google: {
     addressValidationApiKey: process.env.GOOGLE_ADDRESS_VALIDATION_API_KEY!,
   },

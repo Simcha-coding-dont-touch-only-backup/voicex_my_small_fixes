@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
-import { fetchAmazonProduct, RyeProductLookupError } from '../../lib/rye.js';
+import { fetchAmazonProduct, RainforestProductLookupError } from '../../lib/rainforest.js';
 import {
   downloadAndStoreFeaturedThumbnail,
   pickFeaturedImageUrl,
@@ -321,7 +321,7 @@ catalogRouter.post('/products/lookup-asin', async (req, res) => {
 
     res.json({ success: true, data: product });
   } catch (err: any) {
-    if (err instanceof RyeProductLookupError) {
+    if (err instanceof RainforestProductLookupError) {
       res.status(err.status).json({ success: false, error: err.message });
       return;
     }
