@@ -13,6 +13,22 @@ function decorateProductWithThumbnail<T extends { thumbnail_path?: string | null
   return { ...p, thumbnail_url: getThumbnailPublicUrl(p.thumbnail_path ?? null) };
 }
 
+const DUPLICATE_ASIN_IN_CATALOG_MESSAGE =
+  'A product with this ASIN already exists in your catalog.';
+
+async function activeCatalogProductExistsForAsin(
+  normalizedAsin: string
+): Promise<{ ok: true; exists: boolean } | { ok: false; error: string }> {
+  const { data, error } = await supabaseAdmin
+    .from('catalog_products')
+    .select('id')
+    .eq('amazon_asin', normalizedAsin)
+    .is('deleted_at', null)
+    .limit(1);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, exists: (data?.length ?? 0) > 0 };
+}
+
 export const catalogRouter = Router();
 
 // --- Categories ---
@@ -308,6 +324,16 @@ catalogRouter.post('/products/lookup-asin', async (req, res) => {
 
   const normalizedAsin = asin.trim().toUpperCase();
 
+  const duplicateCheck = await activeCatalogProductExistsForAsin(normalizedAsin);
+  if (!duplicateCheck.ok) {
+    res.status(500).json({ success: false, error: duplicateCheck.error });
+    return;
+  }
+  if (duplicateCheck.exists) {
+    res.status(409).json({ success: false, error: DUPLICATE_ASIN_IN_CATALOG_MESSAGE });
+    return;
+  }
+
   try {
     const product = await fetchAmazonProduct(normalizedAsin);
 
@@ -351,6 +377,19 @@ catalogRouter.post('/products', async (req, res) => {
     category_ids,
   } = req.body;
 
+  if (typeof amazon_asin === 'string' && amazon_asin.trim()) {
+    const normalizedCreateAsin = amazon_asin.trim().toUpperCase();
+    const duplicateCheck = await activeCatalogProductExistsForAsin(normalizedCreateAsin);
+    if (!duplicateCheck.ok) {
+      res.status(500).json({ success: false, error: duplicateCheck.error });
+      return;
+    }
+    if (duplicateCheck.exists) {
+      res.status(409).json({ success: false, error: DUPLICATE_ASIN_IN_CATALOG_MESSAGE });
+      return;
+    }
+  }
+
   let finalVoicexId = voicex_id;
   if (!finalVoicexId) {
     const { data: allIds } = await supabaseAdmin
@@ -369,15 +408,19 @@ catalogRouter.post('/products', async (req, res) => {
         .map((img: any) => ({ url: img.url, is_featured: !!img.is_featured }))
     : null;
   const featuredUrl = pickFeaturedImageUrl(images);
-  const thumbnailPath = featuredUrl && amazon_asin
-    ? await downloadAndStoreFeaturedThumbnail(amazon_asin, featuredUrl)
+  const asinForStorage =
+    typeof amazon_asin === 'string' && amazon_asin.trim()
+      ? amazon_asin.trim().toUpperCase()
+      : amazon_asin;
+  const thumbnailPath = featuredUrl && asinForStorage
+    ? await downloadAndStoreFeaturedThumbnail(asinForStorage, featuredUrl)
     : null;
 
   const { data: product, error } = await supabaseAdmin
     .from('catalog_products')
     .insert({
       voicex_id: finalVoicexId,
-      amazon_asin,
+      amazon_asin: asinForStorage,
       amazon_url,
       amazon_name,
       amazon_description,
@@ -413,7 +456,7 @@ catalogRouter.post('/products', async (req, res) => {
     action: 'create_product',
     entity_type: 'catalog_product',
     entity_id: product.id,
-    changes: { voicex_id: finalVoicexId, amazon_asin },
+    changes: { voicex_id: finalVoicexId, amazon_asin: asinForStorage },
   });
 
   res.status(201).json({ success: true, data: decorateProductWithThumbnail(product) });
