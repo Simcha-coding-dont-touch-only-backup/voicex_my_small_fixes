@@ -552,21 +552,23 @@ export function ProductsPage() {
     setBulkInputError('');
   };
 
-  const resetCreateForm = () => {
+  /** Clears single-ASIN add flow only; does not touch bulk draft state or mode. */
+  const resetSingleCreateFields = () => {
     setAsinInput('');
     setLookupData(null);
     setLookupError('');
     setCreateOverrides(emptyCreateOverrides());
+  };
+
+  const resetCreateForm = () => {
+    resetSingleCreateFields();
     resetBulkCreate();
     setAddProductMode('single');
   };
 
   const switchToBulkMode = () => {
     setAddProductMode('bulk');
-    setAsinInput('');
-    setLookupData(null);
-    setLookupError('');
-    setCreateOverrides(emptyCreateOverrides());
+    resetSingleCreateFields();
     resetBulkCreate();
   };
 
@@ -676,7 +678,7 @@ export function ProductsPage() {
     setEditingId(product.id);
     setEditForm(buildEditForm(product));
     setShowForm(false);
-    resetCreateForm();
+    resetSingleCreateFields();
   };
 
   const cancelEdit = () => {
