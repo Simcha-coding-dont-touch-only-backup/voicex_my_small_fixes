@@ -167,68 +167,70 @@ function SaveTemplateModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Save Mapping Template</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-            aria-label="Close"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-gray-600">Name</label>
-              <input
-                ref={nameRef}
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                placeholder="e.g. Supplier ABC default mapping"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">
-                Description <span className="text-gray-400">(optional)</span>
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm"
-              />
-            </div>
-          </div>
-          {error && (
-            <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-          <div className="mt-6 flex justify-end gap-2">
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/40">
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Save Mapping Template</h3>
             <button
               type="button"
               onClick={onClose}
-              disabled={submitting}
-              className="rounded border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              aria-label="Close"
             >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || !name.trim()}
-              className="flex items-center gap-2 rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {submitting && <Loader2 size={14} className="animate-spin" />}
-              {submitting ? 'Saving...' : 'Save'}
+              <X size={18} />
             </button>
           </div>
-        </form>
+          <form onSubmit={handleSubmit}>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-600">Name</label>
+                <input
+                  ref={nameRef}
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                  placeholder="e.g. Supplier ABC default mapping"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-600">
+                  Description <span className="text-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            {error && (
+              <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={submitting}
+                className="rounded border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || !name.trim()}
+                className="flex items-center gap-2 rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {submitting && <Loader2 size={14} className="animate-spin" />}
+                {submitting ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
@@ -267,41 +269,43 @@ function ConfirmDeleteTemplateModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
-            <AlertTriangle size={20} className="text-red-600" />
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/40">
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+              <AlertTriangle size={20} className="text-red-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Delete Mapping Template</h3>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900">Delete Mapping Template</h3>
-        </div>
-        <p className="mb-6 text-sm text-gray-600">
-          This will permanently delete the template{' '}
-          <span className="font-medium text-gray-900">"{template.name}"</span>. This action cannot be
-          undone.
-        </p>
-        {error && (
-          <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
+          <p className="mb-6 text-sm text-gray-600">
+            This will permanently delete the template{' '}
+            <span className="font-medium text-gray-900">"{template.name}"</span>. This action cannot be
+            undone.
+          </p>
+          {error && (
+            <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={deleting}
+              className="rounded border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleConfirm()}
+              disabled={deleting}
+              className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {deleting ? 'Deleting...' : 'Delete'}
+            </button>
           </div>
-        )}
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={deleting}
-            className="rounded border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleConfirm()}
-            disabled={deleting}
-            className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
-          >
-            {deleting ? 'Deleting...' : 'Delete'}
-          </button>
         </div>
       </div>
     </div>
@@ -590,17 +594,18 @@ export function ImportProductsFlow({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
-        {phase === 'picker' && (
-          <FilePickerView
-            onFile={(f) => void handleFile(f)}
-            rejectionError={parsing ? null : pickerError}
-            onCancel={onClose}
-          />
-        )}
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40">
+        <div className="flex min-h-full items-center justify-center p-4">
+          {phase === 'picker' && (
+            <FilePickerView
+              onFile={(f) => void handleFile(f)}
+              rejectionError={parsing ? null : pickerError}
+              onCancel={onClose}
+            />
+          )}
 
-        {(phase === 'mapping' || phase === 'importing' || phase === 'summary') && parsed && (
-          <div className="my-8 w-full max-w-5xl rounded-xl bg-white p-6 shadow-xl">
+          {(phase === 'mapping' || phase === 'importing' || phase === 'summary') && parsed && (
+            <div className="my-8 w-full max-w-5xl rounded-xl bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">
@@ -807,6 +812,7 @@ export function ImportProductsFlow({
             )}
           </div>
         )}
+        </div>
       </div>
 
       <SaveTemplateModal
