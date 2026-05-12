@@ -75,15 +75,28 @@ async function fetchImageForPdf(url: string): Promise<PdfImageSlot | null> {
   }
 }
 
-/** Bounded parallel fetch (many rows; avoid opening hundreds of connections at once). */
+/**
+ * Bounded parallel fetch (many rows; avoid opening hundreds of connections at once).
+ *
+ * Each worker claims an index in a synchronous critical section, then awaits work.
+ * Under ECMAScript run-to-completion, that claim cannot interleave with other workers
+ * (unlike preemptive threads); the only suspension points are `await` below.
+ */
 async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
   const cap = Math.min(Math.max(1, limit), Math.max(1, items.length));
+  /** Next index to process, or `undefined` when exhausted. No `await` inside — must stay synchronous. */
+  const claimIndex = (): number | undefined => {
+    const i = next;
+    if (i >= items.length) return undefined;
+    next += 1;
+    return i;
+  };
   const worker = async () => {
     for (;;) {
-      const i = next++;
-      if (i >= items.length) return;
+      const i = claimIndex();
+      if (i === undefined) return;
       results[i] = await fn(items[i], i);
     }
   };
