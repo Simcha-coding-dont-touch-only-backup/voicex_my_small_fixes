@@ -527,7 +527,9 @@ export function ProductsPage() {
         amazon_image_urls: lookupData.images || [],
         voice_name: createOverrides.voice_name || null,
         voice_description: createOverrides.voice_description || null,
-        custom_price_cents: createOverrides.custom_price_cents ? parseInt(createOverrides.custom_price_cents) : null,
+        custom_price_cents: createOverrides.custom_price_cents
+          ? parseInt(createOverrides.custom_price_cents, 10)
+          : null,
         local_price_cents: createOverrides.local_price_cents
           ? parseInt(createOverrides.local_price_cents, 10)
           : null,
@@ -694,7 +696,8 @@ export function ProductsPage() {
       await apiPatch(`/catalog/products/${editingId}`, {
         ...currentForm,
         amazon_price_cents: currentForm.amazon_price_cents !== '' ? parseInt(currentForm.amazon_price_cents) : null,
-        custom_price_cents: currentForm.custom_price_cents !== '' ? parseInt(currentForm.custom_price_cents) : null,
+        custom_price_cents:
+          currentForm.custom_price_cents !== '' ? parseInt(currentForm.custom_price_cents, 10) : null,
         local_price_cents:
           currentForm.local_price_cents !== '' && currentForm.local_price_cents != null
             ? parseInt(String(currentForm.local_price_cents), 10)
