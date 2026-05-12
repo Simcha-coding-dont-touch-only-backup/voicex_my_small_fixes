@@ -1,9 +1,9 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
-import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Infinity as InfinityIcon, ListOrdered, ArrowUp, ArrowDown } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 import { ProductThumbnail } from '../components/ProductThumbnail';
@@ -19,6 +19,61 @@ interface AsinLookupData {
   is_purchasable: boolean;
   images: { url: string; is_featured: boolean }[];
   brand: string | null;
+}
+
+const PRODUCT_PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000] as const;
+
+/** Up to `max` page indices (1-based), sliding window centered on `page` when there are more pages than `max`. */
+function visiblePageNumbers(page: number, totalPages: number, max = 5): number[] {
+  const n = Math.max(0, totalPages);
+  if (n === 0) return [1];
+  if (n <= max) return Array.from({ length: n }, (_, i) => i + 1);
+  const start = Math.max(1, Math.min(page - Math.floor(max / 2), n - max + 1));
+  return Array.from({ length: max }, (_, i) => start + i);
+}
+
+function ProductSortHeader({
+  label,
+  field,
+  sortBy,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  field: string;
+  sortBy: string;
+  sortDir: 'asc' | 'desc';
+  onSort: (field: string) => void;
+}) {
+  const active = sortBy === field;
+  const ariaSort = active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+  return (
+    <th className="px-6 py-3 font-medium" scope="col" aria-sort={ariaSort}>
+      <button
+        type="button"
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        onClick={() => onSort(field)}
+        title={`Sort by ${label}`}
+      >
+        <span>{label}</span>
+        <span
+          className="inline-flex shrink-0 flex-col items-center justify-center leading-none text-gray-300"
+          aria-hidden
+        >
+          <ArrowUp
+            size={12}
+            className={active && sortDir === 'asc' ? 'text-indigo-600' : undefined}
+            strokeWidth={active && sortDir === 'asc' ? 2.5 : 2}
+          />
+          <ArrowDown
+            size={12}
+            className={`-mt-0.5 ${active && sortDir === 'desc' ? 'text-indigo-600' : ''}`}
+            strokeWidth={active && sortDir === 'desc' ? 2.5 : 2}
+          />
+        </span>
+      </button>
+    </th>
+  );
 }
 
 function buildEditForm(p: any) {
@@ -67,19 +122,110 @@ export function ProductsPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [quickCategoryTarget, setQuickCategoryTarget] = useState<'create' | 'edit' | null>(null);
   const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>([]);
-  const perPage = 20;
+  const [perPage, setPerPage] = useState(20);
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [paginationMode, setPaginationMode] = useState<'standard' | 'endless'>('standard');
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const appendNextRef = useRef(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const lastFilterKeyRef = useRef('');
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const paginationPages = visiblePageNumbers(page, totalPages, 5);
+  const canGoNextPage = page < totalPages;
+  const rangeEnd = total > 0 ? Math.min(page * perPage, total) : 0;
+  const rangeStart = total > 0 ? Math.min((page - 1) * perPage + 1, rangeEnd) : 0;
+  const hasMoreEndless = paginationMode === 'endless' && products.length < total;
 
   const load = useCallback(() => {
-    const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+    const filterKey = `${search}|${filterCategoryIds.join(',')}|${perPage}|${sortBy}|${sortDir}`;
+    const filtersChanged = lastFilterKeyRef.current !== '' && lastFilterKeyRef.current !== filterKey;
+    lastFilterKeyRef.current = filterKey;
+
+    const append = appendNextRef.current;
+    appendNextRef.current = false;
+
+    if (paginationMode === 'endless' && filtersChanged) {
+      if (page !== 1) {
+        setProducts([]);
+        setIsLoadingMore(true);
+        setPage(1);
+        return;
+      }
+      if (!append) setProducts([]);
+    }
+
+    const params = new URLSearchParams({
+      page: String(page),
+      per_page: String(perPage),
+      sort_by: sortBy,
+      sort_dir: sortDir,
+    });
     if (search) params.set('search', search);
     if (filterCategoryIds.length > 0) params.set('category_ids', filterCategoryIds.join(','));
     apiGet<any>(`/catalog/products?${params}`).then((r) => {
-      setProducts(r.data || []);
+      if (append) {
+        setProducts((prev) => [...prev, ...(r.data || [])]);
+      } else {
+        setProducts(r.data || []);
+      }
       setTotal(r.total || 0);
+      setIsLoadingMore(false);
+    }).catch(() => {
+      setIsLoadingMore(false);
     });
-  }, [page, search, filterCategoryIds]);
+  }, [page, search, filterCategoryIds, perPage, paginationMode, sortBy, sortDir]);
+
+  const handleProductSort = (field: string) => {
+    if (sortBy === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortDir('desc');
+    }
+    setPage(1);
+  };
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (paginationMode !== 'endless') return;
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        if (isLoadingMore) return;
+        if (page >= totalPages) return;
+        if (products.length < page * perPage) return;
+        appendNextRef.current = true;
+        setIsLoadingMore(true);
+        setPage((p) => p + 1);
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [paginationMode, isLoadingMore, page, totalPages, products.length, perPage]);
+
+  const switchPaginationMode = (mode: 'standard' | 'endless') => {
+    if (mode === paginationMode) return;
+    appendNextRef.current = false;
+    setIsLoadingMore(false);
+    setProducts([]);
+    setPaginationMode(mode);
+    if (page !== 1) setPage(1);
+  };
+
+  const refreshAfterMutation = () => {
+    appendNextRef.current = false;
+    if (paginationMode === 'endless') {
+      setProducts([]);
+    }
+    if (page !== 1) setPage(1);
+    else load();
+  };
   useEffect(() => {
     apiGet<any>('/catalog/categories').then((r) => setCategories(r.data || []));
     apiGet<any>('/settings').then((r) => {
@@ -132,7 +278,7 @@ export function ProductsPage() {
       setLookupData(null);
       setLookupError('');
       setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', local_price_cents: '', category_ids: [] });
-      load();
+      refreshAfterMutation();
     } catch (err: any) {
       setLookupError(err.message || 'Failed to create product.');
     } finally {
@@ -174,7 +320,7 @@ export function ProductsPage() {
       });
       setEditingId(null);
       setEditForm({});
-      load();
+      refreshAfterMutation();
     } finally {
       setSaving(false);
     }
@@ -425,14 +571,14 @@ export function ProductsPage() {
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
               <th className="px-3 py-3 font-medium w-16">Image</th>
-              <th className="px-6 py-3 font-medium">VoiceX ID</th>
-              <th className="px-6 py-3 font-medium">Name</th>
-              <th className="px-6 py-3 font-medium">ASIN</th>
-              <th className="px-6 py-3 font-medium">Amazon Price</th>
-              <th className="px-6 py-3 font-medium">Custom Price</th>
-              <th className="px-6 py-3 font-medium">Local Price</th>
-              <th className="px-6 py-3 font-medium">Active</th>
-              <th className="px-6 py-3 font-medium">Lifetime Sold</th>
+              <ProductSortHeader label="VoiceX ID" field="voicex_id" sortBy={sortBy} sortDir={sortDir} onSort={handleProductSort} />
+              <ProductSortHeader label="Name" field="name_sort_key" sortBy={sortBy} sortDir={sortDir} onSort={handleProductSort} />
+              <ProductSortHeader label="ASIN" field="amazon_asin" sortBy={sortBy} sortDir={sortDir} onSort={handleProductSort} />
+              <ProductSortHeader label="Amazon Price" field="amazon_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={handleProductSort} />
+              <ProductSortHeader label="Custom Price" field="custom_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={handleProductSort} />
+              <ProductSortHeader label="Local Price" field="local_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={handleProductSort} />
+              <ProductSortHeader label="Active" field="is_active" sortBy={sortBy} sortDir={sortDir} onSort={handleProductSort} />
+              <ProductSortHeader label="Lifetime Sold" field="lifetime_qty_sold" sortBy={sortBy} sortDir={sortDir} onSort={handleProductSort} />
               <th className="px-6 py-3 font-medium w-24">Actions</th>
             </tr>
           </thead>
@@ -605,12 +751,120 @@ export function ProductsPage() {
           </tbody>
         </table>
 
-        <div className="flex items-center justify-between border-t px-6 py-3">
-          <span className="text-sm text-gray-500">{total} products</span>
-          <div className="flex gap-2">
-            <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1} className="rounded border px-3 py-1 text-sm disabled:opacity-50"><ChevronLeft size={16} /></button>
-            <span className="px-3 py-1 text-sm">Page {page}</span>
-            <button onClick={() => setPage(page + 1)} disabled={page * perPage >= total} className="rounded border px-3 py-1 text-sm disabled:opacity-50"><ChevronRight size={16} /></button>
+        {paginationMode === 'endless' && (
+          <>
+            {hasMoreEndless && (
+              <div ref={loadMoreSentinelRef} className="h-1" aria-hidden="true" />
+            )}
+            {isLoadingMore && (
+              <div className="flex items-center justify-center gap-2 border-t px-6 py-4 text-sm text-gray-500">
+                <Loader2 size={14} className="animate-spin" /> Loading more products...
+              </div>
+            )}
+            {!isLoadingMore && total > 0 && !hasMoreEndless && (
+              <div className="border-t px-6 py-3 text-center text-xs text-gray-400">
+                End of list — all {total} product{total === 1 ? '' : 's'} loaded.
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-6 py-3">
+          <span className="text-sm text-gray-500">
+            {total === 0
+              ? '0 of 0 Products'
+              : paginationMode === 'endless'
+              ? `Showing ${products.length} of ${total} Products`
+              : `${rangeStart}-${rangeEnd} of ${total} Products`}
+          </span>
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            {paginationMode === 'standard' ? (
+              <button
+                type="button"
+                onClick={() => switchPaginationMode('endless')}
+                className="flex items-center gap-1.5 rounded border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                title="Switch to endless scrolling"
+                aria-label="Switch to endless scrolling"
+              >
+                <InfinityIcon size={16} />
+                <span className="hidden sm:inline">Endless</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => switchPaginationMode('standard')}
+                className="flex items-center gap-1.5 rounded border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                title="Switch to standard pagination"
+                aria-label="Switch to standard pagination"
+              >
+                <ListOrdered size={16} />
+                <span className="hidden sm:inline">Pages</span>
+              </button>
+            )}
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="whitespace-nowrap">Per page</span>
+              <select
+                value={perPage}
+                onChange={(e) => {
+                  setPerPage(Number(e.target.value));
+                  appendNextRef.current = false;
+                  if (paginationMode === 'endless') setProducts([]);
+                  setPage(1);
+                }}
+                className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                aria-label="Products per page"
+              >
+                {PRODUCT_PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {paginationMode === 'standard' && (
+              <nav className="flex items-center gap-1" aria-label="Product list pagination">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="rounded border p-1.5 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex gap-1">
+                  {paginationPages.map((pNum) =>
+                    pNum === page ? (
+                      <span
+                        key={pNum}
+                        aria-current="page"
+                        className="flex min-w-[2.25rem] items-center justify-center rounded border border-indigo-600 bg-indigo-600 px-2 py-1 text-sm font-medium tabular-nums text-white"
+                      >
+                        {pNum}
+                      </span>
+                    ) : (
+                      <button
+                        key={pNum}
+                        type="button"
+                        onClick={() => setPage(pNum)}
+                        className="min-w-[2.25rem] rounded border border-gray-200 px-2 py-1 text-sm tabular-nums text-gray-700 hover:bg-gray-50"
+                      >
+                        {pNum}
+                      </button>
+                    )
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={!canGoNextPage}
+                  className="rounded border p-1.5 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                  aria-label="Next page"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </nav>
+            )}
           </div>
         </div>
       </div>

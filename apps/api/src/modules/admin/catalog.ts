@@ -207,7 +207,7 @@ catalogRouter.delete('/categories/:id', async (req, res) => {
 
 // --- Products ---
 
-const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'amazon_price_cents', 'custom_price_cents', 'local_price_cents', 'is_active', 'voicex_id', 'id'];
+const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'name_sort_key', 'amazon_price_cents', 'custom_price_cents', 'local_price_cents', 'is_active', 'voicex_id', 'id', 'amazon_asin', 'lifetime_qty_sold'];
 
 catalogRouter.get('/products', async (req, res) => {
   const { page = '1', per_page = '20', search, category_id, category_ids, is_active, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
