@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
-import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Infinity as InfinityIcon, ListOrdered, ArrowUp, ArrowDown, Printer } from 'lucide-react';
+import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Infinity as InfinityIcon, ListOrdered, ArrowUp, ArrowDown, Printer, Upload } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
+import { ImportProductsFlow } from '../components/ImportProductsFlow';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import { buildProductsListPdfBlob } from '../lib/products-list-pdf';
 import type { CatalogProduct } from '@voicex/shared';
@@ -387,6 +388,7 @@ export function ProductsPage() {
   const [paginationMode, setPaginationMode] = useState<'standard' | 'endless'>('standard');
   const [pdfExporting, setPdfExporting] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const appendNextRef = useRef(false);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const lastFilterKeyRef = useRef('');
@@ -829,6 +831,13 @@ export function ProductsPage() {
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
           >
             <Plus size={16} /> Add Product
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-800 hover:bg-indigo-100"
+          >
+            <Upload size={16} /> Import
           </button>
         </div>
       </div>
@@ -1408,6 +1417,13 @@ export function ProductsPage() {
           </div>
         </div>
       </div>
+
+      <ImportProductsFlow
+        open={showImport}
+        onClose={() => setShowImport(false)}
+        onImported={refreshAfterMutation}
+        categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+      />
 
       <CategoryQuickCreateModal
         open={quickCategoryTarget !== null}

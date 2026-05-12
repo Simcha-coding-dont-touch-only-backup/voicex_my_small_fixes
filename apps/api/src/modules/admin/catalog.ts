@@ -580,3 +580,310 @@ catalogRouter.delete('/products/:id', async (req, res) => {
   // Sub-admins must believe this was a permanent delete.
   res.json({ success: true, message: 'Product deleted' });
 });
+
+// --- Spreadsheet import: column-mapping templates ---
+
+type ImportFieldKey =
+  | 'asin'
+  | 'voice_name'
+  | 'voice_description'
+  | 'custom_price'
+  | 'local_price'
+  | 'category';
+
+const IMPORT_FIELD_KEYS: readonly ImportFieldKey[] = [
+  'asin',
+  'voice_name',
+  'voice_description',
+  'custom_price',
+  'local_price',
+  'category',
+];
+
+function isValidImportMapping(value: unknown): value is Array<{
+  column_index: number;
+  column_label: string;
+  field: ImportFieldKey;
+}> {
+  if (!Array.isArray(value)) return false;
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') return false;
+    const e = entry as Record<string, unknown>;
+    if (typeof e.column_index !== 'number' || !Number.isInteger(e.column_index) || e.column_index < 0) return false;
+    if (typeof e.column_label !== 'string') return false;
+    if (typeof e.field !== 'string' || !IMPORT_FIELD_KEYS.includes(e.field as ImportFieldKey)) return false;
+  }
+  return true;
+}
+
+catalogRouter.get('/import-templates', async (_req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('catalog_import_templates')
+    .select('id, name, description, mapping, created_by, created_at, updated_at')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  res.json({ success: true, data: data ?? [] });
+});
+
+catalogRouter.post('/import-templates', async (req, res) => {
+  const { name, description, mapping } = req.body ?? {};
+
+  const trimmedName = typeof name === 'string' ? name.trim() : '';
+  if (!trimmedName) {
+    res.status(400).json({ success: false, error: 'Template name is required.' });
+    return;
+  }
+  if (trimmedName.length > 120) {
+    res.status(400).json({ success: false, error: 'Template name must be 120 characters or fewer.' });
+    return;
+  }
+
+  const trimmedDescription =
+    typeof description === 'string' && description.trim() ? description.trim() : null;
+
+  if (!isValidImportMapping(mapping)) {
+    res.status(400).json({ success: false, error: 'Mapping must be a non-empty list of valid column entries.' });
+    return;
+  }
+  if (mapping.length === 0) {
+    res.status(400).json({ success: false, error: 'Mapping cannot be empty.' });
+    return;
+  }
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('catalog_import_templates')
+    .select('id')
+    .ilike('name', trimmedName)
+    .limit(1);
+
+  if (existingError) {
+    res.status(500).json({ success: false, error: existingError.message });
+    return;
+  }
+  if ((existing?.length ?? 0) > 0) {
+    res.status(409).json({ success: false, error: 'A template with that name already exists.' });
+    return;
+  }
+
+  const adminUser = (req as any).adminUser;
+  const { data, error } = await supabaseAdmin
+    .from('catalog_import_templates')
+    .insert({
+      name: trimmedName,
+      description: trimmedDescription,
+      mapping,
+      created_by: adminUser?.id ?? null,
+    })
+    .select('id, name, description, mapping, created_by, created_at, updated_at')
+    .single();
+
+  if (error || !data) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to save template.' });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: adminUser?.id,
+    action: 'create_import_template',
+    entity_type: 'catalog_import_template',
+    entity_id: data.id,
+    changes: { name: data.name },
+  });
+
+  res.status(201).json({ success: true, data });
+});
+
+catalogRouter.delete('/import-templates/:id', async (req, res) => {
+  const adminUser = (req as any).adminUser;
+  const { error } = await supabaseAdmin
+    .from('catalog_import_templates')
+    .delete()
+    .eq('id', req.params.id);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: adminUser?.id,
+    action: 'delete_import_template',
+    entity_type: 'catalog_import_template',
+    entity_id: req.params.id,
+  });
+
+  res.json({ success: true, message: 'Template deleted' });
+});
+
+// --- Spreadsheet import: per-row product create ---
+//
+// One product per request so the client can drive a progress bar and
+// surface granular per-row errors. Always responds 200; the body's
+// `status` field tells the client whether the row succeeded or failed.
+
+catalogRouter.post('/products/import-row', async (req, res) => {
+  const {
+    row_number: rowNumberRaw,
+    asin: asinRaw,
+    voice_name,
+    voice_description,
+    custom_price_cents,
+    local_price_cents,
+    category_ids,
+  } = req.body ?? {};
+
+  const rowNumber =
+    typeof rowNumberRaw === 'number' && Number.isFinite(rowNumberRaw) ? rowNumberRaw : 0;
+  const asinForResponse =
+    typeof asinRaw === 'string' ? asinRaw.trim().toUpperCase() : '';
+
+  const fail = (error: string) => {
+    res.json({
+      success: false,
+      status: 'failed',
+      row_number: rowNumber,
+      asin: asinForResponse,
+      error,
+    });
+  };
+
+  if (!asinForResponse) {
+    fail('ASIN is required.');
+    return;
+  }
+  if (!/^[A-Z0-9]{10}$/.test(asinForResponse)) {
+    fail(`"${asinForResponse}" is not a valid 10-character Amazon ASIN.`);
+    return;
+  }
+
+  const duplicateCheck = await activeCatalogProductExistsForAsin(asinForResponse);
+  if (!duplicateCheck.ok) {
+    fail(duplicateCheck.error);
+    return;
+  }
+  if (duplicateCheck.exists) {
+    fail(DUPLICATE_ASIN_IN_CATALOG_MESSAGE);
+    return;
+  }
+
+  let amazonProduct;
+  try {
+    amazonProduct = await fetchAmazonProduct(asinForResponse);
+  } catch (err: any) {
+    if (err instanceof RainforestProductLookupError) {
+      fail(err.message);
+      return;
+    }
+    fail(`Failed to look up product: ${err?.message || 'Unknown error'}`);
+    return;
+  }
+
+  if (!amazonProduct) {
+    fail(`Product with ASIN "${asinForResponse}" was not found on Amazon.`);
+    return;
+  }
+
+  const { data: allIds, error: idsError } = await supabaseAdmin
+    .from('catalog_products')
+    .select('voicex_id');
+  if (idsError) {
+    fail(idsError.message);
+    return;
+  }
+  const maxNumeric = (allIds || []).reduce((max: number, r: any) => {
+    const n = parseInt(r.voicex_id, 10);
+    return isNaN(n) ? max : Math.max(max, n);
+  }, 1000);
+  const finalVoicexId = String(maxNumeric + 1).padStart(7, '0');
+
+  const images: ProductImageInput[] | null = Array.isArray(amazonProduct.images)
+    ? amazonProduct.images
+        .filter((img: any) => img && typeof img.url === 'string')
+        .map((img: any) => ({ url: img.url, is_featured: !!img.is_featured }))
+    : null;
+  const featuredUrl = pickFeaturedImageUrl(images);
+  const thumbnailPath = featuredUrl
+    ? await downloadAndStoreFeaturedThumbnail(asinForResponse, featuredUrl)
+    : null;
+
+  const { data: product, error: insertError } = await supabaseAdmin
+    .from('catalog_products')
+    .insert({
+      voicex_id: finalVoicexId,
+      amazon_asin: asinForResponse,
+      amazon_url: amazonProduct.url,
+      amazon_name: amazonProduct.name,
+      amazon_description: amazonProduct.description,
+      amazon_price_cents: amazonProduct.price_cents,
+      amazon_star_rating: amazonProduct.star_rating ?? null,
+      amazon_ratings_total: amazonProduct.ratings_total ?? null,
+      amazon_image_urls: images,
+      thumbnail_path: thumbnailPath,
+      voice_name: typeof voice_name === 'string' && voice_name.trim() ? voice_name : null,
+      voice_description:
+        typeof voice_description === 'string' && voice_description.trim() ? voice_description : null,
+      custom_price_cents:
+        typeof custom_price_cents === 'number' && Number.isFinite(custom_price_cents)
+          ? Math.round(custom_price_cents)
+          : null,
+      local_price_cents:
+        typeof local_price_cents === 'number' && Number.isFinite(local_price_cents)
+          ? Math.round(local_price_cents)
+          : null,
+      is_active: true,
+    })
+    .select()
+    .single();
+
+  if (insertError || !product) {
+    fail(insertError?.message || 'Failed to create product.');
+    return;
+  }
+
+  if (Array.isArray(category_ids) && category_ids.length > 0) {
+    const links = category_ids
+      .filter((cid): cid is string => typeof cid === 'string' && cid.length > 0)
+      .map((cid) => ({ product_id: product.id, category_id: cid }));
+    if (links.length > 0) {
+      const { error: linkError } = await supabaseAdmin
+        .from('catalog_product_categories')
+        .insert(links);
+      if (linkError) {
+        // The product was created; report the row as failed so the admin
+        // knows category linking didn't take, but leave the product in
+        // place (matches the resilient behavior of the regular create flow
+        // which currently ignores link errors).
+        fail(`Product created but failed to attach categories: ${linkError.message}`);
+        return;
+      }
+    }
+  }
+
+  const adminUser = (req as any).adminUser;
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: adminUser?.id,
+    action: 'create_product',
+    entity_type: 'catalog_product',
+    entity_id: product.id,
+    changes: {
+      voicex_id: finalVoicexId,
+      amazon_asin: asinForResponse,
+      source: 'spreadsheet_import',
+      row_number: rowNumber,
+    },
+  });
+
+  res.json({
+    success: true,
+    status: 'created',
+    row_number: rowNumber,
+    asin: asinForResponse,
+    product_id: product.id,
+    voicex_id: finalVoicexId,
+  });
+});
