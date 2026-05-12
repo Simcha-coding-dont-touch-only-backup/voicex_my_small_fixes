@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
-import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Infinity as InfinityIcon, ListOrdered, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, Plus, ChevronLeft, ChevronRight, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Infinity as InfinityIcon, ListOrdered, ArrowUp, ArrowDown, Printer } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 import { ProductThumbnail } from '../components/ProductThumbnail';
+import { buildProductsListPdfBlob } from '../lib/products-list-pdf';
+import type { CatalogProduct } from '@voicex/shared';
 
 interface AsinLookupData {
   asin: string;
@@ -22,6 +24,7 @@ interface AsinLookupData {
 }
 
 const PRODUCT_PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000] as const;
+const PDF_EXPORT_PER_PAGE = 1000;
 
 /** Up to `max` page indices (1-based), sliding window centered on `page` when there are more pages than `max`. */
 function visiblePageNumbers(page: number, totalPages: number, max = 5): number[] {
@@ -126,6 +129,7 @@ export function ProductsPage() {
   const [sortBy, setSortBy] = useState('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [paginationMode, setPaginationMode] = useState<'standard' | 'endless'>('standard');
+  const [pdfExporting, setPdfExporting] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const appendNextRef = useRef(false);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -348,6 +352,64 @@ export function ProductsPage() {
     setDeleteError(null);
   };
 
+  const handleExportPdf = async () => {
+    const capSearch = search;
+    const capFilterIds = [...filterCategoryIds];
+    const capSortBy = sortBy;
+    const capSortDir = sortDir;
+    const capTotal = total;
+
+    if (capTotal === 0) {
+      window.alert('No products to export.');
+      return;
+    }
+
+    setPdfExporting(true);
+    try {
+      const all: CatalogProduct[] = [];
+      let exportPage = 1;
+      for (;;) {
+        if (all.length >= capTotal) break;
+        const params = new URLSearchParams({
+          page: String(exportPage),
+          per_page: String(PDF_EXPORT_PER_PAGE),
+          sort_by: capSortBy,
+          sort_dir: capSortDir,
+        });
+        if (capSearch) params.set('search', capSearch);
+        if (capFilterIds.length > 0) params.set('category_ids', capFilterIds.join(','));
+        const r = await apiGet<{ data?: CatalogProduct[] }>(`/catalog/products?${params}`);
+        const chunk = r.data || [];
+        if (chunk.length === 0) break;
+        all.push(...chunk);
+        if (chunk.length < PDF_EXPORT_PER_PAGE) break;
+        exportPage += 1;
+        if (exportPage > 500) break;
+      }
+
+      const subtitleLines: string[] = [`${all.length} product(s) · ${new Date().toLocaleString()}`];
+      if (capSearch.trim()) subtitleLines.push(`Search: ${capSearch}`);
+      if (capFilterIds.length > 0) {
+        const names = capFilterIds
+          .map((id) => categories.find((c) => c.id === id)?.name)
+          .filter((n): n is string => Boolean(n));
+        subtitleLines.push(names.length > 0 ? `Categories: ${names.join(', ')}` : `Category IDs: ${capFilterIds.join(', ')}`);
+      }
+
+      const blob = await buildProductsListPdfBlob(all, defaultMarkupPercent, { subtitleLines });
+      const url = URL.createObjectURL(blob);
+      // With `noopener`, many browsers return `null` even when a tab opened successfully.
+      // Do not treat a null return as failure or revoke the URL in that case.
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to export PDF.';
+      window.alert(msg);
+    } finally {
+      setPdfExporting(false);
+    }
+  };
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -361,6 +423,16 @@ export function ProductsPage() {
               <Trash size={16} /> Deleted Products
             </Link>
           )}
+          <button
+            type="button"
+            onClick={() => void handleExportPdf()}
+            disabled={pdfExporting}
+            title="Export list to PDF"
+            aria-label="Export list to PDF"
+            className="flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {pdfExporting ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Printer size={18} aria-hidden />}
+          </button>
           <button onClick={() => { setShowForm(!showForm); if (showForm) resetCreateForm(); cancelEdit(); }}
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">
             <Plus size={16} /> Add Product

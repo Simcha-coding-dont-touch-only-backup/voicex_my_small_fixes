@@ -13,6 +13,8 @@
     "@supabase/supabase-js": "^2.49.0",
     "@voicex/shared": "*",
     "@xyflow/react": "^12.10.1",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
     "lucide-react": "^0.460.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
