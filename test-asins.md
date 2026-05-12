@@ -38,3 +38,9 @@ Use these ASINs when testing the **Add Product** flow in the admin portal. The s
 - Test across multiple price points to verify the markup percentage logic in Settings.
 - When adding a product, enter only the ASIN — name, description, and price are auto-fetched from Rye.
 - Use the Rye staging endpoint for testing: `https://staging.api.rye.com/api/v1/`
+
+--------------------------------------
+B0GBWB9SB4 B0BX43H6XS B0DLMQ38PL B09W2XYSG1 B0CSF8B2BC B0DXTWLFDV B000V9LAPY B0BDHX8Z63
+B0GBWB9SB4, B0BX43H6XS, B0DLMQ38PL, B09W2XYSG1, B0CSF8B2BC, B0DXTWLFDV, B000V9LAPY, B0BDHX8Z63
+B0GBWB9SB4; B0BX43H6XS; B0DLMQ38PL; B09W2XYSG1; B0CSF8B2BC; B0DXTWLFDV; B000V9LAPY; B0BDHX8Z63
+B0GBWB9SB4|B0BX43H6XS|B0DLMQ38PL|B09W2XYSG1|B0CSF8B2BC|B0DXTWLFDV|B000V9LAPY|B0BDHX8Z63

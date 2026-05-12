@@ -23,6 +23,261 @@ interface AsinLookupData {
   brand: string | null;
 }
 
+const ASIN_TOKEN = /^[A-Z0-9]{10}$/;
+
+type CreateProductOverrides = {
+  voice_name: string;
+  voice_description: string;
+  custom_price_cents: string;
+  local_price_cents: string;
+  category_ids: string[];
+};
+
+function emptyCreateOverrides(): CreateProductOverrides {
+  return { voice_name: '', voice_description: '', custom_price_cents: '', local_price_cents: '', category_ids: [] };
+}
+
+/** Split on non-alphanumeric delimiters; keep first-seen order; dedupe. */
+function parseAsinsFromText(text: string): string[] {
+  const upper = text.toUpperCase();
+  const parts = upper.split(/[^A-Z0-9]+/).filter(Boolean);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    if (p.length === 10 && ASIN_TOKEN.test(p) && !seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+function dedupeOrderedAppend(base: string[], extra: string[]): string[] {
+  const seen = new Set(base);
+  const result = [...base];
+  for (const a of extra) {
+    if (!seen.has(a)) {
+      seen.add(a);
+      result.push(a);
+    }
+  }
+  return result;
+}
+
+const BULK_LOOKUP_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const n = items.length;
+  if (n === 0) return;
+  const pool = Math.min(Math.max(1, limit), n);
+  async function run() {
+    for (;;) {
+      const idx = cursor++;
+      if (idx >= n) break;
+      await worker(items[idx], idx);
+    }
+  }
+  await Promise.all(Array.from({ length: pool }, () => run()));
+}
+
+type QuickCategoryTarget = 'create' | 'edit' | { type: 'bulk'; rowId: string } | null;
+
+type BulkProductRow = {
+  id: string;
+  asin: string;
+  lookupData: AsinLookupData | null;
+  lookupError: string;
+  lookupLoading: boolean;
+  overrides: CreateProductOverrides;
+  saving: boolean;
+};
+
+function CreateFromLookupPanel({
+  lookupData,
+  overrides,
+  onOverridesChange,
+  categories,
+  defaultMarkupPercent,
+  onQuickCategoryNew,
+  onCreate,
+  onRowCancel,
+  saving,
+  createDisabled,
+}: {
+  lookupData: AsinLookupData;
+  overrides: CreateProductOverrides;
+  onOverridesChange: (next: CreateProductOverrides) => void;
+  categories: any[];
+  defaultMarkupPercent: number;
+  onQuickCategoryNew: () => void;
+  onCreate: () => void;
+  onRowCancel: () => void;
+  saving: boolean;
+  createDisabled?: boolean;
+}) {
+  return (
+    <div>
+      <div className="mb-4 grid gap-6 lg:grid-cols-2">
+        <div>
+          <h4 className="mb-3 text-sm font-semibold text-gray-700">Amazon Data (auto-fetched)</h4>
+          <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+            {lookupData.images && lookupData.images.length > 0 && (
+              <div className="flex items-start gap-3">
+                <ProductThumbnail
+                  thumbnailUrl={(lookupData.images.find((i) => i.is_featured) || lookupData.images[0])?.url || null}
+                  images={lookupData.images}
+                  alt={lookupData.name || lookupData.asin}
+                  size={88}
+                />
+                <div className="text-xs text-gray-500">
+                  {lookupData.images.length} image{lookupData.images.length === 1 ? '' : 's'} found.
+                  <br />
+                  The featured one will be saved as a thumbnail; click to preview the full gallery.
+                </div>
+              </div>
+            )}
+            <div>
+              <span className="text-xs font-medium text-gray-500">Name</span>
+              <p className="text-sm text-gray-800">{lookupData.name || '-'}</p>
+            </div>
+            <div>
+              <span className="text-xs font-medium text-gray-500">Description</span>
+              <p className="text-sm text-gray-800 max-h-24 overflow-y-auto">
+                {lookupData.description
+                  ? lookupData.description.substring(0, 300) + (lookupData.description.length > 300 ? '...' : '')
+                  : '-'}
+              </p>
+            </div>
+            <div className="flex gap-6">
+              <div>
+                <span className="text-xs font-medium text-gray-500">Price</span>
+                <p className="text-sm font-semibold text-gray-800">
+                  {lookupData.price_cents != null ? `$${(lookupData.price_cents / 100).toFixed(2)}` : '-'}
+                </p>
+              </div>
+              <div>
+                <span className="text-xs font-medium text-gray-500">Availability</span>
+                <p className="text-sm">
+                  <span
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs ${
+                      lookupData.availability === 'in_stock'
+                        ? 'bg-green-100 text-green-700'
+                        : lookupData.availability === 'out_of_stock'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                    }`}
+                  >
+                    {lookupData.availability.replace(/_/g, ' ')}
+                  </span>
+                </p>
+              </div>
+              {lookupData.brand && (
+                <div>
+                  <span className="text-xs font-medium text-gray-500">Brand</span>
+                  <p className="text-sm text-gray-800">{lookupData.brand}</p>
+                </div>
+              )}
+            </div>
+            <div>
+              <span className="text-xs font-medium text-gray-500">ASIN</span>
+              <p className="text-sm font-mono text-gray-600">{lookupData.asin}</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4 className="mb-3 text-sm font-semibold text-gray-700">
+            VoiceX Overrides <span className="font-normal text-gray-400">(optional)</span>
+          </h4>
+          <div className="space-y-3 rounded-lg border border-indigo-200 bg-indigo-50/30 p-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500">Custom Name</label>
+              <input
+                value={overrides.voice_name}
+                onChange={(e) => onOverridesChange({ ...overrides, voice_name: e.target.value })}
+                placeholder={lookupData.name || 'Leave blank to use Amazon name'}
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Custom Description</label>
+              <textarea
+                value={overrides.voice_description}
+                onChange={(e) => onOverridesChange({ ...overrides, voice_description: e.target.value })}
+                placeholder="Leave blank to use Amazon description"
+                rows={3}
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Custom Price (cents)</label>
+              <input
+                type="number"
+                value={overrides.custom_price_cents}
+                onChange={(e) => onOverridesChange({ ...overrides, custom_price_cents: e.target.value })}
+                onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                placeholder={customPriceInputPlaceholder(lookupData.price_cents, defaultMarkupPercent)}
+                className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Local Store Price (cents, optional)</label>
+              <input
+                type="number"
+                value={overrides.local_price_cents}
+                onChange={(e) => onOverridesChange({ ...overrides, local_price_cents: e.target.value })}
+                onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                placeholder="e.g. 1299 for $12.99"
+                className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+            </div>
+            <p className="text-xs text-gray-400">If left blank, calls will use the Amazon data shown on the left.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-gray-600">Categories</label>
+          <button
+            type="button"
+            onClick={onQuickCategoryNew}
+            className="flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100"
+            title="Create new category"
+          >
+            <Plus size={12} /> New
+          </button>
+        </div>
+        <SearchableMultiSelect
+          options={categories.map((c) => ({ value: c.id, label: c.name }))}
+          value={overrides.category_ids}
+          onChange={(ids) => onOverridesChange({ ...overrides, category_ids: ids })}
+          placeholder="Select categories..."
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onCreate}
+          disabled={saving || createDisabled}
+          className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {saving ? 'Creating...' : 'Create Product'}
+        </button>
+        <button type="button" onClick={onRowCancel} className="rounded border px-4 py-2 text-sm">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const PRODUCT_PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000] as const;
 const PDF_EXPORT_PER_PAGE = 1000;
 
@@ -110,20 +365,21 @@ export function ProductsPage() {
   const [lookupData, setLookupData] = useState<AsinLookupData | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState('');
-  const [createOverrides, setCreateOverrides] = useState({
-    voice_name: '',
-    voice_description: '',
-    custom_price_cents: '',
-    local_price_cents: '',
-    category_ids: [] as string[],
-  });
+  const [createOverrides, setCreateOverrides] = useState<CreateProductOverrides>(emptyCreateOverrides());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [quickCategoryTarget, setQuickCategoryTarget] = useState<'create' | 'edit' | null>(null);
+  const [quickCategoryTarget, setQuickCategoryTarget] = useState<QuickCategoryTarget>(null);
+  const [addProductMode, setAddProductMode] = useState<'single' | 'bulk'>('single');
+  const [bulkAsinChips, setBulkAsinChips] = useState<string[]>([]);
+  const [bulkPasteBuffer, setBulkPasteBuffer] = useState('');
+  const [bulkPhase, setBulkPhase] = useState<'input' | 'results'>('input');
+  const [bulkRows, setBulkRows] = useState<BulkProductRow[]>([]);
+  const [bulkLookupRunning, setBulkLookupRunning] = useState(false);
+  const [bulkInputError, setBulkInputError] = useState('');
   const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>([]);
   const [perPage, setPerPage] = useState(20);
   const [sortBy, setSortBy] = useState('created_at');
@@ -278,10 +534,7 @@ export function ProductsPage() {
         category_ids: createOverrides.category_ids,
       });
       setShowForm(false);
-      setAsinInput('');
-      setLookupData(null);
-      setLookupError('');
-      setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', local_price_cents: '', category_ids: [] });
+      resetCreateForm();
       refreshAfterMutation();
     } catch (err: any) {
       setLookupError(err.message || 'Failed to create product.');
@@ -290,17 +543,140 @@ export function ProductsPage() {
     }
   };
 
+  const resetBulkCreate = () => {
+    setBulkAsinChips([]);
+    setBulkPasteBuffer('');
+    setBulkPhase('input');
+    setBulkRows([]);
+    setBulkLookupRunning(false);
+    setBulkInputError('');
+  };
+
   const resetCreateForm = () => {
     setAsinInput('');
     setLookupData(null);
     setLookupError('');
-    setCreateOverrides({ voice_name: '', voice_description: '', custom_price_cents: '', local_price_cents: '', category_ids: [] });
+    setCreateOverrides(emptyCreateOverrides());
+    resetBulkCreate();
+    setAddProductMode('single');
+  };
+
+  const switchToBulkMode = () => {
+    setAddProductMode('bulk');
+    setAsinInput('');
+    setLookupData(null);
+    setLookupError('');
+    setCreateOverrides(emptyCreateOverrides());
+    resetBulkCreate();
+  };
+
+  const switchToSingleAsinMode = () => {
+    setAddProductMode('single');
+    resetBulkCreate();
+  };
+
+  const effectiveBulkAsinList = dedupeOrderedAppend(bulkAsinChips, parseAsinsFromText(bulkPasteBuffer));
+
+  const mergeBulkPasteBufferIntoChips = () => {
+    setBulkAsinChips((prev) => dedupeOrderedAppend(prev, parseAsinsFromText(bulkPasteBuffer)));
+    setBulkPasteBuffer('');
+  };
+
+  const removeBulkRowById = (rowId: string) => {
+    setBulkRows((prev) => prev.filter((r) => r.id !== rowId));
+  };
+
+  useEffect(() => {
+    if (addProductMode !== 'bulk' || bulkPhase !== 'results') return;
+    if (bulkRows.length === 0) {
+      setBulkPhase('input');
+      setBulkAsinChips([]);
+    }
+  }, [addProductMode, bulkPhase, bulkRows.length]);
+
+  const handleBulkLookup = async () => {
+    setBulkInputError('');
+    const asins = dedupeOrderedAppend(bulkAsinChips, parseAsinsFromText(bulkPasteBuffer));
+    if (asins.length === 0) {
+      setBulkInputError('Enter at least one valid 10-character Amazon ASIN.');
+      return;
+    }
+    setBulkLookupRunning(true);
+    setBulkPasteBuffer('');
+    setBulkAsinChips(asins);
+    const initialRows: BulkProductRow[] = asins.map((asin) => ({
+      id: crypto.randomUUID(),
+      asin,
+      lookupData: null,
+      lookupError: '',
+      lookupLoading: true,
+      overrides: emptyCreateOverrides(),
+      saving: false,
+    }));
+    setBulkRows(initialRows);
+    setBulkPhase('results');
+
+    await mapWithConcurrency(initialRows, BULK_LOOKUP_CONCURRENCY, async (row) => {
+      try {
+        const r = await apiPost<any>('/catalog/products/lookup-asin', { asin: row.asin });
+        setBulkRows((prev) =>
+          prev.map((x) =>
+            x.id === row.id ? { ...x, lookupLoading: false, lookupData: r.data, lookupError: '' } : x,
+          ),
+        );
+      } catch (err: any) {
+        const msg = err.message || 'Failed to look up product.';
+        setBulkRows((prev) =>
+          prev.map((x) =>
+            x.id === row.id ? { ...x, lookupLoading: false, lookupData: null, lookupError: msg } : x,
+          ),
+        );
+      }
+    });
+    setBulkLookupRunning(false);
+  };
+
+  const handleBulkRowCreate = async (row: BulkProductRow) => {
+    if (!row.lookupData) return;
+    setBulkRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, saving: true, lookupError: '' } : r)));
+    try {
+      await apiPost('/catalog/products', {
+        amazon_asin: row.lookupData.asin,
+        amazon_url: row.lookupData.url,
+        amazon_name: row.lookupData.name,
+        amazon_description: row.lookupData.description,
+        amazon_price_cents: row.lookupData.price_cents,
+        amazon_image_urls: row.lookupData.images || [],
+        voice_name: row.overrides.voice_name || null,
+        voice_description: row.overrides.voice_description || null,
+        custom_price_cents: row.overrides.custom_price_cents
+          ? parseInt(row.overrides.custom_price_cents, 10)
+          : null,
+        local_price_cents: row.overrides.local_price_cents
+          ? parseInt(row.overrides.local_price_cents, 10)
+          : null,
+        category_ids: row.overrides.category_ids,
+      });
+      removeBulkRowById(row.id);
+      refreshAfterMutation();
+    } catch (err: any) {
+      setBulkRows((prev) =>
+        prev.map((r) =>
+          r.id === row.id ? { ...r, saving: false, lookupError: err.message || 'Failed to create product.' } : r,
+        ),
+      );
+    }
+  };
+
+  const updateBulkRowOverrides = (rowId: string, next: CreateProductOverrides) => {
+    setBulkRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, overrides: next } : r)));
   };
 
   const startEdit = (product: any) => {
     setEditingId(product.id);
     setEditForm(buildEditForm(product));
     setShowForm(false);
+    resetCreateForm();
   };
 
   const cancelEdit = () => {
@@ -433,8 +809,20 @@ export function ProductsPage() {
           >
             {pdfExporting ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Printer size={18} aria-hidden />}
           </button>
-          <button onClick={() => { setShowForm(!showForm); if (showForm) resetCreateForm(); cancelEdit(); }}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">
+          <button
+            type="button"
+            onClick={() => {
+              cancelEdit();
+              if (showForm) {
+                setShowForm(false);
+                resetCreateForm();
+              } else {
+                resetCreateForm();
+                setShowForm(true);
+              }
+            }}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+          >
             <Plus size={16} /> Add Product
           </button>
         </div>
@@ -442,170 +830,245 @@ export function ProductsPage() {
 
       {showForm && (
         <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-end gap-3">
-            <div className="flex-1 max-w-xs">
-              <label className="text-sm font-medium text-gray-600">Amazon ASIN</label>
-              <input
-                value={asinInput}
-                onChange={(e) => setAsinInput(e.target.value.toUpperCase())}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleLookup(); } }}
-                placeholder="e.g. B09V3KXJPB"
-                maxLength={10}
-                className="mt-1 w-full rounded border px-3 py-2 text-sm font-mono tracking-wider"
-              />
-            </div>
-            <button
-              onClick={handleLookup}
-              disabled={lookupLoading || !asinInput.trim()}
-              className="flex items-center gap-2 rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {lookupLoading ? <><Loader2 size={14} className="animate-spin" /> Looking up...</> : 'Lookup'}
-            </button>
-            <button onClick={() => { setShowForm(false); resetCreateForm(); }} className="rounded border px-4 py-2 text-sm">Cancel</button>
-          </div>
-
-          {lookupError && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{lookupError}</div>
-          )}
-
-          {lookupData && (
-            <div>
-              <div className="mb-4 grid gap-6 lg:grid-cols-2">
-                <div>
-                  <h4 className="mb-3 text-sm font-semibold text-gray-700">Amazon Data (auto-fetched)</h4>
-                  <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
-                    {lookupData.images && lookupData.images.length > 0 && (
-                      <div className="flex items-start gap-3">
-                        <ProductThumbnail
-                          thumbnailUrl={
-                            (lookupData.images.find((i) => i.is_featured) || lookupData.images[0])?.url || null
-                          }
-                          images={lookupData.images}
-                          alt={lookupData.name || lookupData.asin}
-                          size={88}
-                        />
-                        <div className="text-xs text-gray-500">
-                          {lookupData.images.length} image{lookupData.images.length === 1 ? '' : 's'} found.
-                          <br />
-                          The featured one will be saved as a thumbnail; click to preview the full gallery.
-                        </div>
-                      </div>
-                    )}
-                    <div>
-                      <span className="text-xs font-medium text-gray-500">Name</span>
-                      <p className="text-sm text-gray-800">{lookupData.name || '-'}</p>
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-gray-500">Description</span>
-                      <p className="text-sm text-gray-800 max-h-24 overflow-y-auto">{lookupData.description ? lookupData.description.substring(0, 300) + (lookupData.description.length > 300 ? '...' : '') : '-'}</p>
-                    </div>
-                    <div className="flex gap-6">
-                      <div>
-                        <span className="text-xs font-medium text-gray-500">Price</span>
-                        <p className="text-sm font-semibold text-gray-800">{lookupData.price_cents != null ? `$${(lookupData.price_cents / 100).toFixed(2)}` : '-'}</p>
-                      </div>
-                      <div>
-                        <span className="text-xs font-medium text-gray-500">Availability</span>
-                        <p className="text-sm">
-                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${lookupData.availability === 'in_stock' ? 'bg-green-100 text-green-700' : lookupData.availability === 'out_of_stock' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                            {lookupData.availability.replace(/_/g, ' ')}
-                          </span>
-                        </p>
-                      </div>
-                      {lookupData.brand && (
-                        <div>
-                          <span className="text-xs font-medium text-gray-500">Brand</span>
-                          <p className="text-sm text-gray-800">{lookupData.brand}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-gray-500">ASIN</span>
-                      <p className="text-sm font-mono text-gray-600">{lookupData.asin}</p>
-                    </div>
-                  </div>
+          {addProductMode === 'single' ? (
+            <>
+              <div className="mb-4 flex flex-wrap items-end gap-3">
+                <div className="flex-1 max-w-xs">
+                  <label className="text-sm font-medium text-gray-600">Amazon ASIN</label>
+                  <input
+                    value={asinInput}
+                    onChange={(e) => setAsinInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleLookup();
+                      }
+                    }}
+                    placeholder="e.g. B09V3KXJPB"
+                    maxLength={10}
+                    className="mt-1 w-full rounded border px-3 py-2 text-sm font-mono tracking-wider"
+                  />
                 </div>
-
-                <div>
-                  <h4 className="mb-3 text-sm font-semibold text-gray-700">VoiceX Overrides <span className="font-normal text-gray-400">(optional)</span></h4>
-                  <div className="space-y-3 rounded-lg border border-indigo-200 bg-indigo-50/30 p-4">
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Custom Name</label>
-                      <input
-                        value={createOverrides.voice_name}
-                        onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, voice_name: v })); }}
-                        placeholder={lookupData.name || 'Leave blank to use Amazon name'}
-                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Custom Description</label>
-                      <textarea
-                        value={createOverrides.voice_description}
-                        onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, voice_description: v })); }}
-                        placeholder="Leave blank to use Amazon description"
-                        rows={3}
-                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Custom Price (cents)</label>
-                      <input
-                        type="number"
-                        value={createOverrides.custom_price_cents}
-                        onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, custom_price_cents: v })); }}
-                        onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                        placeholder={customPriceInputPlaceholder(lookupData.price_cents, defaultMarkupPercent)}
-                        className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Local Store Price (cents, optional)</label>
-                      <input
-                        type="number"
-                        value={createOverrides.local_price_cents}
-                        onChange={(e) => { const v = e.target.value; setCreateOverrides(prev => ({ ...prev, local_price_cents: v })); }}
-                        onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                        placeholder="e.g. 1299 for $12.99"
-                        className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      />
-                    </div>
-                    <p className="text-xs text-gray-400">If left blank, calls will use the Amazon data shown on the left.</p>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleLookup()}
+                  disabled={lookupLoading || !asinInput.trim()}
+                  className="flex items-center gap-2 rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {lookupLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> Looking up...
+                    </>
+                  ) : (
+                    'Lookup'
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(false);
+                    resetCreateForm();
+                  }}
+                  className="rounded border px-4 py-2 text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={switchToBulkMode}
+                  className="rounded border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-800 hover:bg-indigo-100"
+                >
+                  Add Bulk
+                </button>
               </div>
 
-              <div className="mb-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-gray-600">Categories</label>
+              {lookupError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {lookupError}
+                </div>
+              )}
+
+              {lookupData && (
+                <CreateFromLookupPanel
+                  lookupData={lookupData}
+                  overrides={createOverrides}
+                  onOverridesChange={setCreateOverrides}
+                  categories={categories}
+                  defaultMarkupPercent={defaultMarkupPercent}
+                  onQuickCategoryNew={() => setQuickCategoryTarget('create')}
+                  onCreate={() => void handleCreate()}
+                  onRowCancel={() => {
+                    setShowForm(false);
+                    resetCreateForm();
+                  }}
+                  saving={saving}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {bulkPhase === 'input' && (
+                <>
+                  <div className="mb-4 flex flex-wrap items-end gap-3">
+                    <div className="min-w-0 flex-1 max-w-2xl">
+                      <label className="text-sm font-medium text-gray-600">Add Multiple Amazon ASINs</label>
+                      <textarea
+                        value={bulkPasteBuffer}
+                        onChange={(e) => setBulkPasteBuffer(e.target.value)}
+                        onBlur={mergeBulkPasteBufferIntoChips}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            mergeBulkPasteBufferIntoChips();
+                          }
+                        }}
+                        placeholder="Paste ASINs — commas, spaces, tabs, colons, new lines, etc."
+                        rows={4}
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm font-mono tracking-wider"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Press Enter (without Shift) or blur the field to add parsed ASINs to the list below.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={switchToSingleAsinMode}
+                      className="rounded border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-800 hover:bg-indigo-100"
+                    >
+                      Add Single ASIN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleBulkLookup()}
+                      disabled={bulkLookupRunning || effectiveBulkAsinList.length === 0}
+                      className="flex items-center gap-2 rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {bulkLookupRunning ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" /> Looking up...
+                        </>
+                      ) : (
+                        'Lookup'
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowForm(false);
+                        resetCreateForm();
+                      }}
+                      className="rounded border px-4 py-2 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  <div className="mb-4 flex flex-col gap-2">
+                    {bulkAsinChips.map((asin) => (
+                      <div
+                        key={asin}
+                        className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                      >
+                        <span className="font-mono text-sm tracking-wider text-gray-800">{asin}</span>
+                        <button
+                          type="button"
+                          title={`Remove ${asin}`}
+                          aria-label={`Remove ${asin}`}
+                          onClick={() => setBulkAsinChips((prev) => prev.filter((a) => a !== asin))}
+                          className="rounded p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {bulkInputError && (
+                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {bulkInputError}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {bulkPhase === 'results' && (
+                <div className="mb-4 flex flex-wrap items-end gap-3">
                   <button
                     type="button"
-                    onClick={() => setQuickCategoryTarget('create')}
-                    className="flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100"
-                    title="Create new category"
+                    onClick={switchToSingleAsinMode}
+                    className="rounded border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-800 hover:bg-indigo-100"
                   >
-                    <Plus size={12} /> New
+                    Add Single ASIN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForm(false);
+                      resetCreateForm();
+                    }}
+                    className="rounded border px-4 py-2 text-sm"
+                  >
+                    Cancel
                   </button>
                 </div>
-                <SearchableMultiSelect
-                  options={categories.map((c) => ({ value: c.id, label: c.name }))}
-                  value={createOverrides.category_ids}
-                  onChange={(ids) => setCreateOverrides({ ...createOverrides, category_ids: ids })}
-                  placeholder="Select categories..."
-                />
-              </div>
+              )}
 
-              <div className="flex gap-2">
-                <button
-                  onClick={handleCreate}
-                  disabled={saving}
-                  className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {saving ? 'Creating...' : 'Create Product'}
-                </button>
-                <button onClick={() => { setShowForm(false); resetCreateForm(); }} className="rounded border px-4 py-2 text-sm">Cancel</button>
-              </div>
-            </div>
+              {bulkPhase === 'results' && (
+                <div className="space-y-6">
+                  {bulkRows.map((row) => (
+                    <div key={row.id} className="rounded-xl border border-gray-200 p-4 shadow-sm">
+                      <h3 className="mb-3 text-base font-semibold text-gray-900">
+                        Amazon ASIN:{' '}
+                        <span className="font-mono tracking-wide text-indigo-700">{row.asin}</span>
+                      </h3>
+                      {row.lookupLoading && (
+                        <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-600">
+                          <Loader2 size={18} className="animate-spin" aria-hidden />
+                          Looking up…
+                        </div>
+                      )}
+                      {!row.lookupLoading && row.lookupError && !row.lookupData && (
+                        <div>
+                          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                            {row.lookupError}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeBulkRowById(row.id)}
+                            className="rounded border px-4 py-2 text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                      {!row.lookupLoading && row.lookupData && (
+                        <>
+                          {row.lookupError ? (
+                            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                              {row.lookupError}
+                            </div>
+                          ) : null}
+                          <CreateFromLookupPanel
+                            lookupData={row.lookupData}
+                            overrides={row.overrides}
+                            onOverridesChange={(next) => updateBulkRowOverrides(row.id, next)}
+                            categories={categories}
+                            defaultMarkupPercent={defaultMarkupPercent}
+                            onQuickCategoryNew={() => setQuickCategoryTarget({ type: 'bulk', rowId: row.id })}
+                            onCreate={() => {
+                              const latest = bulkRows.find((r) => r.id === row.id);
+                              if (latest) void handleBulkRowCreate(latest);
+                            }}
+                            onRowCancel={() => removeBulkRowById(row.id)}
+                            saving={row.saving}
+                          />
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -957,6 +1420,13 @@ export function ProductsPage() {
               ...prev,
               category_ids: [...(prev.category_ids || []), newCat.id],
             }));
+          } else if (quickCategoryTarget && typeof quickCategoryTarget === 'object' && quickCategoryTarget.type === 'bulk') {
+            const rid = quickCategoryTarget.rowId;
+            setBulkRows((prev) =>
+              prev.map((r) =>
+                r.id === rid ? { ...r, overrides: { ...r.overrides, category_ids: [...r.overrides.category_ids, newCat.id] } } : r,
+              ),
+            );
           }
         }}
       />
