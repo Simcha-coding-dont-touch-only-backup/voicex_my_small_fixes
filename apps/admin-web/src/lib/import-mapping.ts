@@ -143,7 +143,7 @@ export function resolveCategoryNames(
   const missing: string[] = [];
   const seenIds = new Set<string>();
   for (const name of names) {
-    const id = lookup.get(name.toLowerCase());
+    const id = lookup.get(name.trim().toLowerCase());
     if (!id) {
       missing.push(name);
       continue;
