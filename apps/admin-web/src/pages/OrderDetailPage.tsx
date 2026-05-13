@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { normalizeOrderNumberInput } from '@voicex/shared';
+import { orderIdFromParam } from '@voicex/shared';
 import { apiGet } from '../lib/api';
 import { OrderEtaEditor, normalizeEtaRows, type EtaFormRow } from '../components/OrderEtaEditor';
 
@@ -9,15 +9,31 @@ export function OrderDetailPage() {
   const navigate = useNavigate();
   const [order, setOrder] = useState<any>(null);
   const [etaRows, setEtaRows] = useState<EtaFormRow[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    const resolved = normalizeOrderNumberInput(id) || id;
+    const resolved = orderIdFromParam(id);
+    if (!resolved) {
+      setLoadError('Invalid order number');
+      setOrder(null);
+      return;
+    }
+    setLoadError(null);
     apiGet<any>(`/orders/${resolved}`).then((r) => {
       setOrder(r.data);
       setEtaRows(normalizeEtaRows(r.data?.order_fulfillment_etas));
     });
   }, [id]);
+
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <button type="button" onClick={() => navigate('/admin/orders')} className="text-sm text-indigo-600 hover:underline">&larr; Back</button>
+        <p className="text-red-600">{loadError}</p>
+      </div>
+    );
+  }
 
   if (!order) return <div className="text-gray-500">Loading...</div>;
 
