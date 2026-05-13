@@ -126,7 +126,7 @@ ordersRouter.put('/:id/etas', async (req, res) => {
     const { data: updated, error } = await supabaseAdmin
       .from('orders')
       .select(ORDER_DETAIL_SELECT)
-      .eq('id', order.id)
+      .eq('id', String(order.id))
       .single();
 
     if (error || !updated) throw new Error(error?.message || 'Failed to reload order');
