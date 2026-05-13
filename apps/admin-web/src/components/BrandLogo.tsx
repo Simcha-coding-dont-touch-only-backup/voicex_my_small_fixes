@@ -5,10 +5,10 @@ interface BrandLogoProps {
 export function BrandLogo({ className = 'h-9 w-auto' }: BrandLogoProps) {
   return (
     <img
-      src="/logo.webp"
+      src="/logo-small.png"
       alt="VoiceX"
-      width={903}
-      height={350}
+      width={255}
+      height={105}
       className={`block ${className}`}
       draggable={false}
     />
