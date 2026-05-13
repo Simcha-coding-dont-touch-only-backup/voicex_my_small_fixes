@@ -55,8 +55,7 @@ async function setSetting(key: string, value: string, adminUserId: string | unde
   return data;
 }
 
-async function loadManualOrder(orderId: string | null) {
-  if (!orderId) return null;
+async function loadManualOrder(orderId: string) {
   const { data, error } = await supabaseAdmin
     .from('orders')
     .select(MANUAL_ORDER_SELECT)
@@ -197,7 +196,13 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
     return;
   }
 
-  const order = await loadManualOrder(orderIdFromParam(req.params.orderId));
+  const orderId = orderIdFromParam(req.params.orderId);
+  if (!orderId) {
+    res.status(404).json({ success: false, error: 'Order not found' });
+    return;
+  }
+
+  const order = await loadManualOrder(orderId);
   if (!ensureManualOrder(order, res)) return;
 
   if (order.fulfillment_status === 'ordered') {
@@ -308,7 +313,13 @@ fulfillmentRouter.post('/manual-queue/:orderId/cancel', async (req, res) => {
     return;
   }
 
-  const order = await loadManualOrder(orderIdFromParam(req.params.orderId));
+  const orderId = orderIdFromParam(req.params.orderId);
+  if (!orderId) {
+    res.status(404).json({ success: false, error: 'Order not found' });
+    return;
+  }
+
+  const order = await loadManualOrder(orderId);
   if (!ensureManualOrder(order, res)) return;
 
   if (order.fulfillment_status === 'cancelled') {
@@ -395,7 +406,13 @@ fulfillmentRouter.post('/manual-queue/:orderId/needs-review', async (req, res) =
     return;
   }
 
-  const order = await loadManualOrder(orderIdFromParam(req.params.orderId));
+  const orderId = orderIdFromParam(req.params.orderId);
+  if (!orderId) {
+    res.status(404).json({ success: false, error: 'Order not found' });
+    return;
+  }
+
+  const order = await loadManualOrder(orderId);
   if (!ensureManualOrder(order, res)) return;
 
   const updates = {
