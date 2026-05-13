@@ -12,6 +12,7 @@ import { addressTestRouter } from './address-test.js';
 import { subAdminsRouter } from './sub-admins.js';
 import { supportRouter } from './support.js';
 import { fulfillmentRouter } from './fulfillment.js';
+import { alertsRouter } from './alerts.js';
 import {
   authMiddleware,
   requirePermission,
@@ -46,6 +47,7 @@ adminRouter.get('/me', (req, res) => {
 // Product management is gated by the manageProducts permission so sub-admins
 // can be granted this single capability.
 adminRouter.use('/catalog', requirePermission('manageProducts'), catalogRouter);
+adminRouter.use('/alerts', requirePermission('manageProducts'), alertsRouter);
 
 // Trash (soft-deleted products / categories) is super-admin only. Sub-admins
 // must not be able to see, restore, or permanently delete from the trash —

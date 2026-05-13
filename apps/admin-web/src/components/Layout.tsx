@@ -4,7 +4,7 @@ import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
   ChevronsLeft, ChevronsRight, AlertTriangle, MapPin,
-  Wrench, ChevronDown, ShieldCheck, Inbox, Truck,
+  Wrench, ChevronDown, ShieldCheck, Inbox, Truck, Bell,
 } from 'lucide-react';
 import type { AdminPermissionKey } from '@voicex/shared';
 import { BrandLogo } from './BrandLogo';
@@ -31,6 +31,13 @@ interface FulfillmentCountResponse {
   };
 }
 
+interface AlertsNewCountResponse {
+  success: boolean;
+  data: {
+    count: number;
+  };
+}
+
 const NAV_ITEMS: NavItem[] = [
   { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, requires: { kind: 'all' } },
   { to: '/admin/users', label: 'Users', icon: Users, requires: { kind: 'fullAdmin' } },
@@ -38,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/admin/sub-admins', label: 'Sub-Admins', icon: ShieldCheck, requires: { kind: 'super' } },
   { to: '/admin/categories', label: 'Categories', icon: FolderTree, requires: { kind: 'permission', key: 'manageProducts' } },
   { to: '/admin/products', label: 'Products', icon: Package, requires: { kind: 'permission', key: 'manageProducts' } },
+  { to: '/admin/alerts', label: 'Alerts', icon: Bell, requires: { kind: 'permission', key: 'manageProducts' } },
   { to: '/admin/carts', label: 'Carts', icon: ShoppingBag, requires: { kind: 'fullAdmin' } },
   { to: '/admin/orders', label: 'Orders', icon: ShoppingCart, requires: { kind: 'fullAdmin' } },
   { to: '/admin/fulfillment', label: 'Fulfillment', icon: Truck, requires: { kind: 'fullAdmin' } },
@@ -57,9 +65,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [pendingFulfillmentCount, setPendingFulfillmentCount] = useState(0);
+  const [newAlertsCount, setNewAlertsCount] = useState(0);
   const location = useLocation();
 
   const isFullAdmin = adminUser?.role === 'super_admin' || adminUser?.role === 'admin';
+  const canSeeAlerts = hasPermission('manageProducts');
 
   const loadFulfillmentCount = useCallback(async () => {
     if (!isFullAdmin) {
@@ -74,6 +84,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
       setPendingFulfillmentCount(0);
     }
   }, [isFullAdmin]);
+
+  const loadNewAlertsCount = useCallback(async () => {
+    if (!canSeeAlerts) {
+      setNewAlertsCount(0);
+      return;
+    }
+
+    try {
+      const res = await apiGet<AlertsNewCountResponse>('/alerts/new-count');
+      setNewAlertsCount(res.data.count || 0);
+    } catch {
+      setNewAlertsCount(0);
+    }
+  }, [canSeeAlerts]);
 
   useEffect(() => {
     void loadFulfillmentCount();
@@ -99,6 +123,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
     };
   }, [isFullAdmin, loadFulfillmentCount]);
 
+  useEffect(() => {
+    void loadNewAlertsCount();
+    if (!canSeeAlerts) return;
+
+    const handleAlertsRefresh = (event: Event) => {
+      const count = (event as CustomEvent<{ count?: number }>).detail?.count;
+      if (typeof count === 'number') {
+        setNewAlertsCount(count);
+        return;
+      }
+      void loadNewAlertsCount();
+    };
+
+    window.addEventListener('focus', loadNewAlertsCount);
+    window.addEventListener('voicex:alerts-count-refresh', handleAlertsRefresh);
+    const interval = window.setInterval(loadNewAlertsCount, 60_000);
+
+    return () => {
+      window.removeEventListener('focus', loadNewAlertsCount);
+      window.removeEventListener('voicex:alerts-count-refresh', handleAlertsRefresh);
+      window.clearInterval(interval);
+    };
+  }, [canSeeAlerts, loadNewAlertsCount]);
+
   const isAllowed = (item: NavItem) => {
     switch (item.requires.kind) {
       case 'all':
@@ -118,6 +166,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const toolsActive = visibleTools.some((item) => location.pathname === item.to);
   const [toolsOpen, setToolsOpen] = useState(toolsActive);
   const fulfillmentBadge = pendingFulfillmentCount > 99 ? '99+' : String(pendingFulfillmentCount);
+  const alertsBadge = newAlertsCount > 99 ? '99+' : String(newAlertsCount);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -152,9 +201,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <nav className={`flex-1 overflow-y-auto mt-4 space-y-1 ${collapsed ? 'px-2' : 'px-3'}`}>
           {visibleNav.map(({ to, label, icon: Icon }) => {
             const showFulfillmentBadge = to === '/admin/fulfillment' && pendingFulfillmentCount > 0;
+            const showAlertsBadge = to === '/admin/alerts' && newAlertsCount > 0;
             const title = showFulfillmentBadge
               ? `${label} (${pendingFulfillmentCount} pending)`
-              : label;
+              : showAlertsBadge
+                ? `${label} (${newAlertsCount} new)`
+                : label;
 
             return (
               <NavLink
@@ -171,7 +223,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   }`
                 }
                 onClick={() => setSidebarOpen(false)}
-                title={collapsed || showFulfillmentBadge ? title : undefined}
+                title={collapsed || showFulfillmentBadge || showAlertsBadge ? title : undefined}
               >
                 <Icon size={18} className="shrink-0" />
                 {!collapsed && <span className="flex-1">{label}</span>}
@@ -184,6 +236,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     }`}
                   >
                     {fulfillmentBadge}
+                  </span>
+                )}
+                {showAlertsBadge && (
+                  <span
+                    className={`inline-flex items-center justify-center rounded-full bg-red-500 text-[10px] font-semibold leading-none text-white ${
+                      collapsed
+                        ? 'absolute right-1 top-1 h-4 min-w-4 px-1'
+                        : 'ml-auto h-5 min-w-5 px-1.5'
+                    }`}
+                  >
+                    {alertsBadge}
                   </span>
                 )}
               </NavLink>

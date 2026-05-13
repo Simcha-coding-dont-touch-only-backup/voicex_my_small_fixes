@@ -268,7 +268,7 @@ logsRouter.get('/checkout', async (req, res) => {
     call.event_count++;
     if (ev.severity === 'error') call.error_count++;
     if (ev.severity === 'warn') call.warn_count++;
-    if (ev.order_id) call.order_id = ev.order_id;
+    if (ev.order_id != null) call.order_id = String(ev.order_id);
 
     // Outcome classification (latest meaningful event wins).
     if (ev.event_type === 'order_completed' || ev.event_type === 'manual_fulfillment_marked_ordered') call.outcome = 'order_completed';

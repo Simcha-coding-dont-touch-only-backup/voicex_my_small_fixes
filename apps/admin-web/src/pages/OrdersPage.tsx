@@ -63,7 +63,7 @@ export function OrdersPage() {
               <tr key={order.id} className="border-b hover:bg-gray-50">
                 <td className="px-6 py-3">
                   <Link to={`/admin/orders/${order.id}`} className="font-mono text-xs text-indigo-600 hover:underline">
-                    {order.id.slice(-8)}
+                    {String(order.id)}
                   </Link>
                 </td>
                 <td className="px-6 py-3">{order.users?.name || 'N/A'}</td>

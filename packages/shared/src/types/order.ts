@@ -1,4 +1,5 @@
 export interface Order {
+  /** BIGINT primary key; JSON may be string for safe integer round-trip. */
   id: string;
   user_id: string;
   cart_id: string;

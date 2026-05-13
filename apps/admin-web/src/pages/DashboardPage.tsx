@@ -118,7 +118,7 @@ export function DashboardPage() {
                 <tbody>
                   {stats.recentOrders.map((order: any) => (
                     <tr key={order.id} className="border-b last:border-0">
-                      <td className="py-3 font-mono text-xs">{order.id.slice(-8)}</td>
+                      <td className="py-3 font-mono text-xs">{String(order.id)}</td>
                       <td className="py-3">{order.users?.name || 'N/A'}</td>
                       <td className="py-3">
                         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${

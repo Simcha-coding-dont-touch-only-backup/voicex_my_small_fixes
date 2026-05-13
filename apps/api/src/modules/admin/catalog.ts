@@ -8,6 +8,7 @@ import {
   deleteThumbnailsForAsin,
   type ProductImageInput,
 } from '../../lib/product-images.js';
+import { syncProductVoicexPriceAboveLocalAlert } from '../../lib/product-price-alerts.js';
 
 function decorateProductWithThumbnail<T extends { thumbnail_path?: string | null }>(p: T): T & { thumbnail_url: string | null } {
   return { ...p, thumbnail_url: getThumbnailPublicUrl(p.thumbnail_path ?? null) };
@@ -15,6 +16,46 @@ function decorateProductWithThumbnail<T extends { thumbnail_path?: string | null
 
 const DUPLICATE_ASIN_IN_CATALOG_MESSAGE =
   'A product with this ASIN already exists in your catalog.';
+
+/** Escape `,` and `\\` for values embedded in PostgREST `.or(...)` filter lists. */
+function escapePostgrestOrFilterValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/,/g, '\\,');
+}
+
+/**
+ * If the whole trimmed string is a plain number or $money amount, return USD cents; otherwise null.
+ * Integer strings are treated as cents (matches DB columns). Decimals are dollars (e.g. 1.79 → 179).
+ */
+function parsePriceSearchCents(raw: string): number | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const normalized = t.replace(/^\$\s*/, '').replace(/,/g, '').trim();
+  if (!/^\d+(\.\d{1,4})?$/.test(normalized)) return null;
+  if (normalized.includes('.')) {
+    const v = parseFloat(normalized);
+    if (!Number.isFinite(v)) return null;
+    return Math.round(v * 100);
+  }
+  const cents = parseInt(normalized, 10);
+  return Number.isFinite(cents) ? cents : null;
+}
+
+/**
+ * Amazon cents A where Math.round(A * (1 + markupPercent / 100)) === targetCents (non-whitelisted VoiceX price).
+ */
+function amazonCentsMatchingVoicexRoundedPrice(targetCents: number, markupPercent: number): number[] {
+  const factor = 1 + markupPercent / 100;
+  const mid = Math.round(targetCents / factor);
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (let a = Math.max(0, mid - 25); a <= mid + 25; a++) {
+    if (Math.round(a * factor) === targetCents && !seen.has(a)) {
+      seen.add(a);
+      out.push(a);
+    }
+  }
+  return out;
+}
 
 async function activeCatalogProductExistsForAsin(
   normalizedAsin: string
@@ -269,8 +310,36 @@ catalogRouter.get('/products', async (req, res) => {
     .select('*, catalog_product_categories(category_id, catalog_categories(name))', { count: 'exact' })
     .is('deleted_at', null);
 
-  if (search) {
-    query = query.or(`voice_name.ilike.%${search}%,amazon_name.ilike.%${search}%,voicex_id.ilike.%${search}%,amazon_asin.ilike.%${search}%`);
+  if (search && typeof search === 'string') {
+    const term = search.trim();
+    const esc = escapePostgrestOrFilterValue(term);
+    const orParts = [
+      `voice_name.ilike.%${esc}%`,
+      `amazon_name.ilike.%${esc}%`,
+      `voicex_id.ilike.%${esc}%`,
+      `amazon_asin.ilike.%${esc}%`,
+    ];
+    const priceCents = parsePriceSearchCents(term);
+    if (priceCents != null) {
+      orParts.push(`amazon_price_cents.eq.${priceCents}`);
+      orParts.push(`custom_price_cents.eq.${priceCents}`);
+      orParts.push(`local_price_cents.eq.${priceCents}`);
+      const { data: markupRow } = await supabaseAdmin
+        .from('settings')
+        .select('value')
+        .eq('key', 'default_markup_percent')
+        .maybeSingle();
+      const markupPercent =
+        markupRow?.value != null && String(markupRow.value).trim() !== ''
+          ? parseFloat(String(markupRow.value))
+          : 15;
+      const m = Number.isFinite(markupPercent) ? markupPercent : 15;
+      const amazonForComputed = amazonCentsMatchingVoicexRoundedPrice(priceCents, m);
+      if (amazonForComputed.length > 0) {
+        orParts.push(`and(custom_price_cents.is.null,amazon_price_cents.in.(${amazonForComputed.join(',')}))`);
+      }
+    }
+    query = query.or(orParts.join(','));
   }
   if (is_active !== undefined) {
     query = query.eq('is_active', is_active === 'true');
@@ -456,6 +525,8 @@ catalogRouter.post('/products', async (req, res) => {
     changes: { voicex_id: product.voicex_id, amazon_asin: asinForStorage },
   });
 
+  void syncProductVoicexPriceAboveLocalAlert(product.id);
+
   res.status(201).json({ success: true, data: decorateProductWithThumbnail(product) });
 });
 
@@ -512,6 +583,14 @@ catalogRouter.patch('/products/:id', async (req, res) => {
     entity_id: req.params.id,
     changes: updates,
   });
+
+  if (
+    ['amazon_price_cents', 'custom_price_cents', 'local_price_cents'].some(
+      (k) => Object.prototype.hasOwnProperty.call(req.body ?? {}, k),
+    )
+  ) {
+    void syncProductVoicexPriceAboveLocalAlert(req.params.id);
+  }
 
   res.json({ success: true, data: data ? decorateProductWithThumbnail(data) : data });
 });
@@ -865,6 +944,8 @@ catalogRouter.post('/products/import-row', async (req, res) => {
       row_number: rowNumber,
     },
   });
+
+  void syncProductVoicexPriceAboveLocalAlert(product.id);
 
   res.json({
     success: true,

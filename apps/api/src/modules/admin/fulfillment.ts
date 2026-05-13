@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { orderIdFromParam } from '../../lib/order-id.js';
 import { solaCapture, solaVoidRelease } from '../../lib/sola.js';
 import { logCheckoutEvent, type CheckoutEventType } from '../../lib/checkout-logger.js';
 import { etaInputArraySchema, replaceOrderFulfillmentEtas, sortOrderFulfillmentEtas } from './order-etas.js';
@@ -54,7 +55,8 @@ async function setSetting(key: string, value: string, adminUserId: string | unde
   return data;
 }
 
-async function loadManualOrder(orderId: string) {
+async function loadManualOrder(orderId: string | null) {
+  if (!orderId) return null;
   const { data, error } = await supabaseAdmin
     .from('orders')
     .select(MANUAL_ORDER_SELECT)
@@ -195,7 +197,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
     return;
   }
 
-  const order = await loadManualOrder(req.params.orderId);
+  const order = await loadManualOrder(orderIdFromParam(req.params.orderId));
   if (!ensureManualOrder(order, res)) return;
 
   if (order.fulfillment_status === 'ordered') {
@@ -211,7 +213,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
 
   try {
     if (parsed.data.etas) {
-      await replaceOrderFulfillmentEtas(order.id, parsed.data.etas, req.adminUser?.id);
+      await replaceOrderFulfillmentEtas(String(order.id), parsed.data.etas, req.adminUser?.id);
     }
 
     const capture = await solaCapture(hold.sola_ref_num, hold.amount_cents);
@@ -243,24 +245,24 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
 
     if (error || !updated) throw new Error(error?.message || 'Failed to update order');
 
-    await logOrderEvent(order.id, 'completed', 'manual_fulfillment_marked_ordered', {
+    await logOrderEvent(String(order.id), 'completed', 'manual_fulfillment_marked_ordered', {
       external_order_id: parsed.data.external_order_id,
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
       etas: parsed.data.etas ?? null,
     });
-    await logAdminAudit(req.adminUser?.id, 'manual_fulfillment_mark_ordered', order.id, {
+    await logAdminAudit(req.adminUser?.id, 'manual_fulfillment_mark_ordered', String(order.id), {
       ...updates,
       etas: parsed.data.etas ?? null,
     });
-    await logCheckoutForOrder(order.id, 'manual_capture_succeeded', 'info', {
-      order_id: order.id,
+    await logCheckoutForOrder(String(order.id), 'manual_capture_succeeded', 'info', {
+      order_id: String(order.id),
       external_order_id: parsed.data.external_order_id,
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
     });
-    await logCheckoutForOrder(order.id, 'manual_fulfillment_marked_ordered', 'info', {
-      order_id: order.id,
+    await logCheckoutForOrder(String(order.id), 'manual_fulfillment_marked_ordered', 'info', {
+      order_id: String(order.id),
       external_order_id: parsed.data.external_order_id,
     });
 
@@ -282,14 +284,14 @@ fulfillmentRouter.post('/manual-queue/:orderId/mark-ordered', async (req, res) =
         fulfillment_notes: parsed.data.fulfillment_notes || order.fulfillment_notes || 'Sola capture failed during manual fulfillment.',
       })
       .eq('id', order.id);
-    await logOrderEvent(order.id, 'processing', 'manual_capture_failed', {
+    await logOrderEvent(String(order.id), 'processing', 'manual_capture_failed', {
       external_order_id: parsed.data.external_order_id,
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
       error: error?.message || String(error),
     });
-    await logCheckoutForOrder(order.id, 'manual_capture_failed', 'error', {
-      order_id: order.id,
+    await logCheckoutForOrder(String(order.id), 'manual_capture_failed', 'error', {
+      order_id: String(order.id),
       external_order_id: parsed.data.external_order_id,
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
@@ -306,7 +308,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/cancel', async (req, res) => {
     return;
   }
 
-  const order = await loadManualOrder(req.params.orderId);
+  const order = await loadManualOrder(orderIdFromParam(req.params.orderId));
   if (!ensureManualOrder(order, res)) return;
 
   if (order.fulfillment_status === 'cancelled') {
@@ -345,18 +347,18 @@ fulfillmentRouter.post('/manual-queue/:orderId/cancel', async (req, res) => {
 
     if (error || !updated) throw new Error(error?.message || 'Failed to update order');
 
-    await logOrderEvent(order.id, 'cancelled', 'manual_fulfillment_cancelled', {
+    await logOrderEvent(String(order.id), 'cancelled', 'manual_fulfillment_cancelled', {
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
     });
-    await logAdminAudit(req.adminUser?.id, 'manual_fulfillment_cancel', order.id, updates);
-    await logCheckoutForOrder(order.id, 'manual_void_release', 'info', {
-      order_id: order.id,
+    await logAdminAudit(req.adminUser?.id, 'manual_fulfillment_cancel', String(order.id), updates);
+    await logCheckoutForOrder(String(order.id), 'manual_void_release', 'info', {
+      order_id: String(order.id),
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
     });
-    await logCheckoutForOrder(order.id, 'manual_fulfillment_cancelled', 'warn', {
-      order_id: order.id,
+    await logCheckoutForOrder(String(order.id), 'manual_fulfillment_cancelled', 'warn', {
+      order_id: String(order.id),
       reason: parsed.data.fulfillment_notes || null,
     });
 
@@ -371,13 +373,13 @@ fulfillmentRouter.post('/manual-queue/:orderId/cancel', async (req, res) => {
         fulfillment_notes: parsed.data.fulfillment_notes || order.fulfillment_notes || 'Sola void/release failed during manual fulfillment.',
       })
       .eq('id', order.id);
-    await logOrderEvent(order.id, 'processing', 'manual_void_release_failed', {
+    await logOrderEvent(String(order.id), 'processing', 'manual_void_release_failed', {
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
       error: error?.message || String(error),
     });
-    await logCheckoutForOrder(order.id, 'manual_void_release', 'error', {
-      order_id: order.id,
+    await logCheckoutForOrder(String(order.id), 'manual_void_release', 'error', {
+      order_id: String(order.id),
       sola_ref_num: hold.sola_ref_num,
       amount_cents: hold.amount_cents,
       error: error?.message || String(error),
@@ -393,7 +395,7 @@ fulfillmentRouter.post('/manual-queue/:orderId/needs-review', async (req, res) =
     return;
   }
 
-  const order = await loadManualOrder(req.params.orderId);
+  const order = await loadManualOrder(orderIdFromParam(req.params.orderId));
   if (!ensureManualOrder(order, res)) return;
 
   const updates = {
@@ -413,12 +415,12 @@ fulfillmentRouter.post('/manual-queue/:orderId/needs-review', async (req, res) =
     return;
   }
 
-  await logOrderEvent(order.id, order.status, 'manual_fulfillment_needs_review', {
+  await logOrderEvent(String(order.id), order.status, 'manual_fulfillment_needs_review', {
     notes: updates.fulfillment_notes,
   });
-  await logAdminAudit(req.adminUser?.id, 'manual_fulfillment_needs_review', order.id, updates);
-  await logCheckoutForOrder(order.id, 'manual_fulfillment_needs_review', 'warn', {
-    order_id: order.id,
+  await logAdminAudit(req.adminUser?.id, 'manual_fulfillment_needs_review', String(order.id), updates);
+  await logCheckoutForOrder(String(order.id), 'manual_fulfillment_needs_review', 'warn', {
+    order_id: String(order.id),
     notes: updates.fulfillment_notes,
   });
 

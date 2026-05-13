@@ -9,7 +9,7 @@ import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal
 import { ImportProductsFlow } from '../components/ImportProductsFlow';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import { buildProductsListPdfBlob } from '../lib/products-list-pdf';
-import type { CatalogProduct } from '@voicex/shared';
+import { getProductPriceCents, type CatalogProduct } from '@voicex/shared';
 
 interface AsinLookupData {
   asin: string;
@@ -352,6 +352,12 @@ function buildEditForm(p: any) {
   };
 }
 
+function isProductVoicexPriceAboveLocal(p: CatalogProduct | Record<string, unknown>, defaultMarkupPercent: number) {
+  const effective = getProductPriceCents(p as CatalogProduct, defaultMarkupPercent, false);
+  const local = (p as CatalogProduct).local_price_cents;
+  return effective != null && local != null && effective > local;
+}
+
 export function ProductsPage() {
   const { isSuperAdmin } = useAuth();
   const isSuper = isSuperAdmin();
@@ -481,6 +487,7 @@ export function ProductsPage() {
   };
 
   const refreshAfterMutation = () => {
+    window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
     appendNextRef.current = false;
     if (paginationMode === 'endless') {
       setProducts([]);
@@ -1092,7 +1099,8 @@ export function ProductsPage() {
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search products..." className="rounded-lg border pl-9 pr-4 py-2 text-sm" />
+              placeholder="Name, ASIN, ID, or price (e.g. 1.79 or 179 cents)..."
+              className="rounded-lg border pl-9 pr-4 py-2 text-sm" />
           </div>
           <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white">Search</button>
         </form>
@@ -1154,7 +1162,13 @@ export function ProductsPage() {
                   <td className="px-6 py-3">
                     <CustomPriceReadonlyDisplay product={p} defaultMarkupPercent={defaultMarkupPercent} />
                   </td>
-                  <td className="px-6 py-3 text-gray-600">
+                  <td
+                    className={`px-6 py-3 tabular-nums ${
+                      isProductVoicexPriceAboveLocal(p, defaultMarkupPercent)
+                        ? 'font-bold text-red-600'
+                        : 'text-gray-600'
+                    }`}
+                  >
                     {p.local_price_cents != null ? `$${(p.local_price_cents / 100).toFixed(2)}` : '—'}
                   </td>
                   <td className="px-6 py-3">

@@ -204,7 +204,7 @@ export function FulfillmentPage() {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Link to={`/admin/orders/${order.id}`} className="font-mono text-sm font-semibold text-indigo-600 hover:underline">
-                          {order.id.slice(-8).toUpperCase()}
+                          {String(order.id)}
                         </Link>
                         {statusBadge(order.fulfillment_status)}
                         {!hold && <span className="inline-flex items-center gap-1 rounded bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700"><AlertTriangle size={12} /> no held auth</span>}

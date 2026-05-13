@@ -56,6 +56,7 @@ export function ProductDetailPage() {
     });
     setEditing(false);
     apiGet<any>(`/catalog/products/${id}`).then((r) => setProduct(r.data));
+    window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
   };
 
   const handleDelete = async () => {

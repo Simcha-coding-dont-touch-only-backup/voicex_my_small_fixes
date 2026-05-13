@@ -83,6 +83,9 @@ export function SettingsPage() {
     setError('');
     try {
       await apiPatch(`/settings/${key}`, { value: edits[key] });
+      if (key === SETTING_KEYS.DEFAULT_MARKUP_PERCENT) {
+        window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
+      }
       const res = await apiGet<any>('/settings');
       setSettings(res.data || []);
       const newEdits = { ...edits };

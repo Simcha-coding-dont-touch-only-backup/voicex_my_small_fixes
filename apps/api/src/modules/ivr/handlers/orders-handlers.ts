@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
 import { buildGather, buildGatherFromNode, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
+import { formatOrderIdForSpeech } from '@voicex/shared';
 
 function formatEtaDateForSpeech(etaDate: string): string {
   return new Date(`${etaDate}T00:00:00.000Z`).toLocaleDateString('en-US', {
@@ -72,10 +73,10 @@ registerHandler('orders_list', async (ctx) => {
   }
 
   const lines = orders.map((o, idx) => {
-    const shortId = o.id.slice(-6).toUpperCase();
+    const speechId = formatOrderIdForSpeech(o.id);
     const date = new Date(o.created_at).toLocaleDateString('en-US');
     const etaSpeech = formatEtaSpeech(o);
-    return `Order ${idx + 1}: number ${shortId}, placed on ${date}, status ${o.status}, total ${formatCurrency(o.total_cents)}${etaSpeech ? `. ${etaSpeech}` : ''}`;
+    return `Order ${idx + 1}: number ${speechId}, placed on ${date}, status ${o.status}, total ${formatCurrency(o.total_cents)}${etaSpeech ? `. ${etaSpeech}` : ''}`;
   });
 
   return {
@@ -88,7 +89,7 @@ registerHandler('orders_list', async (ctx) => {
       finishOnKey: ctx.node.config.finish_on_key,
       sessionData: {
         call_sid: ctx.callSid, user_id: userId, node_key: 'orders_detail',
-        order_ids: orders.map((o) => o.id).join(','),
+        order_ids: orders.map((o) => String(o.id)).join(','),
       },
     }),
   };
@@ -151,13 +152,13 @@ registerHandler('orders_detail', async (ctx) => {
     (oi: any) => `${oi.product_name}, quantity ${oi.quantity}, at ${formatCurrency(oi.unit_price_cents)} each`
   );
 
-  const shortId = order.id.slice(-6).toUpperCase();
+  const speechId = formatOrderIdForSpeech(order.id);
   const etaSpeech = formatEtaSpeech(order);
 
   return {
     type: 'actions',
     response: buildGather({
-      prompt: `Order ${shortId}. Status: ${order.status}. Total: ${formatCurrency(order.total_cents)}.${etaSpeech ? ` ${etaSpeech}.` : ''} Items: ${itemLines.join('. ')}. Press star for Main Menu, or press 0 to go back to the orders list.`,
+      prompt: `Order ${speechId}. Status: ${order.status}. Total: ${formatCurrency(order.total_cents)}.${etaSpeech ? ` ${etaSpeech}.` : ''} Items: ${itemLines.join('. ')}. Press star for Main Menu, or press 0 to go back to the orders list.`,
       actionPath: '/api/ivr/voice/gather',
       numDigits: ctx.node.config.num_digits,
       timeout: ctx.node.config.timeout_seconds || 10,

@@ -9,6 +9,7 @@ import { UsersPage } from './pages/UsersPage';
 import { UserDetailPage } from './pages/UserDetailPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { ProductsPage } from './pages/ProductsPage';
+import { AlertsPage } from './pages/AlertsPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { CartsPage } from './pages/CartsPage';
 import { OrdersPage } from './pages/OrdersPage';
@@ -135,6 +136,10 @@ function ProtectedAdminRoutes() {
         <Route
           path="/products/:id"
           element={<RequirePermission permission="manageProducts"><ProductDetailPage /></RequirePermission>}
+        />
+        <Route
+          path="/alerts"
+          element={<RequirePermission permission="manageProducts"><AlertsPage /></RequirePermission>}
         />
 
         <Route path="/carts" element={<RequireFullAdmin><CartsPage /></RequireFullAdmin>} />

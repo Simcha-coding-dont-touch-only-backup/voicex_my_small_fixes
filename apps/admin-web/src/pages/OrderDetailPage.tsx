@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { normalizeOrderNumberInput } from '@voicex/shared';
 import { apiGet } from '../lib/api';
 import { OrderEtaEditor, normalizeEtaRows, type EtaFormRow } from '../components/OrderEtaEditor';
 
@@ -10,7 +11,9 @@ export function OrderDetailPage() {
   const [etaRows, setEtaRows] = useState<EtaFormRow[]>([]);
 
   useEffect(() => {
-    apiGet<any>(`/orders/${id}`).then((r) => {
+    if (!id) return;
+    const resolved = normalizeOrderNumberInput(id) || id;
+    apiGet<any>(`/orders/${resolved}`).then((r) => {
       setOrder(r.data);
       setEtaRows(normalizeEtaRows(r.data?.order_fulfillment_etas));
     });
@@ -22,7 +25,7 @@ export function OrderDetailPage() {
     <div className="space-y-6">
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
         <button type="button" onClick={() => navigate('/admin/orders')} className="shrink-0 text-sm text-indigo-600 hover:underline">&larr; Back</button>
-        <h2 className="min-w-0 break-words text-xl font-bold text-gray-800 sm:text-2xl">Order {order.id.slice(-8).toUpperCase()}</h2>
+        <h2 className="min-w-0 break-words text-xl font-bold text-gray-800 sm:text-2xl">Order {String(order.id)}</h2>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -58,7 +61,7 @@ export function OrderDetailPage() {
 
           <div className="mt-4 border-t pt-4">
             <OrderEtaEditor
-              orderId={order.id}
+              orderId={String(order.id)}
               value={etaRows}
               onChange={setEtaRows}
               onSaved={(updatedOrder) => setOrder(updatedOrder)}

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { orderIdFromParam } from '../../lib/order-id.js';
 import { etaPayloadSchema, replaceOrderFulfillmentEtas, sortOrderFulfillmentEtas } from './order-etas.js';
 
 export const ordersRouter = Router();
@@ -60,10 +61,16 @@ ordersRouter.get('/', async (req, res) => {
 });
 
 ordersRouter.get('/:id', async (req, res) => {
+  const id = orderIdFromParam(req.params.id);
+  if (!id) {
+    res.status(404).json({ success: false, error: 'Order not found' });
+    return;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('orders')
     .select(ORDER_DETAIL_SELECT)
-    .eq('id', req.params.id)
+    .eq('id', id)
     .single();
 
   if (error || !data) {
@@ -81,10 +88,16 @@ ordersRouter.put('/:id/etas', async (req, res) => {
     return;
   }
 
+  const id = orderIdFromParam(req.params.id);
+  if (!id) {
+    res.status(404).json({ success: false, error: 'Order not found' });
+    return;
+  }
+
   const { data: order, error: orderError } = await supabaseAdmin
     .from('orders')
     .select('id, status')
-    .eq('id', req.params.id)
+    .eq('id', id)
     .single();
 
   if (orderError || !order) {
@@ -93,18 +106,18 @@ ordersRouter.put('/:id/etas', async (req, res) => {
   }
 
   try {
-    await replaceOrderFulfillmentEtas(order.id, parsed.data.etas, req.adminUser?.id);
+    await replaceOrderFulfillmentEtas(String(order.id), parsed.data.etas, req.adminUser?.id);
 
     await supabaseAdmin.from('admin_audit_logs').insert({
       admin_user_id: req.adminUser?.id ?? null,
       action: 'update_order_etas',
       entity_type: 'order',
-      entity_id: order.id,
+      entity_id: String(order.id),
       changes: { etas: parsed.data.etas },
     });
 
     await supabaseAdmin.from('order_events').insert({
-      order_id: order.id,
+      order_id: String(order.id),
       status: order.status,
       source: 'admin',
       details: { action: 'update_order_etas', etas: parsed.data.etas },

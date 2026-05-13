@@ -49,7 +49,7 @@ webhookRouter.post('/rye', async (req, res) => {
           const newStatus = statusMap[event.type] || 'processing';
 
           await supabaseAdmin.from('order_events').insert({
-            order_id: order.id,
+            order_id: String(order.id),
             status: newStatus,
             source: 'rye_webhook',
             details: event.data,
@@ -58,7 +58,7 @@ webhookRouter.post('/rye', async (req, res) => {
           await supabaseAdmin
             .from('orders')
             .update({ status: newStatus })
-            .eq('id', order.id);
+            .eq('id', String(order.id));
         }
         break;
       }

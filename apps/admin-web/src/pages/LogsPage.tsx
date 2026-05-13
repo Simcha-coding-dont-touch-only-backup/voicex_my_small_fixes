@@ -24,6 +24,11 @@ function formatCents(cents: number | null | undefined) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function formatOrderIdForLog(orderId: string | number | null | undefined) {
+  if (orderId == null || orderId === '') return '-';
+  return String(orderId);
+}
+
 function LimitBadge({ value, max, label }: { value: number; max: number; label: string }) {
   const pct = max > 0 ? value / max : 0;
   const color = pct >= 0.8 ? 'text-red-700 bg-red-50' : pct >= 0.5 ? 'text-yellow-700 bg-yellow-50' : 'text-gray-600 bg-gray-50';
@@ -706,7 +711,7 @@ function CheckoutEventsView() {
                         )}
                       </div>
                       <div className="flex-1 px-4 py-3 font-mono text-xs text-gray-500">
-                        {call.order_id ? call.order_id.slice(-6).toUpperCase() : '-'}
+                        {formatOrderIdForLog(call.order_id)}
                       </div>
                       <div className="flex-1 px-4 py-3">
                         <OutcomeBadge outcome={call.outcome} />
@@ -755,7 +760,7 @@ function CheckoutEventTimeline({ call }: { call: any }) {
         </div>
         <div>
           <span className="font-medium text-gray-600">Order ID:</span>{' '}
-          <span className="font-mono">{call.order_id || 'N/A'}</span>
+          <span className="font-mono">{call.order_id != null && call.order_id !== '' ? String(call.order_id) : 'N/A'}</span>
         </div>
       </div>
 
@@ -958,7 +963,7 @@ function EventDetails({ event }: { event: any }) {
       return (
         <div className="space-y-1 text-gray-700">
           <div>
-            Order <span className="font-mono">{(d.order_id || '').slice(-6).toUpperCase()}</span> queued for manual fulfillment —
+            Order <span className="font-mono">{formatOrderIdForLog(d.order_id)}</span> queued for manual fulfillment —
             total {formatCents(d.total_cents)}
           </div>
           {Array.isArray(d.items) && (
@@ -991,7 +996,7 @@ function EventDetails({ event }: { event: any }) {
       return (
         <div className="space-y-1 text-gray-700">
           <div>
-            Order <span className="font-mono">{(d.order_id || '').slice(-6).toUpperCase()}</span> created
+            Order <span className="font-mono">{formatOrderIdForLog(d.order_id)}</span> created
             with {d.item_count} item{d.item_count === 1 ? '' : 's'} — total {formatCents(d.total_cents)}
           </div>
           {Array.isArray(d.items) && (
@@ -1044,7 +1049,7 @@ function EventDetails({ event }: { event: any }) {
     case 'order_completed':
       return (
         <span className="text-gray-700">
-          Order <span className="font-mono">{(d.order_id || '').slice(-6).toUpperCase()}</span> finalized
+          Order <span className="font-mono">{formatOrderIdForLog(d.order_id)}</span> finalized
           {d.manual_review && <span className="ml-2 inline-block rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-700">manual review</span>}
         </span>
       );

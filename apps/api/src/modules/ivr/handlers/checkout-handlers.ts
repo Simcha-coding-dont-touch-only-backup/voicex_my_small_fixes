@@ -6,7 +6,7 @@ import { createRyeIntent, confirmRyeIntent, findCartItemForFailure } from '../..
 import type { StockFailure, IntentResult } from '../../../lib/rye-checkout.js';
 import { solaTokenize, solaAuthOnly, solaCapture, solaVoidRelease } from '../../../lib/sola.js';
 import { calculateManualPricing } from '../../../lib/manual-pricing.js';
-import { getProductDisplayName, getCartItemSavingsCents } from '@voicex/shared';
+import { getProductDisplayName, getCartItemSavingsCents, formatOrderIdForSpeech } from '@voicex/shared';
 import type { FulfillmentProvider } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 import { logCheckoutEvent } from '../../../lib/checkout-logger.js';
@@ -2107,7 +2107,7 @@ registerHandler('checkout_pay', async (ctx) => {
     if (!order) throw new Error('Failed to create order');
 
     const orderItems = cartItems.map((ci) => ({
-      order_id: order.id, product_id: ci.product_id, voicex_id: ci.voicex_id,
+      order_id: String(order.id), product_id: ci.product_id, voicex_id: ci.voicex_id,
       product_name: getProductDisplayName(ci.catalog_products),
       quantity: ci.quantity, unit_price_cents: ci.unit_price_cents,
       amazon_price_cents: ci.amazon_price_cents,
@@ -2119,21 +2119,21 @@ registerHandler('checkout_pay', async (ctx) => {
 
     await supabaseAdmin.from('order_items').insert(orderItems);
     await supabaseAdmin.from('order_events').insert({
-      order_id: order.id, status: 'processing', source: 'system',
+      order_id: String(order.id), status: 'processing', source: 'system',
       details: { action: 'order_created', fulfillment_provider: fulfillmentProvider, sola_ref_num: solaRefNum },
     });
     await supabaseAdmin.from('order_holds').insert({
-      order_id: order.id, sola_ref_num: solaRefNum, amount_cents: totalCents, status: 'held',
+      order_id: String(order.id), sola_ref_num: solaRefNum, amount_cents: totalCents, status: 'held',
     });
     await supabaseAdmin.from('carts').update({ status: 'checked_out' }).eq('id', cart.id);
 
     await logCheckoutEvent({
       callSid: ctx.callSid,
       userId,
-      orderId: order.id,
+      orderId: String(order.id),
       eventType: 'order_persisted',
       details: {
-        order_id: order.id,
+        order_id: String(order.id),
         fulfillment_provider: fulfillmentProvider,
         rye_intent_id: ryeIntentId,
         sola_ref_num: solaRefNum,
@@ -2158,7 +2158,7 @@ registerHandler('checkout_pay', async (ctx) => {
 
     if (fulfillmentProvider === 'manual') {
       await supabaseAdmin.from('order_events').insert({
-        order_id: order.id, status: 'processing', source: 'system',
+        order_id: String(order.id), status: 'processing', source: 'system',
         details: {
           action: 'manual_fulfillment_queued',
           sola_ref_num: solaRefNum,
@@ -2169,10 +2169,10 @@ registerHandler('checkout_pay', async (ctx) => {
       await logCheckoutEvent({
         callSid: ctx.callSid,
         userId,
-        orderId: order.id,
+        orderId: String(order.id),
         eventType: 'manual_fulfillment_queued',
         details: {
-          order_id: order.id,
+          order_id: String(order.id),
           sola_ref_num: solaRefNum,
           total_cents: totalCents,
           item_count: orderItems.length,
@@ -2206,7 +2206,7 @@ registerHandler('checkout_pay', async (ctx) => {
       ryeSuccess = completed.state === 'completed';
 
       await supabaseAdmin.from('order_events').insert({
-        order_id: order.id, status: ryeSuccess ? 'completed' : 'failed', source: 'system',
+        order_id: String(order.id), status: ryeSuccess ? 'completed' : 'failed', source: 'system',
         details: {
           action: 'rye_checkout_confirmed', rye_intent_id: ryeIntentId,
           rye_state: completed.state, failure_reason: completed.failureReason || null,
@@ -2216,7 +2216,7 @@ registerHandler('checkout_pay', async (ctx) => {
       await logCheckoutEvent({
         callSid: ctx.callSid,
         userId,
-        orderId: order.id,
+        orderId: String(order.id),
         eventType: ryeSuccess ? 'rye_confirm_succeeded' : 'rye_confirm_failed',
         severity: ryeSuccess ? 'info' : 'error',
         details: {
@@ -2241,13 +2241,13 @@ registerHandler('checkout_pay', async (ctx) => {
     } catch (ryeError) {
       console.error('Rye confirm failed:', ryeError);
       await supabaseAdmin.from('order_events').insert({
-        order_id: order.id, status: 'failed', source: 'system',
+        order_id: String(order.id), status: 'failed', source: 'system',
         details: { action: 'rye_checkout_failed', rye_intent_id: ryeIntentId, error: String(ryeError) },
       });
       await logCheckoutEvent({
         callSid: ctx.callSid,
         userId,
-        orderId: order.id,
+        orderId: String(order.id),
         eventType: 'rye_confirm_failed',
         severity: 'error',
         details: {
@@ -2268,7 +2268,7 @@ registerHandler('checkout_pay', async (ctx) => {
         await logCheckoutEvent({
           callSid: ctx.callSid,
           userId,
-          orderId: order.id,
+          orderId: String(order.id),
           eventType: 'sola_capture_succeeded',
           details: {
             sola_ref_num: solaRefNum,
@@ -2279,9 +2279,9 @@ registerHandler('checkout_pay', async (ctx) => {
         await logCheckoutEvent({
           callSid: ctx.callSid,
           userId,
-          orderId: order.id,
+          orderId: String(order.id),
           eventType: 'order_completed',
-          details: { order_id: order.id, total_cents: totalCents },
+          details: { order_id: String(order.id), total_cents: totalCents },
         });
 
         for (const item of cartItems) {
@@ -2294,7 +2294,7 @@ registerHandler('checkout_pay', async (ctx) => {
         return {
           type: 'actions',
           response: buildSay(
-            `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. You will receive updates on the status of your order. Thank you for shopping with VoiceX!`,
+            `Your order has been placed! Your order number is ${formatOrderIdForSpeech(order.id)}. You will receive updates on the status of your order. Thank you for shopping with VoiceX!`,
             '/api/ivr/voice/gather',
             { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
           ),
@@ -2305,14 +2305,14 @@ registerHandler('checkout_pay', async (ctx) => {
         await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
         await supabaseAdmin.from('orders').update({ status: 'completed' }).eq('id', order.id);
         await supabaseAdmin.from('order_events').insert({
-          order_id: order.id, status: 'completed', source: 'system',
+          order_id: String(order.id), status: 'completed', source: 'system',
           details: { action: 'sola_capture_failed_manual_review', error: String(captureError), sola_ref_num: solaRefNum },
         });
 
         await logCheckoutEvent({
           callSid: ctx.callSid,
           userId,
-          orderId: order.id,
+          orderId: String(order.id),
           eventType: 'sola_capture_failed',
           severity: 'error',
           details: {
@@ -2326,16 +2326,16 @@ registerHandler('checkout_pay', async (ctx) => {
         await logCheckoutEvent({
           callSid: ctx.callSid,
           userId,
-          orderId: order.id,
+          orderId: String(order.id),
           eventType: 'order_completed',
           severity: 'warn',
-          details: { order_id: order.id, total_cents: totalCents, manual_review: true },
+          details: { order_id: String(order.id), total_cents: totalCents, manual_review: true },
         });
 
         return {
           type: 'actions',
           response: buildSay(
-            `Your order has been placed! Your order number is ${order.id.slice(-6).toUpperCase()}. Thank you for shopping with VoiceX!`,
+            `Your order has been placed! Your order number is ${formatOrderIdForSpeech(order.id)}. Thank you for shopping with VoiceX!`,
             '/api/ivr/voice/gather',
             { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
           ),
@@ -2354,7 +2354,7 @@ registerHandler('checkout_pay', async (ctx) => {
         await logCheckoutEvent({
           callSid: ctx.callSid,
           userId,
-          orderId: order.id,
+          orderId: String(order.id),
           eventType: 'sola_void_release',
           severity: 'error',
           details: {
@@ -2370,7 +2370,7 @@ registerHandler('checkout_pay', async (ctx) => {
         await logCheckoutEvent({
           callSid: ctx.callSid,
           userId,
-          orderId: order.id,
+          orderId: String(order.id),
           eventType: 'sola_void_release',
           details: { sola_ref_num: solaRefNum, amount_cents: totalCents },
         });
@@ -2380,10 +2380,10 @@ registerHandler('checkout_pay', async (ctx) => {
       await logCheckoutEvent({
         callSid: ctx.callSid,
         userId,
-        orderId: order.id,
+        orderId: String(order.id),
         eventType: 'order_failed',
         severity: 'error',
-        details: { order_id: order.id, reason: 'rye_confirm_failed' },
+        details: { order_id: String(order.id), reason: 'rye_confirm_failed' },
       });
 
       return {

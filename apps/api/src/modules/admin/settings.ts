@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { SETTING_KEYS, US_STATE_CODES } from '@voicex/shared';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { resyncAllProductVoicexPriceAboveLocalAlerts } from '../../lib/product-price-alerts.js';
 
 export const settingsRouter = Router();
 
@@ -129,6 +130,13 @@ settingsRouter.patch('/:key', async (req, res) => {
     entity_id: req.params.key,
     changes: { value },
   });
+
+  if (req.params.key === SETTING_KEYS.DEFAULT_MARKUP_PERCENT) {
+    void resyncAllProductVoicexPriceAboveLocalAlerts().catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[settings] resync product price alerts after markup change:', msg);
+    });
+  }
 
   res.json({ success: true, data });
 });
