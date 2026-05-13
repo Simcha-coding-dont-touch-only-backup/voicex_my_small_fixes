@@ -2262,7 +2262,7 @@ registerHandler('checkout_pay', async (ctx) => {
     if (ryeSuccess) {
       try {
         await solaCapture(solaRefNum, totalCents);
-        await supabaseAdmin.from('order_holds').update({ status: 'captured' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+        await supabaseAdmin.from('order_holds').update({ status: 'captured' }).eq('order_id', String(order.id)).eq('sola_ref_num', solaRefNum);
         await supabaseAdmin.from('orders').update({ status: 'completed' }).eq('id', order.id);
 
         await logCheckoutEvent({
@@ -2302,7 +2302,7 @@ registerHandler('checkout_pay', async (ctx) => {
       } catch (captureError) {
         // Rye drawdown succeeded but Sola capture failed -- critical
         console.error('CRITICAL: Sola capture failed after Rye success:', captureError);
-        await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+        await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('order_id', String(order.id)).eq('sola_ref_num', solaRefNum);
         await supabaseAdmin.from('orders').update({ status: 'completed' }).eq('id', order.id);
         await supabaseAdmin.from('order_events').insert({
           order_id: String(order.id), status: 'completed', source: 'system',
@@ -2346,11 +2346,11 @@ registerHandler('checkout_pay', async (ctx) => {
       let voidSucceeded = false;
       try {
         await solaVoidRelease(solaRefNum);
-        await supabaseAdmin.from('order_holds').update({ status: 'voided' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+        await supabaseAdmin.from('order_holds').update({ status: 'voided' }).eq('order_id', String(order.id)).eq('sola_ref_num', solaRefNum);
         voidSucceeded = true;
       } catch (voidError) {
         console.error('Sola void release failed:', voidError);
-        await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('order_id', order.id).eq('sola_ref_num', solaRefNum);
+        await supabaseAdmin.from('order_holds').update({ status: 'failed' }).eq('order_id', String(order.id)).eq('sola_ref_num', solaRefNum);
         await logCheckoutEvent({
           callSid: ctx.callSid,
           userId,
