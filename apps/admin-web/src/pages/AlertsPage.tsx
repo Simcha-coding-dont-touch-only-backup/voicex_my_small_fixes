@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Loader2, Trash2, AlertTriangle } from 'lucide-react';
+import { Trash2, AlertTriangle } from 'lucide-react';
 import { apiDelete, apiGet, apiPatch } from '../lib/api';
 import { formatUsdFromCents } from '../lib/product-price';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import { getProductDisplayName, type CatalogProduct } from '@voicex/shared';
+import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
 type AlertStatus = 'new' | 'reviewing' | 'resolved';
 
@@ -32,8 +33,6 @@ interface ListResponse {
   per_page: number;
   total_pages: number;
 }
-
-const PER_PAGE = 20;
 
 function statusBadgeClass(status: AlertStatus) {
   switch (status) {
@@ -66,42 +65,40 @@ function emitAlertsCountRefresh() {
 }
 
 export function AlertsPage() {
-  const [rows, setRows] = useState<AdminAlertRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<AlertStatus | ''>('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AdminAlertRow | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams({
-        page: String(page),
-        per_page: String(PER_PAGE),
-      });
-      if (statusFilter) params.set('status', statusFilter);
-      const r = await apiGet<ListResponse>(`/alerts?${params}`);
-      setRows(r.data || []);
-      setTotal(r.total || 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load alerts');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, statusFilter]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const table = useAdminTableQuery<AdminAlertRow>({
+    defaultSort: { field: 'created_at', dir: 'desc' },
+    defaultPerPage: 20,
+    filterKey: statusFilter,
+    fetcher: async ({ page, perPage, sortBy, sortDir }) => {
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          per_page: String(perPage),
+          sort_by: sortBy,
+          sort_dir: sortDir,
+        });
+        if (statusFilter) params.set('status', statusFilter);
+        const r = await apiGet<ListResponse>(`/alerts?${params}`);
+        setError('');
+        return { data: r.data || [], total: r.total || 0 };
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load alerts');
+        return { data: [], total: 0 };
+      }
+    },
+  });
+  const rows = table.rows;
+  const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
 
   const handleStatusChange = async (row: AdminAlertRow, status: AlertStatus) => {
     try {
       await apiPatch(`/alerts/${row.id}`, { status });
-      setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, status } : x)));
+      table.setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, status } : x)));
       emitAlertsCountRefresh();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to update status');
@@ -113,8 +110,8 @@ export function AlertsPage() {
     setDeleting(true);
     try {
       await apiDelete(`/alerts/${deleteTarget.id}`);
-      setRows((prev) => prev.filter((x) => x.id !== deleteTarget.id));
-      setTotal((t) => Math.max(0, t - 1));
+      table.setRows((prev) => prev.filter((x) => x.id !== deleteTarget.id));
+      table.setTotal((t) => Math.max(0, t - 1));
       setDeleteTarget(null);
       emitAlertsCountRefresh();
     } catch (err) {
@@ -123,8 +120,6 @@ export function AlertsPage() {
       setDeleting(false);
     }
   };
-
-  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
   return (
     <div>
@@ -136,7 +131,7 @@ export function AlertsPage() {
             <select
               value={statusFilter}
               onChange={(e) => {
-                setPage(1);
+                table.setPage(1);
                 setStatusFilter(e.target.value as AlertStatus | '');
               }}
               className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
@@ -164,21 +159,29 @@ export function AlertsPage() {
               <th className="px-4 py-3 font-medium">ASIN</th>
               <th className="px-4 py-3 font-medium">Custom price</th>
               <th className="px-4 py-3 font-medium">Local price</th>
-              <th className="px-4 py-3 font-medium">Status</th>
+              <SortHeader
+                label="Status"
+                field="status"
+                sortBy={sortBy}
+                sortDir={sortDir}
+                onSort={table.handleSort}
+                thClassName="px-4 py-3 font-medium"
+              />
+              <SortHeader
+                label="Created"
+                field="created_at"
+                sortBy={sortBy}
+                sortDir={sortDir}
+                onSort={table.handleSort}
+                thClassName="px-4 py-3 font-medium"
+              />
               <th className="px-4 py-3 font-medium w-24">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && rows.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                  <Loader2 className="mx-auto mb-2 animate-spin" size={24} />
-                  Loading alerts…
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                   No alerts match your filters.
                 </td>
               </tr>
@@ -254,6 +257,9 @@ export function AlertsPage() {
                         </select>
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-gray-500">
+                      {new Date(row.created_at).toLocaleDateString()}
+                    </td>
                     <td className="px-4 py-3">
                       <button
                         type="button"
@@ -271,33 +277,27 @@ export function AlertsPage() {
           </tbody>
         </table>
 
-        {total > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
-            <span className="text-sm text-gray-500">
-              Page {page} of {totalPages} · {total} alert{total === 1 ? '' : 's'}
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={page <= 1 || loading}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded border p-1.5 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-                aria-label="Previous page"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <button
-                type="button"
-                disabled={page >= totalPages || loading}
-                onClick={() => setPage((p) => p + 1)}
-                className="rounded border p-1.5 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-                aria-label="Next page"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+        <EndlessTail
+          paginationMode={paginationMode}
+          hasMore={table.hasMoreEndless}
+          isLoadingMore={table.isLoadingMore}
+          total={total}
+          sentinelRef={table.sentinelRef}
+          itemLabel="alert"
+        />
+
+        <PaginationFooter
+          page={page}
+          perPage={perPage}
+          total={total}
+          loadedCount={rows.length}
+          paginationMode={paginationMode}
+          onPageChange={table.setPage}
+          onPerPageChange={table.setPerPage}
+          onPaginationModeChange={table.switchPaginationMode}
+          itemLabel="Alert"
+          itemLabelPlural="Alerts"
+        />
       </div>
 
       {deleteTarget && (

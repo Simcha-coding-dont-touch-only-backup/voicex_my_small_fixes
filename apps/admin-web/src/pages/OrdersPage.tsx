@@ -1,36 +1,42 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet } from '../lib/api';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
 export function OrdersPage() {
-  const [orders, setOrders] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const perPage = 20;
 
-  const load = () => {
-    const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
-    if (statusFilter) params.set('status', statusFilter);
-    if (dateFrom) params.set('date_from', dateFrom);
-    if (dateTo) params.set('date_to', dateTo);
-    apiGet<any>(`/orders?${params}`).then((r) => {
-      setOrders(r.data || []);
-      setTotal(r.total || 0);
-    });
-  };
-
-  useEffect(() => { load(); }, [page, statusFilter, dateFrom, dateTo]);
+  const table = useAdminTableQuery<any>({
+    defaultSort: { field: 'created_at', dir: 'desc' },
+    defaultPerPage: 20,
+    filterKey: `${statusFilter}|${dateFrom}|${dateTo}`,
+    fetcher: ({ page, perPage, sortBy, sortDir }) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        per_page: String(perPage),
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      });
+      if (statusFilter) params.set('status', statusFilter);
+      if (dateFrom) params.set('date_from', dateFrom);
+      if (dateTo) params.set('date_to', dateTo);
+      return apiGet<any>(`/orders?${params}`).then((r) => ({
+        data: r.data || [],
+        total: r.total || 0,
+      }));
+    },
+  });
+  const orders = table.rows;
+  const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
 
   return (
     <div>
       <h2 className="mb-6 text-2xl font-bold text-gray-800">Orders</h2>
 
       <div className="mb-4 flex flex-wrap gap-3">
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm">
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
@@ -39,9 +45,9 @@ export function OrdersPage() {
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
         </select>
-        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+        <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm" placeholder="From" />
-        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+        <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm" placeholder="To" />
       </div>
 
@@ -49,13 +55,13 @@ export function OrdersPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
-              <th className="px-6 py-3 font-medium">Order ID</th>
+              <SortHeader label="Order ID" field="id" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Customer</th>
               <th className="px-6 py-3 font-medium">Items</th>
-              <th className="px-6 py-3 font-medium">Total</th>
+              <SortHeader label="Total" field="total_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Fulfillment</th>
-              <th className="px-6 py-3 font-medium">Status</th>
-              <th className="px-6 py-3 font-medium">Date</th>
+              <SortHeader label="Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+              <SortHeader label="Date" field="created_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
             </tr>
           </thead>
           <tbody>
@@ -94,14 +100,27 @@ export function OrdersPage() {
           </tbody>
         </table>
 
-        <div className="flex items-center justify-between border-t px-6 py-3">
-          <span className="text-sm text-gray-500">{total} orders</span>
-          <div className="flex gap-2">
-            <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1} className="rounded border px-3 py-1 text-sm disabled:opacity-50"><ChevronLeft size={16} /></button>
-            <span className="px-3 py-1 text-sm">Page {page}</span>
-            <button onClick={() => setPage(page + 1)} disabled={page * perPage >= total} className="rounded border px-3 py-1 text-sm disabled:opacity-50"><ChevronRight size={16} /></button>
-          </div>
-        </div>
+        <EndlessTail
+          paginationMode={paginationMode}
+          hasMore={table.hasMoreEndless}
+          isLoadingMore={table.isLoadingMore}
+          total={total}
+          sentinelRef={table.sentinelRef}
+          itemLabel="order"
+        />
+
+        <PaginationFooter
+          page={page}
+          perPage={perPage}
+          total={total}
+          loadedCount={orders.length}
+          paginationMode={paginationMode}
+          onPageChange={table.setPage}
+          onPerPageChange={table.setPerPage}
+          onPaginationModeChange={table.switchPaginationMode}
+          itemLabel="Order"
+          itemLabelPlural="Orders"
+        />
       </div>
     </div>
   );

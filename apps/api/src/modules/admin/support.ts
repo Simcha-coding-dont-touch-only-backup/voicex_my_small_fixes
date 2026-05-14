@@ -50,7 +50,7 @@ supportRouter.get('/contact-submissions', async (req, res) => {
   } = req.query;
 
   const currentPage = parsePositiveInt(page, 1, 100000);
-  const perPage = parsePositiveInt(per_page, 20, 100);
+  const perPage = parsePositiveInt(per_page, 20, 1000);
   const offset = (currentPage - 1) * perPage;
   const sortColumn = SORTABLE_COLUMNS.includes(sort_by as string) ? (sort_by as string) : 'created_at';
   const sortAscending = sort_dir === 'asc';

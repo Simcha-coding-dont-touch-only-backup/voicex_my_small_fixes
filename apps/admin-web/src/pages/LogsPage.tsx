@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../lib/api';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2, AlertTriangle, AlertCircle, Info, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2, AlertTriangle, AlertCircle, Info, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
+import { EndlessTail, PaginationFooter, useAdminTableQuery } from '../components/admin-table';
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -84,28 +85,40 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 // ===========================================================================
 
 function IvrStepsView() {
-  const [calls, setCalls] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [expandedSid, setExpandedSid] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
-  const perPage = 25;
 
-  const load = () => {
-    const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
-    if (dateFrom) params.set('date_from', dateFrom);
-    if (dateTo) params.set('date_to', dateTo);
-    apiGet<any>(`/logs/calls?${params}`).then((r) => {
-      setCalls(r.data || []);
-      setTotal(r.total || 0);
-      setSelected(new Set());
-    });
-  };
+  const table = useAdminTableQuery<any>({
+    defaultSort: { field: 'created_at', dir: 'desc' },
+    defaultPerPage: 25,
+    filterKey: `${dateFrom}|${dateTo}`,
+    fetcher: ({ page, perPage }) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        per_page: String(perPage),
+      });
+      if (dateFrom) params.set('date_from', dateFrom);
+      if (dateTo) params.set('date_to', dateTo);
+      return apiGet<any>(`/logs/calls?${params}`).then((r) => ({
+        data: r.data || [],
+        total: r.total || 0,
+      }));
+    },
+  });
+  const calls = table.rows;
+  const { page, perPage, total, paginationMode } = table;
 
-  useEffect(() => { load(); }, [page, dateFrom, dateTo]);
+  // Clear selection whenever the filter set changes. We deliberately do NOT
+  // clear on plain page advance in endless mode — users may want to scroll
+  // and accumulate selections across pages.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [dateFrom, dateTo]);
+
+  const reload = () => table.refresh();
 
   const toggleSelect = (callSid: string) => {
     setSelected((prev) => {
@@ -177,7 +190,7 @@ function IvrStepsView() {
         expected_step_rows: preview?.step_rows,
       });
       console.info('[logs] bulk delete result', r);
-      load();
+      reload();
     } catch (e: any) {
       alert(`Delete failed: ${e?.message || e}`);
       console.error('[logs] delete failed', e);
@@ -191,27 +204,28 @@ function IvrStepsView() {
 
   const rangeStart = total === 0 ? 0 : (page - 1) * perPage + 1;
   const rangeEnd = Math.min(page * perPage, total);
-  const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   return (
     <div>
       <div className="mb-3 text-sm text-gray-600">
         {total === 0
           ? 'No calls'
+          : paginationMode === 'endless'
+          ? <>Showing <span className="font-medium text-gray-800">{calls.length}</span> of <span className="font-medium text-gray-800">{total}</span> call{total !== 1 ? 's' : ''}</>
           : <>Showing <span className="font-medium text-gray-800">{rangeStart}-{rangeEnd}</span> of <span className="font-medium text-gray-800">{total}</span> call{total !== 1 ? 's' : ''}</>}
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="date"
           value={dateFrom}
-          onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+          onChange={(e) => { setDateFrom(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm"
           placeholder="From"
         />
         <input
           type="date"
           value={dateTo}
-          onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+          onChange={(e) => { setDateTo(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm"
           placeholder="To"
         />
@@ -439,114 +453,30 @@ function IvrStepsView() {
           </tbody>
         </table>
 
+        <EndlessTail
+          paginationMode={paginationMode}
+          hasMore={table.hasMoreEndless}
+          isLoadingMore={table.isLoadingMore}
+          total={total}
+          sentinelRef={table.sentinelRef}
+          itemLabel="call"
+        />
+
         <PaginationFooter
           page={page}
-          totalPages={totalPages}
+          perPage={perPage}
           total={total}
-          rangeStart={rangeStart}
-          rangeEnd={rangeEnd}
-          onChange={setPage}
+          loadedCount={calls.length}
+          paginationMode={paginationMode}
+          onPageChange={table.setPage}
+          onPerPageChange={table.setPerPage}
+          onPaginationModeChange={table.switchPaginationMode}
+          itemLabel="Call"
+          itemLabelPlural="Calls"
         />
       </div>
     </div>
   );
-}
-
-function PaginationFooter({
-  page,
-  totalPages,
-  total,
-  rangeStart,
-  rangeEnd,
-  onChange,
-}: {
-  page: number;
-  totalPages: number;
-  total: number;
-  rangeStart: number;
-  rangeEnd: number;
-  onChange: (p: number) => void;
-}) {
-  const pages = getPageNumbers(page, totalPages);
-  return (
-    <div className="flex items-center justify-between border-t px-6 py-3">
-      <span className="text-sm text-gray-500">
-        {total === 0 ? 'No results' : `Showing ${rangeStart}-${rangeEnd} of ${total}`}
-      </span>
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => onChange(1)}
-          disabled={page === 1}
-          className="rounded border px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-          title="First page"
-        >
-          «
-        </button>
-        <button
-          onClick={() => onChange(Math.max(1, page - 1))}
-          disabled={page === 1}
-          className="rounded border px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-          title="Previous page"
-        >
-          <ChevronLeft size={16} />
-        </button>
-        {pages.map((p, i) =>
-          p === '...' ? (
-            <span key={`gap-${i}`} className="px-2 text-sm text-gray-400">…</span>
-          ) : (
-            <button
-              key={p}
-              onClick={() => onChange(p)}
-              className={`min-w-[32px] rounded border px-2 py-1 text-sm ${
-                p === page
-                  ? 'border-indigo-500 bg-indigo-50 font-medium text-indigo-700'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {p}
-            </button>
-          )
-        )}
-        <button
-          onClick={() => onChange(Math.min(totalPages, page + 1))}
-          disabled={page >= totalPages}
-          className="rounded border px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-          title="Next page"
-        >
-          <ChevronRight size={16} />
-        </button>
-        <button
-          onClick={() => onChange(totalPages)}
-          disabled={page >= totalPages}
-          className="rounded border px-2 py-1 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-          title="Last page"
-        >
-          »
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// Build a compact list of page numbers around the current page,
-// e.g. [1, '...', 4, 5, 6, '...', 12].
-function getPageNumbers(current: number, total: number): (number | '...')[] {
-  if (total <= 7) {
-    return Array.from({ length: total }, (_, i) => i + 1);
-  }
-  const pages: (number | '...')[] = [1];
-  const start = Math.max(2, current - 1);
-  const end = Math.min(total - 1, current + 1);
-  // Only insert an ellipsis when it actually hides more than one page;
-  // otherwise just render the page number directly (e.g. prefer [1, 2, 3]
-  // over [1, '...', 3]).
-  if (start > 3) pages.push('...');
-  else if (start === 3) pages.push(2);
-  for (let i = start; i <= end; i++) pages.push(i);
-  if (end < total - 2) pages.push('...');
-  else if (end === total - 2) pages.push(total - 1);
-  pages.push(total);
-  return pages;
 }
 
 // ===========================================================================
@@ -615,48 +545,53 @@ function SeverityIcon({ severity }: { severity: string }) {
 }
 
 function CheckoutEventsView() {
-  const [calls, setCalls] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [expandedSid, setExpandedSid] = useState<string | null>(null);
-  const perPage = 25;
 
-  const load = () => {
-    const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
-    if (dateFrom) params.set('date_from', dateFrom);
-    if (dateTo) params.set('date_to', dateTo);
-    apiGet<any>(`/logs/checkout?${params}`).then((r) => {
-      setCalls(r.data || []);
-      setTotal(r.total || 0);
-    });
-  };
-
-  useEffect(() => { load(); }, [page, dateFrom, dateTo]);
+  const table = useAdminTableQuery<any>({
+    defaultSort: { field: 'created_at', dir: 'desc' },
+    defaultPerPage: 25,
+    filterKey: `${dateFrom}|${dateTo}`,
+    fetcher: ({ page, perPage }) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        per_page: String(perPage),
+      });
+      if (dateFrom) params.set('date_from', dateFrom);
+      if (dateTo) params.set('date_to', dateTo);
+      return apiGet<any>(`/logs/checkout?${params}`).then((r) => ({
+        data: r.data || [],
+        total: r.total || 0,
+      }));
+    },
+  });
+  const calls = table.rows;
+  const { page, perPage, total, paginationMode } = table;
 
   const rangeStart = total === 0 ? 0 : (page - 1) * perPage + 1;
   const rangeEnd = Math.min(page * perPage, total);
-  const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   return (
     <div>
       <div className="mb-3 text-sm text-gray-600">
         {total === 0
           ? 'No calls'
+          : paginationMode === 'endless'
+          ? <>Showing <span className="font-medium text-gray-800">{calls.length}</span> of <span className="font-medium text-gray-800">{total}</span> call{total !== 1 ? 's' : ''}</>
           : <>Showing <span className="font-medium text-gray-800">{rangeStart}-{rangeEnd}</span> of <span className="font-medium text-gray-800">{total}</span> call{total !== 1 ? 's' : ''}</>}
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="date"
           value={dateFrom}
-          onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+          onChange={(e) => { setDateFrom(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm"
         />
         <input
           type="date"
           value={dateTo}
-          onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+          onChange={(e) => { setDateTo(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm"
         />
         <span className="text-xs text-gray-500">
@@ -733,13 +668,27 @@ function CheckoutEventsView() {
           </tbody>
         </table>
 
+        <EndlessTail
+          paginationMode={paginationMode}
+          hasMore={table.hasMoreEndless}
+          isLoadingMore={table.isLoadingMore}
+          total={total}
+          sentinelRef={table.sentinelRef}
+          itemLabel="checkout event"
+          itemLabelPlural="checkout events"
+        />
+
         <PaginationFooter
           page={page}
-          totalPages={totalPages}
+          perPage={perPage}
           total={total}
-          rangeStart={rangeStart}
-          rangeEnd={rangeEnd}
-          onChange={setPage}
+          loadedCount={calls.length}
+          paginationMode={paginationMode}
+          onPageChange={table.setPage}
+          onPerPageChange={table.setPerPage}
+          onPaginationModeChange={table.switchPaginationMode}
+          itemLabel="checkout event"
+          itemLabelPlural="checkout events"
         />
       </div>
     </div>

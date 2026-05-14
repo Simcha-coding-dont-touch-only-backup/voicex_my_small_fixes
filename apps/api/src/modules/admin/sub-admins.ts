@@ -48,21 +48,49 @@ async function logAudit(
   });
 }
 
+const SUB_ADMINS_SORTABLE_COLUMNS = ['created_at', 'updated_at', 'name', 'email', 'role'];
+
 // GET /api/admin/sub-admins
 // Lists every admin row so the super admin can see existing admins and
-// sub-admins side by side.
-subAdminsRouter.get('/', async (_req, res) => {
-  const { data, error } = await supabaseAdmin
+// sub-admins side by side. Supports paging and sorting via the same shape
+// used by the rest of the admin lists.
+subAdminsRouter.get('/', async (req, res) => {
+  const {
+    page = '1',
+    per_page = '20',
+    sort_by = 'created_at',
+    sort_dir = 'desc',
+  } = req.query;
+
+  const sortColumn = SUB_ADMINS_SORTABLE_COLUMNS.includes(sort_by as string)
+    ? (sort_by as string)
+    : 'created_at';
+  const sortAscending = sort_dir === 'asc';
+  const perPage = Math.max(1, Math.min(1000, parseInt(per_page as string) || 20));
+  const currentPage = Math.max(1, parseInt(page as string) || 1);
+  const offset = (currentPage - 1) * perPage;
+
+  const { data, count, error } = await supabaseAdmin
     .from('admin_users')
-    .select('id, email, name, role, permissions, created_at, updated_at')
-    .order('created_at', { ascending: false });
+    .select('id, email, name, role, permissions, created_at, updated_at', {
+      count: 'exact',
+    })
+    .order(sortColumn, { ascending: sortAscending })
+    .range(offset, offset + perPage - 1);
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
     return;
   }
 
-  res.json({ success: true, data });
+  res.json({
+    success: true,
+    data,
+    total: count || 0,
+    page: currentPage,
+    per_page: perPage,
+    total_pages: Math.ceil((count || 0) / perPage),
+  });
 });
 
 // POST /api/admin/sub-admins

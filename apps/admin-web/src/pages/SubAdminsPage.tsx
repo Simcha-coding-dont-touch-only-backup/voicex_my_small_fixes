@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   PERMISSION_KEYS,
   type AdminPermissionKey,
@@ -8,8 +8,8 @@ import {
 import { Plus, Trash2, KeyRound, Pencil, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
+import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
-type ApiList<T> = { success: boolean; data: T[] };
 type ApiOne<T> = { success: boolean; data: T };
 
 interface FormState {
@@ -73,8 +73,6 @@ function permissionSummary(user: AdminUser): string {
 
 export function SubAdminsPage() {
   const { adminUser: currentUser } = useAuth();
-  const [admins, setAdmins] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const [showCreate, setShowCreate] = useState(false);
@@ -97,20 +95,32 @@ export function SubAdminsPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
-  const load = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await apiGet<ApiList<AdminUser>>('/sub-admins');
-      setAdmins(res.data || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load admins');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const table = useAdminTableQuery<AdminUser>({
+    defaultSort: { field: 'created_at', dir: 'desc' },
+    defaultPerPage: 20,
+    filterKey: '',
+    fetcher: ({ page, perPage, sortBy, sortDir }) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        per_page: String(perPage),
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      });
+      return apiGet<{ data?: AdminUser[]; total?: number }>(`/sub-admins?${params}`)
+        .then((r) => ({ data: r.data || [], total: r.total || 0 }))
+        .catch((err: any) => {
+          setError(err?.message || 'Failed to load admins');
+          return { data: [], total: 0 };
+        });
+    },
+  });
+  const admins = table.rows;
+  const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
 
-  useEffect(() => { load(); }, []);
+  const reload = () => {
+    setError('');
+    table.refresh();
+  };
 
   const openCreate = () => {
     setCreateForm({ ...EMPTY_FORM, permissions: emptyPermissions() });
@@ -130,7 +140,7 @@ export function SubAdminsPage() {
         permissions: createForm.permissions,
       });
       setShowCreate(false);
-      await load();
+      reload();
     } catch (err: any) {
       setCreateError(err.message || 'Failed to create sub-admin');
     } finally {
@@ -156,7 +166,7 @@ export function SubAdminsPage() {
         permissions: editPermissions,
       });
       setEditTarget(null);
-      await load();
+      reload();
     } catch (err: any) {
       setEditError(err.message || 'Failed to update sub-admin');
     } finally {
@@ -192,7 +202,7 @@ export function SubAdminsPage() {
     try {
       await apiDelete(`/sub-admins/${deleteTarget.id}`);
       setDeleteTarget(null);
-      await load();
+      reload();
     } catch (err: any) {
       setDeleteError(err.message || 'Failed to delete sub-admin');
     } finally {
@@ -233,18 +243,16 @@ export function SubAdminsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
-              <th className="px-6 py-3 font-medium">Name</th>
-              <th className="px-6 py-3 font-medium">Email</th>
-              <th className="px-6 py-3 font-medium">Role</th>
+              <SortHeader label="Name" field="name" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+              <SortHeader label="Email" field="email" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+              <SortHeader label="Role" field="role" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Permissions</th>
-              <th className="px-6 py-3 font-medium">Created</th>
+              <SortHeader label="Created" field="created_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">Loading...</td></tr>
-            ) : admins.length === 0 ? (
+            {admins.length === 0 ? (
               <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">No admin users found</td></tr>
             ) : admins.map((admin) => {
               const isSelf = currentUser?.id === admin.id;
@@ -303,6 +311,28 @@ export function SubAdminsPage() {
             })}
           </tbody>
         </table>
+
+        <EndlessTail
+          paginationMode={paginationMode}
+          hasMore={table.hasMoreEndless}
+          isLoadingMore={table.isLoadingMore}
+          total={total}
+          sentinelRef={table.sentinelRef}
+          itemLabel="admin"
+        />
+
+        <PaginationFooter
+          page={page}
+          perPage={perPage}
+          total={total}
+          loadedCount={admins.length}
+          paginationMode={paginationMode}
+          onPageChange={table.setPage}
+          onPerPageChange={table.setPerPage}
+          onPaginationModeChange={table.switchPaginationMode}
+          itemLabel="Admin"
+          itemLabelPlural="Admins"
+        />
       </div>
 
       {showCreate && (

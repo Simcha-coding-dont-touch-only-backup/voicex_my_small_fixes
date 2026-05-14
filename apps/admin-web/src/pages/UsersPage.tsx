@@ -1,18 +1,37 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiDelete } from '../lib/api';
-import { Search, ChevronLeft, ChevronRight, Trash2, Eye } from 'lucide-react';
+import { Search, Trash2, Eye } from 'lucide-react';
+import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
 export function UsersPage() {
-  const [users, setUsers] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
-  const perPage = 20;
+
+  const table = useAdminTableQuery<any>({
+    defaultSort: { field: 'created_at', dir: 'desc' },
+    defaultPerPage: 20,
+    filterKey: `${search}|${statusFilter}`,
+    fetcher: ({ page, perPage, sortBy, sortDir }) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        per_page: String(perPage),
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      });
+      if (search) params.set('search', search);
+      if (statusFilter) params.set('status', statusFilter);
+      return apiGet<any>(`/users?${params}`).then((r) => ({
+        data: r.data || [],
+        total: r.total || 0,
+      }));
+    },
+  });
+  const users = table.rows;
+  const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
 
   const handleHardDelete = async () => {
     if (!deleteTarget) return;
@@ -21,7 +40,7 @@ export function UsersPage() {
     try {
       await apiDelete(`/users/${deleteTarget.id}/hard`);
       setDeleteTarget(null);
-      loadUsers();
+      table.refresh();
     } catch (err: any) {
       setDeleteError(err.message || 'Failed to delete user');
     } finally {
@@ -29,26 +48,9 @@ export function UsersPage() {
     }
   };
 
-  const loadUsers = () => {
-    const params = new URLSearchParams({
-      page: String(page),
-      per_page: String(perPage),
-    });
-    if (search) params.set('search', search);
-    if (statusFilter) params.set('status', statusFilter);
-
-    apiGet<any>(`/users?${params}`).then((res) => {
-      setUsers(res.data || []);
-      setTotal(res.total || 0);
-    });
-  };
-
-  useEffect(() => { loadUsers(); }, [page, statusFilter]);
-
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
-    loadUsers();
+    table.setPage(1);
   };
 
   return (
@@ -76,7 +78,7 @@ export function UsersPage() {
 
         <select
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          onChange={(e) => { setStatusFilter(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm"
         >
           <option value="">All Statuses</option>
@@ -90,12 +92,12 @@ export function UsersPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
-              <th className="px-6 py-3 font-medium">Name</th>
+              <SortHeader label="Name" field="name" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Phone</th>
-              <th className="px-6 py-3 font-medium">Email</th>
-              <th className="px-6 py-3 font-medium">Status</th>
+              <SortHeader label="Email" field="email" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+              <SortHeader label="Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Whitelisted</th>
-              <th className="px-6 py-3 font-medium">Joined</th>
+              <SortHeader label="Joined" field="created_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Actions</th>
             </tr>
           </thead>
@@ -149,26 +151,27 @@ export function UsersPage() {
           </tbody>
         </table>
 
-        <div className="flex items-center justify-between border-t px-6 py-3">
-          <span className="text-sm text-gray-500">{total} total users</span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage(Math.max(1, page - 1))}
-              disabled={page === 1}
-              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="px-3 py-1 text-sm">Page {page}</span>
-            <button
-              onClick={() => setPage(page + 1)}
-              disabled={page * perPage >= total}
-              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
+        <EndlessTail
+          paginationMode={paginationMode}
+          hasMore={table.hasMoreEndless}
+          isLoadingMore={table.isLoadingMore}
+          total={total}
+          sentinelRef={table.sentinelRef}
+          itemLabel="user"
+        />
+
+        <PaginationFooter
+          page={page}
+          perPage={perPage}
+          total={total}
+          loadedCount={users.length}
+          paginationMode={paginationMode}
+          onPageChange={table.setPage}
+          onPerPageChange={table.setPerPage}
+          onPaginationModeChange={table.switchPaginationMode}
+          itemLabel="User"
+          itemLabelPlural="Users"
+        />
       </div>
 
       {deleteTarget && (

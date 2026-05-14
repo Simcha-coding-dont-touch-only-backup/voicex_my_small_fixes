@@ -11,10 +11,16 @@ const ALERT_TYPE = ADMIN_ALERT_TYPES.PRODUCT_VOICEX_PRICE_ABOVE_LOCAL;
 
 const alertStatusZod = z.enum(['new', 'reviewing', 'resolved']);
 
+const ALERTS_SORTABLE_COLUMNS = ['created_at', 'status', 'alert_type'] as const;
+const alertSortByZod = z.enum(ALERTS_SORTABLE_COLUMNS);
+const alertSortDirZod = z.enum(['asc', 'desc']);
+
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  per_page: z.coerce.number().int().min(1).max(200).default(20),
+  per_page: z.coerce.number().int().min(1).max(1000).default(20),
   status: alertStatusZod.optional(),
+  sort_by: alertSortByZod.default('created_at'),
+  sort_dir: alertSortDirZod.default('desc'),
 });
 
 const patchBodySchema = z.object({
@@ -50,7 +56,7 @@ alertsRouter.get('/', async (req, res) => {
     return;
   }
 
-  const { page, per_page, status } = parsed.data;
+  const { page, per_page, status, sort_by, sort_dir } = parsed.data;
   const offset = (page - 1) * per_page;
 
   let query = supabaseAdmin
@@ -65,7 +71,7 @@ alertsRouter.get('/', async (req, res) => {
       { count: 'exact' },
     )
     .eq('alert_type', ALERT_TYPE)
-    .order('created_at', { ascending: false });
+    .order(sort_by, { ascending: sort_dir === 'asc' });
 
   if (status) {
     query = query.eq('status', status);

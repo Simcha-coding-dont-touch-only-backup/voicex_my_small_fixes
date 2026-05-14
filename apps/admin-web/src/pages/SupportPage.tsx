@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { useState } from 'react';
+import { Search } from 'lucide-react';
 import { apiGet, apiPatch } from '../lib/api';
+import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
 type ContactStatus = 'new' | 'in_review' | 'resolved' | 'archived';
 type ContactRole = 'merchant' | 'investor' | 'partner' | 'press' | 'other';
@@ -36,8 +37,6 @@ interface DetailResponse {
   success: boolean;
   data: ContactSubmission;
 }
-
-const PER_PAGE = 20;
 
 const STATUS_LABELS: Record<ContactStatus, string> = {
   new: 'New',
@@ -77,10 +76,7 @@ function preview(text: string) {
 }
 
 export function SupportPage() {
-  const [submissions, setSubmissions] = useState<ContactSubmission[]>([]);
   const [selected, setSelected] = useState<ContactSubmission | null>(null);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -94,30 +90,37 @@ export function SupportPage() {
   const [draftStatus, setDraftStatus] = useState<ContactStatus>('new');
   const [draftNotes, setDraftNotes] = useState('');
 
-  const load = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams({ page: String(page), per_page: String(PER_PAGE) });
-      if (statusFilter) params.set('status', statusFilter);
-      if (roleFilter) params.set('role', roleFilter);
-      if (dateFrom) params.set('date_from', dateFrom);
-      if (dateTo) params.set('date_to', dateTo);
-      if (search) params.set('search', search);
-
-      const response = await apiGet<ListResponse>(`/support/contact-submissions?${params}`);
-      setSubmissions(response.data || []);
-      setTotal(response.total || 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load contact submissions');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, [page, statusFilter, roleFilter, dateFrom, dateTo, search]);
+  const table = useAdminTableQuery<ContactSubmission>({
+    defaultSort: { field: 'created_at', dir: 'desc' },
+    defaultPerPage: 20,
+    filterKey: `${statusFilter}|${roleFilter}|${dateFrom}|${dateTo}|${search}`,
+    fetcher: async ({ page, perPage, sortBy, sortDir }) => {
+      setLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          per_page: String(perPage),
+          sort_by: sortBy,
+          sort_dir: sortDir,
+        });
+        if (statusFilter) params.set('status', statusFilter);
+        if (roleFilter) params.set('role', roleFilter);
+        if (dateFrom) params.set('date_from', dateFrom);
+        if (dateTo) params.set('date_to', dateTo);
+        if (search) params.set('search', search);
+        const response = await apiGet<ListResponse>(`/support/contact-submissions?${params}`);
+        return { data: response.data || [], total: response.total || 0 };
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not load contact submissions');
+        return { data: [], total: 0 };
+      } finally {
+        setLoading(false);
+      }
+    },
+  });
+  const submissions = table.rows;
+  const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
 
   const openSubmission = async (submission: ContactSubmission) => {
     setSelected(submission);
@@ -152,7 +155,7 @@ export function SupportPage() {
       setSelected(response.data);
       setDraftStatus(response.data.status);
       setDraftNotes(response.data.admin_notes || '');
-      setSubmissions((prev) => prev.map((item) => (item.id === response.data.id ? response.data : item)));
+      table.setRows((prev) => prev.map((item) => (item.id === response.data.id ? response.data : item)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save contact submission');
     } finally {
@@ -162,7 +165,7 @@ export function SupportPage() {
 
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
+    table.setPage(1);
     setSearch(searchInput.trim());
   };
 
@@ -173,12 +176,11 @@ export function SupportPage() {
     setDateTo('');
     setSearchInput('');
     setSearch('');
-    setPage(1);
+    table.setPage(1);
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
-  const rangeStart = total === 0 ? 0 : (page - 1) * PER_PAGE + 1;
-  const rangeEnd = Math.min(page * PER_PAGE, total);
+  const rangeStart = total === 0 ? 0 : (page - 1) * perPage + 1;
+  const rangeEnd = Math.min(page * perPage, total);
 
   return (
     <div className="space-y-6">
@@ -221,7 +223,7 @@ export function SupportPage() {
 
           <select
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            onChange={(e) => { setStatusFilter(e.target.value); table.setPage(1); }}
             className="rounded-lg border px-3 py-2 text-sm"
           >
             <option value="">All statuses</option>
@@ -232,7 +234,7 @@ export function SupportPage() {
 
           <select
             value={roleFilter}
-            onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
+            onChange={(e) => { setRoleFilter(e.target.value); table.setPage(1); }}
             className="rounded-lg border px-3 py-2 text-sm"
           >
             <option value="">All roles</option>
@@ -244,13 +246,13 @@ export function SupportPage() {
           <input
             type="date"
             value={dateFrom}
-            onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+            onChange={(e) => { setDateFrom(e.target.value); table.setPage(1); }}
             className="rounded-lg border px-3 py-2 text-sm"
           />
           <input
             type="date"
             value={dateTo}
-            onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+            onChange={(e) => { setDateTo(e.target.value); table.setPage(1); }}
             className="rounded-lg border px-3 py-2 text-sm"
           />
 
@@ -269,11 +271,13 @@ export function SupportPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-gray-50 text-left text-gray-500">
-                  <th className="px-6 py-3 font-medium">Submitted</th>
-                  <th className="px-6 py-3 font-medium">Status</th>
-                  <th className="px-6 py-3 font-medium">Contact</th>
+                  <SortHeader label="Submitted" field="created_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+                  <SortHeader label="Updated" field="updated_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+                  <SortHeader label="Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+                  <SortHeader label="Name" field="name" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+                  <SortHeader label="Email" field="email" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
                   <th className="px-6 py-3 font-medium">Company</th>
-                  <th className="px-6 py-3 font-medium">Role</th>
+                  <SortHeader label="Role" field="role" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
                   <th className="px-6 py-3 font-medium">Message</th>
                   <th className="px-6 py-3 font-medium">Action</th>
                 </tr>
@@ -288,13 +292,14 @@ export function SupportPage() {
                     }`}
                   >
                     <td className="whitespace-nowrap px-6 py-3 text-gray-500">{formatDate(submission.created_at)}</td>
+                    <td className="whitespace-nowrap px-6 py-3 text-gray-500">{formatDate(submission.updated_at)}</td>
                     <td className="px-6 py-3">
                       <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(submission.status)}`}>
                         {STATUS_LABELS[submission.status]}
                       </span>
                     </td>
+                    <td className="px-6 py-3 font-medium text-gray-800">{submission.name}</td>
                     <td className="px-6 py-3">
-                      <div className="font-medium text-gray-800">{submission.name}</div>
                       <a
                         href={`mailto:${submission.email}`}
                         onClick={(e) => e.stopPropagation()}
@@ -322,7 +327,7 @@ export function SupportPage() {
                 ))}
                 {!loading && submissions.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-gray-400">
+                    <td colSpan={9} className="px-6 py-10 text-center text-gray-400">
                       No contact submissions found
                     </td>
                   </tr>
@@ -331,25 +336,27 @@ export function SupportPage() {
             </table>
           </div>
 
-          <div className="flex items-center justify-between border-t px-6 py-3">
-            <span className="text-sm text-gray-500">Page {page} of {totalPages}</span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(Math.max(1, page - 1))}
-                disabled={page === 1}
-                className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <button
-                onClick={() => setPage(page + 1)}
-                disabled={page >= totalPages}
-                className="rounded border px-3 py-1 text-sm disabled:opacity-50"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
+          <EndlessTail
+            paginationMode={paginationMode}
+            hasMore={table.hasMoreEndless}
+            isLoadingMore={table.isLoadingMore}
+            total={total}
+            sentinelRef={table.sentinelRef}
+            itemLabel="submission"
+          />
+
+          <PaginationFooter
+            page={page}
+            perPage={perPage}
+            total={total}
+            loadedCount={submissions.length}
+            paginationMode={paginationMode}
+            onPageChange={table.setPage}
+            onPerPageChange={table.setPerPage}
+            onPaginationModeChange={table.switchPaginationMode}
+            itemLabel="Submission"
+            itemLabelPlural="Submissions"
+          />
         </div>
 
         <aside className="rounded-xl bg-white p-6 shadow-sm">

@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiDelete } from '../lib/api';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
 interface CartProduct {
   voicex_id: string;
@@ -36,23 +37,29 @@ interface CartRow {
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 export function CartsPage() {
-  const [carts, setCarts] = useState<CartRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const perPage = 20;
 
-  const load = () => {
-    const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
-    if (statusFilter) params.set('status', statusFilter);
-    apiGet<any>(`/carts?${params}`).then((r) => {
-      setCarts(r.data || []);
-      setTotal(r.total || 0);
-    });
-  };
-
-  useEffect(() => { load(); }, [page, statusFilter]);
+  const table = useAdminTableQuery<CartRow>({
+    defaultSort: { field: 'created_at', dir: 'desc' },
+    defaultPerPage: 20,
+    filterKey: statusFilter,
+    fetcher: ({ page, perPage, sortBy, sortDir }) => {
+      const params = new URLSearchParams({
+        page: String(page),
+        per_page: String(perPage),
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      });
+      if (statusFilter) params.set('status', statusFilter);
+      return apiGet<any>(`/carts?${params}`).then((r) => ({
+        data: r.data || [],
+        total: r.total || 0,
+      }));
+    },
+  });
+  const carts = table.rows;
+  const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
 
   const cartTotal = (items: CartItemRow[]) =>
     items.reduce((sum, i) => sum + i.quantity * i.unit_price_cents, 0);
@@ -61,13 +68,13 @@ export function CartsPage() {
     if (!window.confirm('Delete this entire cart? The user will have no cart when they call back.')) return;
     await apiDelete(`/carts/${cartId}`);
     if (expandedId === cartId) setExpandedId(null);
-    load();
+    table.refresh();
   };
 
   const deleteCartItem = async (cartId: string, itemId: string) => {
     if (!window.confirm('Remove this product from the cart?')) return;
     await apiDelete(`/carts/${cartId}/items/${itemId}`);
-    load();
+    table.refresh();
   };
 
   return (
@@ -77,7 +84,7 @@ export function CartsPage() {
       <div className="mb-4 flex flex-wrap gap-3">
         <select
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          onChange={(e) => { setStatusFilter(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm"
         >
           <option value="">Active &amp; Abandoned</option>
@@ -95,8 +102,8 @@ export function CartsPage() {
               <th className="px-6 py-3 font-medium">User</th>
               <th className="px-6 py-3 font-medium">Items</th>
               <th className="px-6 py-3 font-medium">Total</th>
-              <th className="px-6 py-3 font-medium">Status</th>
-              <th className="px-6 py-3 font-medium">Created</th>
+              <SortHeader label="Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+              <SortHeader label="Created" field="created_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="w-10 px-3 py-3" />
             </tr>
           </thead>
@@ -270,16 +277,27 @@ export function CartsPage() {
           </tbody>
         </table>
 
-        <div className="flex items-center justify-between border-t px-6 py-3">
-          <span className="text-sm text-gray-500">{total} carts</span>
-          <div className="flex gap-2">
-            <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}
-              className="rounded border px-3 py-1 text-sm disabled:opacity-50"><ChevronLeft size={16} /></button>
-            <span className="px-3 py-1 text-sm">Page {page}</span>
-            <button onClick={() => setPage(page + 1)} disabled={page * perPage >= total}
-              className="rounded border px-3 py-1 text-sm disabled:opacity-50"><ChevronRight size={16} /></button>
-          </div>
-        </div>
+        <EndlessTail
+          paginationMode={paginationMode}
+          hasMore={table.hasMoreEndless}
+          isLoadingMore={table.isLoadingMore}
+          total={total}
+          sentinelRef={table.sentinelRef}
+          itemLabel="cart"
+        />
+
+        <PaginationFooter
+          page={page}
+          perPage={perPage}
+          total={total}
+          loadedCount={carts.length}
+          paginationMode={paginationMode}
+          onPageChange={table.setPage}
+          onPerPageChange={table.setPerPage}
+          onPaginationModeChange={table.switchPaginationMode}
+          itemLabel="Cart"
+          itemLabelPlural="Carts"
+        />
       </div>
     </div>
   );

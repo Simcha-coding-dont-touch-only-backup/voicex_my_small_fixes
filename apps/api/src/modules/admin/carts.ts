@@ -3,14 +3,22 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 
 export const cartsRouter = Router();
 
+const CARTS_SORTABLE_COLUMNS = ['created_at', 'status', 'user_id'];
+
 cartsRouter.get('/', async (req, res) => {
   const {
     page = '1',
     per_page = '20',
     user_id,
     status,
+    sort_by = 'created_at',
+    sort_dir = 'desc',
   } = req.query;
 
+  const sortColumn = CARTS_SORTABLE_COLUMNS.includes(sort_by as string)
+    ? (sort_by as string)
+    : 'created_at';
+  const sortAscending = sort_dir === 'asc';
   const perPage = parseInt(per_page as string);
   const offset = (parseInt(page as string) - 1) * perPage;
 
@@ -30,7 +38,7 @@ cartsRouter.get('/', async (req, res) => {
   if (user_id) query = query.eq('user_id', user_id as string);
 
   const { data, count, error } = await query
-    .order('created_at', { ascending: false })
+    .order(sortColumn, { ascending: sortAscending })
     .range(offset, offset + perPage - 1);
 
   if (error) {
