@@ -93,6 +93,8 @@ export function useAdminTableQuery<T>(
 
   const appendNextRef = useRef(false);
   const lastFilterKeyRef = useRef('');
+  /** Bumped at the start of every `load()` so late responses from superseded fetches are ignored. */
+  const latestLoadIdRef = useRef(0);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const fetcherRef = useRef(opts.fetcher);
   fetcherRef.current = opts.fetcher;
@@ -101,6 +103,8 @@ export function useAdminTableQuery<T>(
   const filterKey = `${opts.filterKey}|${perPage}|${sortBy}|${sortDir}`;
 
   const load = useCallback(() => {
+    const loadId = ++latestLoadIdRef.current;
+
     const filtersChanged =
       lastFilterKeyRef.current !== '' && lastFilterKeyRef.current !== filterKey;
     lastFilterKeyRef.current = filterKey;
@@ -126,6 +130,7 @@ export function useAdminTableQuery<T>(
     fetcherRef
       .current({ page, perPage, sortBy, sortDir })
       .then((r) => {
+        if (loadId !== latestLoadIdRef.current) return;
         if (append) {
           setRows((prev) => [...prev, ...(r.data || [])]);
         } else {
@@ -135,6 +140,7 @@ export function useAdminTableQuery<T>(
         setIsLoadingMore(false);
       })
       .catch(() => {
+        if (loadId !== latestLoadIdRef.current) return;
         setIsLoadingMore(false);
       });
   }, [filterKey, page, perPage, sortBy, sortDir, paginationMode]);
