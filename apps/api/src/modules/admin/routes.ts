@@ -3,6 +3,7 @@ import { usersRouter } from './users.js';
 import { catalogRouter } from './catalog.js';
 import { catalogTrashRouter } from './catalog-trash.js';
 import { ordersRouter } from './orders.js';
+import { dashboardRouter } from './dashboard.js';
 import { settingsRouter } from './settings.js';
 import { reportsRouter } from './reports.js';
 import { ivrRouter } from './ivr.js';
@@ -60,6 +61,7 @@ adminRouter.use('/catalog-trash', requireSuperAdmin, catalogTrashRouter);
 // requirePermission(...) instead.
 adminRouter.use('/users', requireFullAdmin, usersRouter);
 adminRouter.use('/orders', requireFullAdmin, ordersRouter);
+adminRouter.use('/dashboard', requireFullAdmin, dashboardRouter);
 adminRouter.use('/settings', requireFullAdmin, settingsRouter);
 adminRouter.use('/reports', requireFullAdmin, reportsRouter);
 adminRouter.use('/ivr', requireFullAdmin, ivrRouter);
