@@ -10,6 +10,7 @@ interface CachedFlow {
 }
 
 const CACHE_TTL_MS = 60_000;
+const MENU_STACK_MAX = 10;
 
 class IvrRuntime {
   private flowCache: CachedFlow | null = null;
@@ -154,6 +155,49 @@ class IvrRuntime {
 
   invalidateCache(): void {
     this.flowCache = null;
+  }
+
+  async pushMenuStack(callSid: string, nodeKey: string): Promise<void> {
+    const session = await this.getSession(callSid);
+    if (!session) return;
+    const stateData = (session.state_data || {}) as Record<string, unknown>;
+    const stack = Array.isArray(stateData.menu_stack)
+      ? (stateData.menu_stack as string[])
+      : [];
+
+    if (stack[stack.length - 1] === nodeKey) return;
+
+    const next = [...stack, nodeKey].slice(-MENU_STACK_MAX);
+    await this.updateSession(callSid, {
+      state_data: { ...stateData, menu_stack: next },
+    });
+  }
+
+  async popMenuStack(callSid: string): Promise<string | null> {
+    const session = await this.getSession(callSid);
+    if (!session) return null;
+    const stateData = (session.state_data || {}) as Record<string, unknown>;
+    const stack = Array.isArray(stateData.menu_stack)
+      ? [...(stateData.menu_stack as string[])]
+      : [];
+
+    if (stack.length === 0) return null;
+
+    const prev = stack.pop() ?? null;
+    await this.updateSession(callSid, {
+      state_data: { ...stateData, menu_stack: stack },
+    });
+    return prev;
+  }
+
+  async peekMenuStack(callSid: string): Promise<string | null> {
+    const session = await this.getSession(callSid);
+    if (!session) return null;
+    const stateData = (session.state_data || {}) as Record<string, unknown>;
+    const stack = Array.isArray(stateData.menu_stack)
+      ? (stateData.menu_stack as string[])
+      : [];
+    return stack[stack.length - 1] ?? null;
   }
 
   private async getCachedFlow(flowVersionId: string): Promise<CachedFlow | null> {

@@ -1,7 +1,6 @@
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildGatherFromNode, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
-import { ivrRuntime } from '../runtime.js';
+import { buildGather, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
 import { formatOrderIdForSpeech } from '@voicex/shared';
 
 function formatEtaDateForSpeech(etaDate: string): string {
@@ -62,7 +61,7 @@ registerHandler('orders_list', async (ctx) => {
     return {
       type: 'actions',
       response: buildGather({
-        prompt: 'You have no orders. Press star for the Main Menu.',
+        prompt: 'You have no orders. Press star to go back.',
         actionPath: '/api/ivr/voice/gather',
         numDigits: ctx.node.config.num_digits,
         timeout: ctx.node.config.timeout_seconds || 8,
@@ -82,7 +81,7 @@ registerHandler('orders_list', async (ctx) => {
   return {
     type: 'actions',
     response: buildGather({
-      prompt: `${lines.join('. ')}. To hear details about an order, enter the order number from 1 to ${orders.length}. Press star for Main Menu.`,
+      prompt: `${lines.join('. ')}. To hear details about an order, enter the order number from 1 to ${orders.length}. Press star to go back.`,
       actionPath: '/api/ivr/voice/gather',
       numDigits: ctx.node.config.num_digits,
       timeout: ctx.node.config.timeout_seconds || 10,
@@ -99,23 +98,6 @@ registerHandler('orders_detail', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const digits = ctx.req.body.digits;
   const orderIds = parseSessionOrderIds(ctx.sessionData.order_ids);
-
-  if (digits === '*') {
-    const mainNode = await ivrRuntime.getNodeByKey(ctx.flowVersionId, 'main_menu');
-    if (mainNode) {
-      return {
-        type: 'actions',
-        response: buildGatherFromNode(mainNode, { call_sid: ctx.callSid, user_id: userId }),
-      };
-    }
-  }
-
-  if (digits === '0') {
-    return {
-      type: 'actions',
-      response: buildSay('Returning to your orders.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'orders_list' }),
-    };
-  }
 
   if (orderIds.length === 0) {
     return {
@@ -158,7 +140,7 @@ registerHandler('orders_detail', async (ctx) => {
   return {
     type: 'actions',
     response: buildGather({
-      prompt: `Order ${speechId}. Status: ${order.status}. Total: ${formatCurrency(order.total_cents)}.${etaSpeech ? ` ${etaSpeech}.` : ''} Items: ${itemLines.join('. ')}. Press star for Main Menu, or press 0 to go back to the orders list.`,
+      prompt: `Order ${speechId}. Status: ${order.status}. Total: ${formatCurrency(order.total_cents)}.${etaSpeech ? ` ${etaSpeech}.` : ''} Items: ${itemLines.join('. ')}. Press star to return to your orders.`,
       actionPath: '/api/ivr/voice/gather',
       numDigits: ctx.node.config.num_digits,
       timeout: ctx.node.config.timeout_seconds || 10,

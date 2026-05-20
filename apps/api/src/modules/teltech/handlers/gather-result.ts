@@ -71,8 +71,33 @@ async function logWebhookStep(
   }
 }
 
+const NON_INTERACTIVE_NODE_TYPES = new Set(['entry', 'hangup']);
+
+function extractNodeKeyFromActionUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.searchParams.get('node_key');
+  } catch {
+    const match = url.match(/[?&]node_key=([^&]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+}
+
+function extractNextNodeKey(response: any): string | null {
+  if (!response?.actions) return null;
+  for (const action of response.actions) {
+    if (action.action === 'gather' || action.action === 'collect' || action.action === 'redirect') {
+      const url = action.action_url || action.url;
+      const key = extractNodeKeyFromActionUrl(url);
+      if (key) return key;
+    }
+  }
+  return null;
+}
+
 export async function handleGatherResult(req: Request, res: Response) {
-  const nodeKey = req.query.node_key as string;
+  let nodeKey = req.query.node_key as string;
   const callSid = req.query.call_sid as string;
 
   if (!nodeKey || !callSid) {
@@ -99,16 +124,55 @@ export async function handleGatherResult(req: Request, res: Response) {
         return;
       }
       await dispatchNode(req, res, nodeKey, callSid, activeVersion.id, extractSessionData(req));
-    } else {
-      await ivrRuntime.updateSession(callSid, { current_node_key: nodeKey });
-      await dispatchNode(req, res, nodeKey, callSid, flowVersionId, extractSessionData(req));
+      return;
+    }
+
+    let didPop = false;
+    const incomingDigits = typeof req.body?.digits === 'string' ? req.body.digits : null;
+
+    if (incomingDigits === '*') {
+      const currentNode = await ivrRuntime.getNodeByKey(flowVersionId, nodeKey);
+      const isInteractive =
+        currentNode && !NON_INTERACTIVE_NODE_TYPES.has(currentNode.node_type);
+
+      if (isInteractive) {
+        const prevNodeKey = await ivrRuntime.popMenuStack(callSid);
+        if (prevNodeKey) {
+          req.body.digits = undefined;
+          nodeKey = prevNodeKey;
+          didPop = true;
+        }
+      }
+    }
+
+    await ivrRuntime.updateSession(callSid, { current_node_key: nodeKey });
+
+    const sessionData = extractSessionData(req);
+    if (didPop) {
+      sessionData.node_key = nodeKey;
+    }
+
+    const originNodeKey = nodeKey;
+    await dispatchNode(req, res, nodeKey, callSid, flowVersionId, sessionData);
+
+    if (!didPop) {
+      const nextNodeKey = extractNextNodeKey(captured);
+      if (nextNodeKey && nextNodeKey !== originNodeKey) {
+        const originNode = await ivrRuntime.getNodeByKey(flowVersionId, originNodeKey);
+        if (originNode && !NON_INTERACTIVE_NODE_TYPES.has(originNode.node_type)) {
+          const top = await ivrRuntime.peekMenuStack(callSid);
+          if (top !== originNodeKey) {
+            await ivrRuntime.pushMenuStack(callSid, originNodeKey);
+          }
+        }
+      }
     }
 
     const actionCount = countActions(captured);
     const responseType = getResponseType(captured);
     const recursionDepth = (req as any)._dispatchDepth || 0;
 
-    await logWebhookStep(callSid, nodeKey, req.body.digits || null, actionCount, responseType, recursionDepth, session);
+    await logWebhookStep(callSid, nodeKey, incomingDigits, actionCount, responseType, recursionDepth, session);
   } catch (error) {
     console.error(`Error in gather result for node ${nodeKey}:`, error);
     res.json(buildHangup('We encountered an error. Please try again later.'));

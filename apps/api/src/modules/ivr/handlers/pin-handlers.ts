@@ -90,9 +90,14 @@ registerHandler('validate_pin', async (ctx) => {
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'success');
   if (nextNode) {
+    const intro = 'Please note, you can press star at any time to return to the previous menu. ';
     return {
       type: 'actions',
-      response: buildGatherFromNode(nextNode, { call_sid: ctx.callSid, user_id: userId }),
+      response: buildGatherFromNode(
+        nextNode,
+        { call_sid: ctx.callSid, user_id: userId },
+        { prompt: intro + (nextNode.prompt_text || '') }
+      ),
     };
   }
 
