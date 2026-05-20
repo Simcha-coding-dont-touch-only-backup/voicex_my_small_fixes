@@ -190,6 +190,16 @@ class IvrRuntime {
     return prev;
   }
 
+  async clearMenuStack(callSid: string): Promise<void> {
+    const session = await this.getSession(callSid);
+    if (!session) return;
+    const stateData = (session.state_data || {}) as Record<string, unknown>;
+    if (!Array.isArray(stateData.menu_stack) || stateData.menu_stack.length === 0) return;
+    await this.updateSession(callSid, {
+      state_data: { ...stateData, menu_stack: [] },
+    });
+  }
+
   async peekMenuStack(callSid: string): Promise<string | null> {
     const session = await this.getSession(callSid);
     if (!session) return null;

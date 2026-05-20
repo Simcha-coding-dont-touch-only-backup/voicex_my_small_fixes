@@ -175,6 +175,8 @@ registerHandler('confirm_pin_register', async (ctx) => {
       current_node_key: 'main_menu',
       retry_count: 0,
     });
+    await ivrRuntime.clearMenuStack(ctx.callSid);
+    (ctx.req as any)._suppressStackPush = true;
 
     const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'confirmed');
     if (nextNode) {

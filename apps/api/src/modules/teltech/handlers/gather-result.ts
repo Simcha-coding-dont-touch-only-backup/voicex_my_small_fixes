@@ -155,7 +155,9 @@ export async function handleGatherResult(req: Request, res: Response) {
     const originNodeKey = nodeKey;
     await dispatchNode(req, res, nodeKey, callSid, flowVersionId, sessionData);
 
-    if (!didPop) {
+    const suppressPush = (req as any)._suppressStackPush === true;
+
+    if (!didPop && !suppressPush) {
       const nextNodeKey = extractNextNodeKey(captured);
       if (nextNodeKey && nextNodeKey !== originNodeKey) {
         const originNode = await ivrRuntime.getNodeByKey(flowVersionId, originNodeKey);

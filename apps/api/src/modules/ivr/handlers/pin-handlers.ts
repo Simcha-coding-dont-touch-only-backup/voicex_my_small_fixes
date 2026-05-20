@@ -87,6 +87,8 @@ registerHandler('validate_pin', async (ctx) => {
   });
 
   await ivrRuntime.updateSession(ctx.callSid, { current_node_key: 'main_menu', retry_count: 0 });
+  await ivrRuntime.clearMenuStack(ctx.callSid);
+  (ctx.req as any)._suppressStackPush = true;
 
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'success');
   if (nextNode) {
