@@ -136,9 +136,9 @@ export async function handleGatherResult(req: Request, res: Response) {
         currentNode && !NON_INTERACTIVE_NODE_TYPES.has(currentNode.node_type);
 
       if (isInteractive) {
+        req.body.digits = undefined;
         const prevNodeKey = await ivrRuntime.popMenuStack(callSid);
         if (prevNodeKey) {
-          req.body.digits = undefined;
           nodeKey = prevNodeKey;
           didPop = true;
         }
