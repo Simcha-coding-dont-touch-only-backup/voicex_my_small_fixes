@@ -130,7 +130,20 @@ export async function handleGatherResult(req: Request, res: Response) {
     let didPop = false;
     const incomingDigits = typeof req.body?.digits === 'string' ? req.body.digits : null;
 
-    if (incomingDigits === '*') {
+    // Treat `*` as a universal "back" request whenever it appears at the
+    // start or end of the captured digit buffer. This covers:
+    //   - caller pressed `*` alone               → digits === '*'
+    //   - caller pressed `*` then `#`            → digits === '*'
+    //   - caller started typing then bailed      → digits ends with `*`
+    //   - caller pressed `*` first then typed    → digits starts with `*`
+    // A `*` in the middle (e.g. "1*2") is almost certainly a misfire and is
+    // left for the downstream handler to reject as invalid input.
+    const isBackRequest =
+      incomingDigits !== null &&
+      incomingDigits.length > 0 &&
+      (incomingDigits.startsWith('*') || incomingDigits.endsWith('*'));
+
+    if (isBackRequest) {
       const currentNode = await ivrRuntime.getNodeByKey(flowVersionId, nodeKey);
       const isInteractive =
         currentNode && !NON_INTERACTIVE_NODE_TYPES.has(currentNode.node_type);
