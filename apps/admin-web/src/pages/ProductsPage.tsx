@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
-import { Search, Plus, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Printer, Upload } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Printer, Upload, Eye } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 import { ImportProductsFlow } from '../components/ImportProductsFlow';
 import { ProductThumbnail } from '../components/ProductThumbnail';
+import { ProductDetailView } from '../components/ProductDetailView';
 import { buildProductsListPdfBlob } from '../lib/products-list-pdf';
 import { getProductPriceCents, type CatalogProduct } from '@voicex/shared';
 import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
@@ -320,6 +321,10 @@ export function ProductsPage() {
   const [createOverrides, setCreateOverrides] = useState<CreateProductOverrides>(emptyCreateOverrides());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const [viewProduct, setViewProduct] = useState<any>(null);
+  const [viewLoading, setViewLoading] = useState(false);
+  const [viewError, setViewError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -552,7 +557,37 @@ export function ProductsPage() {
     setBulkRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, overrides: next } : r)));
   };
 
+  const cancelView = () => {
+    setViewingId(null);
+    setViewProduct(null);
+    setViewLoading(false);
+    setViewError(null);
+  };
+
+  const startView = (product: any) => {
+    if (viewingId === product.id && !viewError) {
+      cancelView();
+      return;
+    }
+    cancelEdit();
+    setViewingId(product.id);
+    setViewProduct(null);
+    setViewError(null);
+    setViewLoading(true);
+    apiGet<any>(`/catalog/products/${product.id}`)
+      .then((r) => {
+        if (!r.data) throw new Error('Product not found.');
+        setViewProduct(r.data);
+      })
+      .catch((err: unknown) => {
+        setViewProduct(null);
+        setViewError(err instanceof Error ? err.message : 'Failed to load product details.');
+      })
+      .finally(() => setViewLoading(false));
+  };
+
   const startEdit = (product: any) => {
+    cancelView();
     setEditingId(product.id);
     setEditForm(buildEditForm(product));
     setShowForm(false);
@@ -594,6 +629,7 @@ export function ProductsPage() {
     try {
       await apiDelete(`/catalog/products/${deleteConfirm.id}`);
       if (editingId === deleteConfirm.id) cancelEdit();
+      if (viewingId === deleteConfirm.id) cancelView();
       table.setRows((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
       table.setTotal((prev) => prev - 1);
       setDeleteConfirm(null);
@@ -1009,7 +1045,7 @@ export function ProductsPage() {
           <tbody>
             {products.map((p) => (
               <Fragment key={p.id}>
-                <tr className={`border-b hover:bg-gray-50 ${editingId === p.id ? 'bg-indigo-50' : ''}`}>
+                <tr className={`border-b hover:bg-gray-50 ${editingId === p.id || viewingId === p.id ? 'bg-indigo-50' : ''}`}>
                   <td className="px-3 py-2">
                     <ProductThumbnail
                       thumbnailUrl={p.thumbnail_url}
@@ -1020,9 +1056,13 @@ export function ProductsPage() {
                   </td>
                   <td className="px-6 py-3 font-mono">{p.voicex_id}</td>
                   <td className="px-6 py-3">
-                    <Link to={`/admin/products/${p.id}`} className="text-indigo-600 hover:underline">
+                    <button
+                      type="button"
+                      onClick={() => startView(p)}
+                      className="text-left text-indigo-600 hover:underline"
+                    >
                       {p.voice_name || p.amazon_name || '-'}
-                    </Link>
+                    </button>
                   </td>
                   <td className="px-6 py-3 text-gray-500">{p.amazon_asin}</td>
                   <td className="px-6 py-3">{p.amazon_price_cents ? `$${(p.amazon_price_cents / 100).toFixed(2)}` : '-'}</td>
@@ -1052,7 +1092,24 @@ export function ProductsPage() {
                           <ExternalLink size={16} />
                         </a>
                       )}
-                      {editingId === p.id ? (
+                      <button
+                        type="button"
+                        onClick={() => startView(p)}
+                        title="View product details"
+                        className={`rounded p-1 ${
+                          viewingId === p.id
+                            ? 'bg-indigo-50 text-indigo-600'
+                            : 'text-gray-400 hover:bg-indigo-50 hover:text-indigo-600'
+                        }`}
+                      >
+                        <Eye size={16} />
+                      </button>
+                      {viewingId === p.id ? (
+                        <button onClick={cancelView} title="Close details"
+                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                          <X size={16} />
+                        </button>
+                      ) : editingId === p.id ? (
                         <button onClick={cancelEdit} title="Cancel edit"
                           className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
                           <X size={16} />
@@ -1070,6 +1127,67 @@ export function ProductsPage() {
                     </div>
                   </td>
                 </tr>
+                {viewingId === p.id && (
+                  <tr className="border-b bg-indigo-50/50">
+                    <td colSpan={10} className="px-6 py-4">
+                      <div className="rounded-lg border border-indigo-200 bg-white p-5">
+                        <div className="mb-4 flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-gray-700">Product Details</h4>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => viewProduct && startEdit(viewProduct)}
+                              disabled={!viewProduct || viewLoading}
+                              title="Edit product"
+                              className="rounded p-1 text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteConfirm({ id: p.id, name: p.voice_name || p.amazon_name || p.voicex_id })
+                              }
+                              title="Delete product"
+                              className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelView}
+                              title="Close details"
+                              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        </div>
+                        {viewLoading ? (
+                          <div className="flex items-center gap-2 py-6 text-sm text-gray-500">
+                            <Loader2 size={18} className="animate-spin" aria-hidden />
+                            Loading product details…
+                          </div>
+                        ) : viewError ? (
+                          <div className="py-4">
+                            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                              {viewError}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => startView(p)}
+                              className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+                            >
+                              Retry
+                            </button>
+                          </div>
+                        ) : viewProduct ? (
+                          <ProductDetailView product={viewProduct} defaultMarkupPercent={defaultMarkupPercent} />
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                )}
                 {editingId === p.id && (
                   <tr className="border-b bg-indigo-50/50">
                     <td colSpan={10} className="px-6 py-4">

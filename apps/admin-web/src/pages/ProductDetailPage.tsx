@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiGet, apiPatch, apiDelete } from '../lib/api';
 import { Plus } from 'lucide-react';
-import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
+import { customPriceInputPlaceholder } from '../lib/product-price';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 import { ProductThumbnail } from '../components/ProductThumbnail';
+import { ProductDetailView } from '../components/ProductDetailView';
 
 export function ProductDetailPage() {
   const { id } = useParams();
@@ -75,7 +76,7 @@ export function ProductDetailPage() {
           thumbnailUrl={product.thumbnail_url}
           images={product.amazon_image_urls}
           alt={product.voice_name || product.amazon_name || product.voicex_id}
-          size={64}
+          size={96}
         />
         <h2 className="text-2xl font-bold text-gray-800">Product: {product.voice_name || product.amazon_name || product.voicex_id}</h2>
       </div>
@@ -204,88 +205,7 @@ export function ProductDetailPage() {
             <button onClick={handleSave} className="rounded bg-indigo-600 px-4 py-2 text-sm text-white">Save</button>
           </div>
         ) : (
-          <div className="space-y-5 text-sm">
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <dt className="font-medium text-blue-600">VoiceX ID</dt>
-                <dd className="mt-0.5">{product.voicex_id}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-blue-600">ASIN</dt>
-                <dd className="mt-0.5">{product.amazon_asin}</dd>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <h4 className="mb-3 text-sm font-semibold text-indigo-600 uppercase tracking-wide">VoiceX</h4>
-                <dl className="space-y-3">
-                  <div>
-                    <dt className="font-medium text-blue-600">Name</dt>
-                    <dd className="mt-0.5">{product.voice_name || <span className="text-gray-300">—</span>}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-blue-600">Description</dt>
-                    <dd className="mt-0.5">{product.voice_description || <span className="text-gray-300">—</span>}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-blue-600">Price</dt>
-                    <dd className="mt-0.5">
-                      <CustomPriceReadonlyDisplay
-                        product={product}
-                        defaultMarkupPercent={defaultMarkupPercent}
-                        whenEmpty={<span className="text-gray-300">—</span>}
-                        showMarkupExplanation
-                      />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-blue-600">Local Store Price</dt>
-                    <dd className="mt-0.5">
-                      {product.local_price_cents != null
-                        ? `$${(product.local_price_cents / 100).toFixed(2)}`
-                        : <span className="text-gray-300">—</span>}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-
-              <div>
-                <h4 className="mb-3 text-sm font-semibold text-orange-600 uppercase tracking-wide">Amazon</h4>
-                <dl className="space-y-3">
-                  <div>
-                    <dt className="font-medium text-blue-600">Name</dt>
-                    <dd className="mt-0.5">{product.amazon_name || <span className="text-gray-300">—</span>}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-blue-600">Description</dt>
-                    <dd className="mt-0.5">{product.amazon_description || <span className="text-gray-300">—</span>}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-blue-600">Price</dt>
-                    <dd className="mt-0.5">{product.amazon_price_cents ? `$${(product.amazon_price_cents / 100).toFixed(2)}` : <span className="text-gray-300">—</span>}</dd>
-                  </div>
-                </dl>
-              </div>
-            </div>
-
-            <div className="border-t pt-4">
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
-                <div>
-                  <dt className="font-medium text-blue-600">Active</dt>
-                  <dd className="mt-0.5">{product.is_active ? 'Yes' : 'No'}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-blue-600">Lifetime Sold</dt>
-                  <dd className="mt-0.5">{product.lifetime_qty_sold}</dd>
-                </div>
-                <div className="col-span-2">
-                  <dt className="font-medium text-blue-600">Categories</dt>
-                  <dd className="mt-0.5">{product.catalog_product_categories?.map((c: any) => c.catalog_categories?.name).join(', ') || '-'}</dd>
-                </div>
-              </dl>
-            </div>
-          </div>
+          <ProductDetailView product={product} defaultMarkupPercent={defaultMarkupPercent} />
         )}
       </div>
 
