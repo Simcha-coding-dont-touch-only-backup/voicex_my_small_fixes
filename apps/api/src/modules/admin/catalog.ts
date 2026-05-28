@@ -9,6 +9,7 @@ import {
   type ProductImageInput,
 } from '../../lib/product-images.js';
 import { syncProductVoicexPriceAboveLocalAlert } from '../../lib/product-price-alerts.js';
+import { fetchAllRows } from '../../lib/fetch-all-rows.js';
 
 function decorateProductWithThumbnail<T extends { thumbnail_path?: string | null }>(p: T): T & { thumbnail_url: string | null } {
   return { ...p, thumbnail_url: getThumbnailPublicUrl(p.thumbnail_path ?? null) };
@@ -282,10 +283,15 @@ catalogRouter.get('/products', async (req, res) => {
 
   let allowedProductIds: string[] | null = null;
   if (categoryFilter.length > 0) {
-    const { data: links, error: linkErr } = await supabaseAdmin
-      .from('catalog_product_categories')
-      .select('product_id')
-      .in('category_id', categoryFilter);
+    // This list becomes a `.in('id', ...)` filter on the products query below,
+    // so it must be COMPLETE. A 1000-row cap here would silently hide products
+    // from a large category. Page through the full set.
+    const { data: links, error: linkErr } = await fetchAllRows<any>(() =>
+      supabaseAdmin
+        .from('catalog_product_categories')
+        .select('product_id')
+        .in('category_id', categoryFilter)
+    );
 
     if (linkErr) {
       res.status(500).json({ success: false, error: linkErr.message });

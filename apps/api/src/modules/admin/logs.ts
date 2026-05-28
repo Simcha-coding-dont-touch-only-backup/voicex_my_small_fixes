@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { fetchAllRows, MAX_FETCH_ROWS } from '../../lib/fetch-all-rows.js';
 
 export const logsRouter = Router();
 
@@ -71,18 +72,20 @@ logsRouter.get('/calls', async (req, res) => {
   const perPage = parseInt(per_page as string);
   const currentPage = parseInt(page as string);
 
-  let query = supabaseAdmin
-    .from('ivr_error_logs')
-    .select('call_sid, caller_id, user_id, user_name, flow_version_id, created_at, node_key, error_type, error_detail, session_data');
+  const { data, error, truncated } = await fetchAllRows<any>(() => {
+    let query = supabaseAdmin
+      .from('ivr_error_logs')
+      .select('call_sid, caller_id, user_id, user_name, flow_version_id, created_at, node_key, error_type, error_detail, session_data');
 
-  if (date_from) {
-    query = query.gte('created_at', date_from as string);
-  }
-  if (date_to) {
-    query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
-  }
+    if (date_from) {
+      query = query.gte('created_at', date_from as string);
+    }
+    if (date_to) {
+      query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
+    }
 
-  const { data, error } = await query.order('created_at', { ascending: true });
+    return query.order('created_at', { ascending: true });
+  });
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -176,6 +179,12 @@ logsRouter.get('/calls', async (req, res) => {
     page: currentPage,
     per_page: perPage,
     total_pages: Math.ceil(total / perPage),
+    truncated,
+    ...(truncated
+      ? {
+          warning: `Result set exceeded the ${MAX_FETCH_ROWS.toLocaleString()}-row scan limit. Grouping and totals reflect only the most ${MAX_FETCH_ROWS.toLocaleString()} matching log rows; narrow the date range for complete results.`,
+        }
+      : {}),
   });
 });
 
@@ -190,18 +199,20 @@ logsRouter.get('/checkout', async (req, res) => {
   const perPage = parseInt(per_page as string);
   const currentPage = parseInt(page as string);
 
-  let query = supabaseAdmin
-    .from('checkout_events')
-    .select('id, call_sid, user_id, order_id, event_type, severity, details, created_at');
+  const { data: events, error, truncated } = await fetchAllRows<any>(() => {
+    let query = supabaseAdmin
+      .from('checkout_events')
+      .select('id, call_sid, user_id, order_id, event_type, severity, details, created_at');
 
-  if (date_from) {
-    query = query.gte('created_at', date_from as string);
-  }
-  if (date_to) {
-    query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
-  }
+    if (date_from) {
+      query = query.gte('created_at', date_from as string);
+    }
+    if (date_to) {
+      query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
+    }
 
-  const { data: events, error } = await query.order('created_at', { ascending: true });
+    return query.order('created_at', { ascending: true });
+  });
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -311,6 +322,12 @@ logsRouter.get('/checkout', async (req, res) => {
     page: currentPage,
     per_page: perPage,
     total_pages: Math.ceil(total / perPage),
+    truncated,
+    ...(truncated
+      ? {
+          warning: `Result set exceeded the ${MAX_FETCH_ROWS.toLocaleString()}-row scan limit. Grouping and totals reflect only the most ${MAX_FETCH_ROWS.toLocaleString()} matching checkout events; narrow the date range for complete results.`,
+        }
+      : {}),
   });
 });
 

@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 import { orderIdFromParam } from '../../lib/order-id.js';
 import { solaCapture, solaVoidRelease } from '../../lib/sola.js';
 import { logCheckoutEvent, type CheckoutEventType } from '../../lib/checkout-logger.js';
+import { fetchAllRows } from '../../lib/fetch-all-rows.js';
 import { etaInputArraySchema, replaceOrderFulfillmentEtas, sortOrderFulfillmentEtas } from './order-etas.js';
 
 export const fulfillmentRouter = Router();
@@ -159,19 +160,23 @@ fulfillmentRouter.patch('/provider', async (req, res) => {
 });
 
 fulfillmentRouter.get('/manual-queue', async (_req, res) => {
-  const { data, error } = await supabaseAdmin
-    .from('orders')
-    .select(MANUAL_ORDER_SELECT)
-    .eq('fulfillment_provider', 'manual')
-    .in('fulfillment_status', ['queued', 'needs_review'])
-    .order('created_at', { ascending: true });
+  // The whole queue is returned to the UI with no pagination, so page through
+  // the full result set instead of letting PostgREST cap it at 1000 rows.
+  const { data, error, truncated } = await fetchAllRows<any>(() =>
+    supabaseAdmin
+      .from('orders')
+      .select(MANUAL_ORDER_SELECT)
+      .eq('fulfillment_provider', 'manual')
+      .in('fulfillment_status', ['queued', 'needs_review'])
+      .order('created_at', { ascending: true })
+  );
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
     return;
   }
 
-  res.json({ success: true, data: (data || []).map((order: any) => sortOrderFulfillmentEtas(order)) });
+  res.json({ success: true, data: (data || []).map((order: any) => sortOrderFulfillmentEtas(order)), truncated });
 });
 
 fulfillmentRouter.get('/manual-queue/count', async (_req, res) => {

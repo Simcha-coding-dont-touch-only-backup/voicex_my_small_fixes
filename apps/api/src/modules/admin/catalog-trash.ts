@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
+import { fetchAllRows } from '../../lib/fetch-all-rows.js';
 
 /**
  * Trash router for soft-deleted catalog rows. Mounted under
@@ -13,11 +14,15 @@ export const catalogTrashRouter = Router();
 catalogTrashRouter.get('/products', async (_req, res) => {
   // Pull deleter name in a separate query so we don't depend on a
   // foreign-key relationship name in the embedded select.
-  const { data, error } = await supabaseAdmin
-    .from('catalog_products')
-    .select('*, catalog_product_categories(category_id, catalog_categories(name))')
-    .not('deleted_at', 'is', null)
-    .order('deleted_at', { ascending: false });
+  // Returned wholesale to the UI with no pagination, and trash accumulates
+  // over time, so page through the full set rather than hitting the 1000 cap.
+  const { data, error } = await fetchAllRows<any>(() =>
+    supabaseAdmin
+      .from('catalog_products')
+      .select('*, catalog_product_categories(category_id, catalog_categories(name))')
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false })
+  );
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
