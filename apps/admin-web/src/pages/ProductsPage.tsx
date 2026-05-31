@@ -603,8 +603,9 @@ export function ProductsPage() {
     if (!editingId) return;
     setSaving(true);
     try {
+      const savedId = editingId;
       const currentForm = { ...editForm };
-      await apiPatch(`/catalog/products/${editingId}`, {
+      const resp = await apiPatch<any>(`/catalog/products/${savedId}`, {
         ...currentForm,
         amazon_price_cents: currentForm.amazon_price_cents !== '' ? parseInt(currentForm.amazon_price_cents) : null,
         custom_price_cents:
@@ -616,7 +617,25 @@ export function ProductsPage() {
       });
       setEditingId(null);
       setEditForm({});
-      refreshAfterMutation();
+      // Update the edited row in place instead of refetching the whole list, so
+      // the user keeps their exact scroll/pagination position and filters.
+      const updated = resp?.data;
+      if (updated) {
+        // The PATCH response doesn't include the joined categories relation, so
+        // rebuild it from the form so a subsequent edit shows the right values.
+        const nextCategoryLinks = (currentForm.category_ids || []).map((cid: string) => {
+          const cat = categories.find((c) => c.id === cid);
+          return { category_id: cid, catalog_categories: cat ? { name: cat.name } : null };
+        });
+        table.setRows((prev) =>
+          prev.map((row) =>
+            row.id === savedId
+              ? { ...row, ...updated, catalog_product_categories: nextCategoryLinks }
+              : row,
+          ),
+        );
+      }
+      window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
     } finally {
       setSaving(false);
     }
