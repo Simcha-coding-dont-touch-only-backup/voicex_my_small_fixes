@@ -45,7 +45,7 @@ registerHandler('capture_name', async (ctx) => {
       numDigits: 4,
       timeout: 15,
       finishOnKey: '',
-      regex: '[0-9*]+',
+      regex: '[0-9]+',
       sessionData: { call_sid: ctx.callSid, node_key: 'register_pin', name: trimmedName },
     }),
   };
@@ -83,7 +83,7 @@ registerHandler('confirm_name', async (ctx) => {
       numDigits: 4,
       timeout: 15,
       finishOnKey: '',
-      regex: '[0-9*]+',
+      regex: '[0-9]+',
       sessionData: { call_sid: ctx.callSid, node_key: nextNode?.node_key || 'register_pin', name },
     }),
   };
@@ -102,7 +102,7 @@ registerHandler('capture_pin', async (ctx) => {
         numDigits: 4,
         timeout: 15,
         finishOnKey: '',
-        regex: '[0-9*]+',
+        regex: '[0-9]+',
         sessionData: { call_sid: ctx.callSid, node_key: ctx.node.node_key, name },
       }),
     };
@@ -144,7 +144,7 @@ registerHandler('confirm_pin_register', async (ctx) => {
         numDigits: 4,
         timeout: 15,
         finishOnKey: '',
-        regex: '[0-9*]+',
+        regex: '[0-9]+',
         sessionData: { call_sid: ctx.callSid, node_key: retryNode?.node_key || 'register_pin', name },
       }),
     };

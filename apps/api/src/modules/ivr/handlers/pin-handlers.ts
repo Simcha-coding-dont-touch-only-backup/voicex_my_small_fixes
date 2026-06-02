@@ -32,7 +32,7 @@ registerHandler('validate_pin', async (ctx) => {
         numDigits: 4,
         timeout: 10,
         finishOnKey: '',
-        regex: '[0-9*]+',
+        regex: '[0-9]+',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
       }),
     };
@@ -74,7 +74,7 @@ registerHandler('validate_pin', async (ctx) => {
         numDigits: 4,
         timeout: 10,
         finishOnKey: '',
-        regex: '[0-9*]+',
+        regex: '[0-9]+',
         sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
       }),
     };
