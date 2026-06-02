@@ -65,7 +65,7 @@ alertsRouter.get('/', async (req, res) => {
       `*,
       catalog_products (
         id, voicex_id, amazon_asin, amazon_name, voice_name,
-        thumbnail_path, amazon_image_urls, is_active, deleted_at,
+        thumbnail_path, amazon_image_urls, status, deleted_at,
         custom_price_cents, amazon_price_cents, local_price_cents
       )`,
       { count: 'exact' },

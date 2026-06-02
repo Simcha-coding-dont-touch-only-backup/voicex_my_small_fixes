@@ -1,6 +1,12 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getProductDisplayName, getProductPriceCents, type CatalogProduct } from '@voicex/shared';
+import {
+  catalogProductStatusLabel,
+  getProductDisplayName,
+  getProductPriceCents,
+  isCatalogProductStatus,
+  type CatalogProduct,
+} from '@voicex/shared';
 import { formatUsdFromCents } from './product-price';
 
 export interface ProductsListPdfMeta {
@@ -183,7 +189,7 @@ export async function buildProductsListPdfBlob(
   doc.setTextColor(0, 0, 0);
 
   const head = [
-    ['Image', 'VoiceX ID', 'Name', 'ASIN', 'Amazon $', 'Custom $', 'Local $', 'Active', 'Lifetime sold'],
+    ['Image', 'VoiceX ID', 'Name', 'ASIN', 'Amazon $', 'Custom $', 'Local $', 'Status', 'Lifetime sold'],
   ];
   const body = products.map((p) => [
     '',
@@ -193,7 +199,7 @@ export async function buildProductsListPdfBlob(
     formatAmazonPrice(p.amazon_price_cents),
     formatCustomPriceCell(p, defaultMarkupPercent),
     formatLocalPrice(p.local_price_cents),
-    p.is_active ? 'Yes' : 'No',
+    catalogProductStatusLabel(isCatalogProductStatus(p.status) ? p.status : 'inactive'),
     String(p.lifetime_qty_sold ?? 0),
   ]);
 

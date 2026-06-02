@@ -28,7 +28,7 @@ function catalogSliceForPricing(row: {
     amazon_ratings_total: null,
     amazon_image_urls: null,
     thumbnail_path: null,
-    is_active: true,
+    status: 'active',
     lifetime_qty_sold: 0,
     created_at: '',
     updated_at: '',

@@ -15,6 +15,27 @@ export interface CatalogProductImage {
   is_featured: boolean;
 }
 
+export type CatalogProductStatus = 'active' | 'inactive' | 'frozen';
+
+const CATALOG_PRODUCT_STATUSES: CatalogProductStatus[] = ['active', 'inactive', 'frozen'];
+
+export function isCatalogProductStatus(value: string): value is CatalogProductStatus {
+  return (CATALOG_PRODUCT_STATUSES as string[]).includes(value);
+}
+
+export function catalogProductStatusLabel(status: CatalogProductStatus): string {
+  if (status === 'active') return 'Active';
+  if (status === 'frozen') return 'Frozen';
+  return 'Inactive';
+}
+
+/** Tailwind classes for status badges in admin UI. */
+export function catalogProductStatusBadgeClass(status: CatalogProductStatus): string {
+  if (status === 'active') return 'bg-green-100 text-green-700';
+  if (status === 'frozen') return 'bg-orange-100 text-orange-700';
+  return 'bg-gray-100 text-gray-500';
+}
+
 export interface CatalogProduct {
   id: string;
   voicex_id: string;
@@ -36,7 +57,7 @@ export interface CatalogProduct {
   thumbnail_path: string | null;
   /** Server-decorated absolute public URL for `thumbnail_path` (admin API only). */
   thumbnail_url?: string | null;
-  is_active: boolean;
+  status: CatalogProductStatus;
   lifetime_qty_sold: number;
   created_at: string;
   updated_at: string;

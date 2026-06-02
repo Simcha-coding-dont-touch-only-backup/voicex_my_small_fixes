@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { isCatalogProductStatus } from '@voicex/shared';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { fetchAmazonProduct, RainforestProductLookupError } from '../../lib/rainforest.js';
 import {
@@ -265,7 +266,7 @@ catalogRouter.delete('/categories/:id', async (req, res) => {
 
 // --- Products ---
 
-const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'name_sort_key', 'amazon_price_cents', 'custom_price_cents', 'local_price_cents', 'is_active', 'voicex_id', 'id', 'amazon_asin', 'lifetime_qty_sold', 'category_name'];
+const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'name_sort_key', 'amazon_price_cents', 'custom_price_cents', 'local_price_cents', 'status', 'voicex_id', 'id', 'amazon_asin', 'lifetime_qty_sold', 'category_name'];
 
 function productPrimaryCategorySortKey(
   p: { catalog_product_categories?: { catalog_categories?: { name?: string | null } | null }[] | null }
@@ -288,7 +289,7 @@ function compareProductsByCategoryName(a: any, b: any, ascending: boolean): numb
 }
 
 catalogRouter.get('/products', async (req, res) => {
-  const { page = '1', per_page = '20', search, category_id, category_ids, is_active, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
+  const { page = '1', per_page = '20', search, category_id, category_ids, status, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
   const sortColumn = PRODUCTS_SORTABLE_COLUMNS.includes(sort_by as string) ? (sort_by as string) : 'created_at';
   const sortAscending = sort_dir === 'asc';
   const offset = (parseInt(page as string) - 1) * parseInt(per_page as string);
@@ -370,7 +371,9 @@ catalogRouter.get('/products', async (req, res) => {
       .select('*, catalog_product_categories(category_id, catalog_categories(name))', withCount ? { count: 'exact' } : undefined)
       .is('deleted_at', null);
     if (searchOrFilter) q = q.or(searchOrFilter);
-    if (is_active !== undefined) q = q.eq('is_active', is_active === 'true');
+    if (typeof status === 'string' && isCatalogProductStatus(status)) {
+      q = q.eq('status', status);
+    }
     if (allowedProductIds) q = q.in('id', allowedProductIds);
     return q;
   };
@@ -496,7 +499,7 @@ catalogRouter.post('/products', async (req, res) => {
     voice_description,
     custom_price_cents,
     local_price_cents,
-    is_active,
+    status,
     category_ids,
   } = req.body;
 
@@ -546,7 +549,7 @@ catalogRouter.post('/products', async (req, res) => {
     voice_description,
     custom_price_cents,
     local_price_cents: local_price_cents ?? null,
-    is_active: is_active ?? true,
+    status: typeof status === 'string' && isCatalogProductStatus(status) ? status : 'active',
   };
   if (typeof voicex_id === 'string' && voicex_id.trim()) {
     insertPayload.voicex_id = voicex_id;
@@ -589,7 +592,7 @@ catalogRouter.patch('/products/:id', async (req, res) => {
     voicex_id, amazon_asin, amazon_url, amazon_name, amazon_description,
     amazon_price_cents, amazon_star_rating, amazon_ratings_total,
     voice_name, voice_description, custom_price_cents, local_price_cents,
-    is_active, category_ids,
+    status, category_ids,
   } = req.body;
 
   const updates: Record<string, unknown> = {};
@@ -605,7 +608,13 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   if (voice_description !== undefined) updates.voice_description = voice_description;
   if (custom_price_cents !== undefined) updates.custom_price_cents = custom_price_cents;
   if (local_price_cents !== undefined) updates.local_price_cents = local_price_cents;
-  if (is_active !== undefined) updates.is_active = is_active;
+  if (status !== undefined) {
+    if (typeof status !== 'string' || !isCatalogProductStatus(status)) {
+      res.status(400).json({ success: false, error: 'Invalid status' });
+      return;
+    }
+    updates.status = status;
+  }
 
   const hasCategoryUpdate = category_ids !== undefined;
   const hasProductFieldUpdates = Object.keys(updates).length > 0;
@@ -982,7 +991,7 @@ catalogRouter.post('/products/import-row', async (req, res) => {
         typeof local_price_cents === 'number' && Number.isFinite(local_price_cents)
           ? Math.round(local_price_cents)
           : null,
-      is_active: true,
+      status: 'active',
     })
     .select()
     .single();

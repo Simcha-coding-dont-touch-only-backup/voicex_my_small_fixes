@@ -28,7 +28,7 @@ registerHandler('lookup_product', async (ctx) => {
     .from('catalog_products')
     .select('*')
     .eq('voicex_id', lookupId)
-    .eq('is_active', true)
+    .eq('status', 'active')
     .is('deleted_at', null)
     .single();
 
@@ -318,6 +318,7 @@ registerHandler('confirm_qty', async (ctx) => {
       .from('catalog_products')
       .select('*')
       .eq('id', productId)
+      .eq('status', 'active')
       .is('deleted_at', null)
       .single();
 

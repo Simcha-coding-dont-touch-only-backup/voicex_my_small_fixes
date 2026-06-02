@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { catalogProductStatusLabel, isCatalogProductStatus } from '@voicex/shared';
 import { CustomPriceReadonlyDisplay } from '../lib/product-price';
 import { ProductImageLightbox, type LightboxImage } from './ProductImageLightbox';
 
@@ -125,8 +126,10 @@ export function ProductDetailView({
       <div className="border-t pt-4">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
           <div>
-            <dt className="font-medium text-blue-600">Active</dt>
-            <dd className="mt-0.5">{product.is_active ? 'Yes' : 'No'}</dd>
+            <dt className="font-medium text-blue-600">Status</dt>
+            <dd className="mt-0.5">
+              {catalogProductStatusLabel(isCatalogProductStatus(product.status) ? product.status : 'inactive')}
+            </dd>
           </div>
           <div>
             <dt className="font-medium text-blue-600">Lifetime Sold</dt>

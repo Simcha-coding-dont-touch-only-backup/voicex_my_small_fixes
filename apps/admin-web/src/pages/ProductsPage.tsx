@@ -12,7 +12,14 @@ import { ImportProductsFlow } from '../components/ImportProductsFlow';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import { ProductDetailView } from '../components/ProductDetailView';
 import { buildProductsListPdfBlob } from '../lib/products-list-pdf';
-import { getProductPriceCents, type CatalogProduct } from '@voicex/shared';
+import {
+  catalogProductStatusBadgeClass,
+  catalogProductStatusLabel,
+  getProductPriceCents,
+  isCatalogProductStatus,
+  type CatalogProduct,
+  type CatalogProductStatus,
+} from '@voicex/shared';
 import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
 interface AsinLookupData {
@@ -238,10 +245,40 @@ function CategoryInlineEditor({
   );
 }
 
+const PRODUCT_STATUS_OPTIONS: CatalogProductStatus[] = ['active', 'inactive', 'frozen'];
+
+function ProductStatusRadioGroup({
+  name,
+  value,
+  onChange,
+}: {
+  name: string;
+  value: CatalogProductStatus;
+  onChange: (status: CatalogProductStatus) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {PRODUCT_STATUS_OPTIONS.map((status) => (
+        <label key={status} className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name={name}
+            checked={value === status}
+            onChange={() => onChange(status)}
+          />
+          <span className={`rounded-full px-2 py-0.5 text-xs ${catalogProductStatusBadgeClass(status)}`}>
+            {catalogProductStatusLabel(status)}
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function StatusInlineEditor({
   open,
   anchorEl,
-  draftActive,
+  draftStatus,
   saving,
   onDraftChange,
   onSave,
@@ -250,9 +287,9 @@ function StatusInlineEditor({
 }: {
   open: boolean;
   anchorEl: HTMLElement | null;
-  draftActive: boolean;
+  draftStatus: CatalogProductStatus;
   saving: boolean;
-  onDraftChange: (active: boolean) => void;
+  onDraftChange: (status: CatalogProductStatus) => void;
   onSave: () => void;
   onCancel: () => void;
   saveError?: string | null;
@@ -268,7 +305,7 @@ function StatusInlineEditor({
     const updatePosition = () => {
       const rect = anchorEl.getBoundingClientRect();
       const popupW = 240;
-      const popupH = 160;
+      const popupH = 200;
       let left = rect.left;
       if (left + popupW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - popupW - 8);
       let top = rect.bottom + 6;
@@ -307,26 +344,11 @@ function StatusInlineEditor({
       aria-label="Edit status"
     >
       <span className="mb-3 block text-sm font-medium text-gray-700">Status</span>
-      <div className="flex flex-col gap-2">
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <input
-            type="radio"
-            name="product-status"
-            checked={draftActive}
-            onChange={() => onDraftChange(true)}
-          />
-          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">Active</span>
-        </label>
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <input
-            type="radio"
-            name="product-status"
-            checked={!draftActive}
-            onChange={() => onDraftChange(false)}
-          />
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Inactive</span>
-        </label>
-      </div>
+      <ProductStatusRadioGroup
+        name="product-status-inline"
+        value={draftStatus}
+        onChange={onDraftChange}
+      />
       {saveError ? (
         <p className="mt-2 text-sm text-red-600">{saveError}</p>
       ) : null}
@@ -348,7 +370,7 @@ function StatusInlineEditor({
   );
 }
 
-type ProductStatusFilter = 'all' | 'active' | 'inactive';
+type ProductStatusFilter = 'all' | 'active' | 'inactive' | 'frozen';
 
 type BulkProductRow = {
   id: string;
@@ -556,7 +578,7 @@ function buildEditForm(p: any) {
     voice_description: p.voice_description || '',
     custom_price_cents: p.custom_price_cents ?? '',
     local_price_cents: p.local_price_cents ?? '',
-    is_active: p.is_active,
+    status: isCatalogProductStatus(p.status) ? p.status : 'inactive',
     category_ids: p.catalog_product_categories?.map((c: any) => c.category_id) || [],
   };
 }
@@ -596,7 +618,7 @@ export function ProductsPage() {
   const [categorySaving, setCategorySaving] = useState(false);
   const [categorySaveError, setCategorySaveError] = useState<string | null>(null);
   const [statusPopupProductId, setStatusPopupProductId] = useState<string | null>(null);
-  const [statusEditDraft, setStatusEditDraft] = useState(true);
+  const [statusEditDraft, setStatusEditDraft] = useState<CatalogProductStatus>('active');
   const [statusAnchorEl, setStatusAnchorEl] = useState<HTMLElement | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusSaveError, setStatusSaveError] = useState<string | null>(null);
@@ -625,8 +647,7 @@ export function ProductsPage() {
       });
       if (search) params.set('search', search);
       if (filterCategoryIds.length > 0) params.set('category_ids', filterCategoryIds.join(','));
-      if (filterStatus === 'active') params.set('is_active', 'true');
-      else if (filterStatus === 'inactive') params.set('is_active', 'false');
+      if (filterStatus !== 'all') params.set('status', filterStatus);
       return apiGet<any>(`/catalog/products?${params}`).then((r) => ({
         data: r.data || [],
         total: r.total || 0,
@@ -906,7 +927,7 @@ export function ProductsPage() {
     setStatusSaveError(null);
     setStatusAnchorEl(anchor);
     setStatusPopupProductId(product.id);
-    setStatusEditDraft(Boolean(product.is_active));
+    setStatusEditDraft(isCatalogProductStatus(product.status) ? product.status : 'inactive');
   };
 
   const handleStatusSave = async () => {
@@ -915,19 +936,19 @@ export function ProductsPage() {
     setStatusSaveError(null);
     try {
       const savedId = statusPopupProductId;
-      const savedActive = statusEditDraft;
-      const resp = await apiPatch<any>(`/catalog/products/${savedId}`, { is_active: savedActive });
+      const savedStatus = statusEditDraft;
+      const resp = await apiPatch<any>(`/catalog/products/${savedId}`, { status: savedStatus });
       const updated = resp?.data;
       table.setRows((prev) =>
         prev.map((row) =>
-          row.id === savedId ? { ...row, ...(updated || {}), is_active: savedActive } : row,
+          row.id === savedId ? { ...row, ...(updated || {}), status: savedStatus } : row,
         ),
       );
       if (editingId === savedId) {
-        setEditForm((prev: any) => ({ ...prev, is_active: savedActive }));
+        setEditForm((prev: any) => ({ ...prev, status: savedStatus }));
       }
       if (viewProduct?.id === savedId) {
-        setViewProduct((prev: any) => (prev ? { ...prev, is_active: savedActive } : prev));
+        setViewProduct((prev: any) => (prev ? { ...prev, status: savedStatus } : prev));
       }
       closeStatusPopup();
     } catch (err: unknown) {
@@ -1051,8 +1072,7 @@ export function ProductsPage() {
         });
         if (capSearch) params.set('search', capSearch);
         if (capFilterIds.length > 0) params.set('category_ids', capFilterIds.join(','));
-        if (capFilterStatus === 'active') params.set('is_active', 'true');
-        else if (capFilterStatus === 'inactive') params.set('is_active', 'false');
+        if (capFilterStatus !== 'all') params.set('status', capFilterStatus);
         const r = await apiGet<{ data?: CatalogProduct[] }>(`/catalog/products?${params}`);
         const chunk = r.data || [];
         if (chunk.length === 0) break;
@@ -1072,6 +1092,7 @@ export function ProductsPage() {
       }
       if (capFilterStatus === 'active') subtitleLines.push('Status: Active');
       else if (capFilterStatus === 'inactive') subtitleLines.push('Status: Inactive');
+      else if (capFilterStatus === 'frozen') subtitleLines.push('Status: Frozen');
 
       const blob = await buildProductsListPdfBlob(all, defaultMarkupPercent, { subtitleLines });
       const url = URL.createObjectURL(blob);
@@ -1444,6 +1465,7 @@ export function ProductsPage() {
             { value: 'all', label: 'All' },
             { value: 'active', label: 'Active' },
             { value: 'inactive', label: 'Inactive' },
+            { value: 'frozen', label: 'Frozen' },
           ]}
         />
       </div>
@@ -1459,7 +1481,7 @@ export function ProductsPage() {
               <SortHeader label="Amazon Price" field="amazon_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
               <SortHeader label="Custom Price" field="custom_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
               <SortHeader label="Local Price" field="local_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
-              <SortHeader label="Active" field="is_active" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
               <SortHeader label="Lifetime Sold" field="lifetime_qty_sold" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
               <SortHeader label="Category" field="category_name" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
               <th className={`${PRODUCTS_TABLE_HEADER} w-24`}>Actions</th>
@@ -1506,11 +1528,11 @@ export function ProductsPage() {
                       type="button"
                       onClick={(e) => toggleStatusPopup(p, e.currentTarget)}
                       className={`rounded-full px-2 py-0.5 text-xs hover:ring-2 hover:ring-indigo-200 ${
-                        p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                        catalogProductStatusBadgeClass(isCatalogProductStatus(p.status) ? p.status : 'inactive')
                       } ${statusPopupProductId === p.id ? 'ring-2 ring-indigo-400' : ''}`}
                       title="Edit status"
                     >
-                      {p.is_active ? 'Active' : 'Inactive'}
+                      {catalogProductStatusLabel(isCatalogProductStatus(p.status) ? p.status : 'inactive')}
                     </button>
                   </td>
                   <td className={`${PRODUCTS_TABLE_CELL} text-gray-600`}>{p.lifetime_qty_sold}</td>
@@ -1698,12 +1720,15 @@ export function ProductsPage() {
                               className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                           </div>
-                          <div className="flex items-end pb-1">
-                            <label className="flex items-center gap-2 text-sm">
-                              <input type="checkbox" checked={editForm.is_active}
-                                onChange={(e) => { const v = e.target.checked; setEditForm((prev: any) => ({ ...prev, is_active: v })); }} />
-                              Active
-                            </label>
+                          <div className="sm:col-span-2">
+                            <span className="text-sm font-medium text-gray-600">Status</span>
+                            <div className="mt-2">
+                              <ProductStatusRadioGroup
+                                name={`product-status-edit-${p.id}`}
+                                value={isCatalogProductStatus(editForm.status) ? editForm.status : 'inactive'}
+                                onChange={(status) => setEditForm((prev: any) => ({ ...prev, status }))}
+                              />
+                            </div>
                           </div>
                           <div className="sm:col-span-2 lg:col-span-3">
                             <div className="flex items-center justify-between">
@@ -1788,7 +1813,7 @@ export function ProductsPage() {
       <StatusInlineEditor
         open={statusPopupProductId !== null}
         anchorEl={statusAnchorEl}
-        draftActive={statusEditDraft}
+        draftStatus={statusEditDraft}
         saving={statusSaving}
         saveError={statusSaveError}
         onDraftChange={setStatusEditDraft}

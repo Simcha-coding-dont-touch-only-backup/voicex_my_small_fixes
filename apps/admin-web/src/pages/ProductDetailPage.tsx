@@ -32,7 +32,9 @@ export function ProductDetailPage() {
         voice_description: r.data.voice_description || '',
         custom_price_cents: r.data.custom_price_cents || '',
         local_price_cents: r.data.local_price_cents ?? '',
-        is_active: r.data.is_active,
+        status: r.data.status === 'active' || r.data.status === 'inactive' || r.data.status === 'frozen'
+          ? r.data.status
+          : 'inactive',
         category_ids: r.data.catalog_product_categories?.map((c: any) => c.category_id) || [],
       });
     });
@@ -176,11 +178,18 @@ export function ProductDetailPage() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.is_active}
-                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-                Active
-              </label>
+              <div>
+                <label className="text-sm font-medium text-gray-600">Status</label>
+                <select
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="frozen">Frozen</option>
+                </select>
+              </div>
               <div>
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium text-gray-600">Categories</label>
