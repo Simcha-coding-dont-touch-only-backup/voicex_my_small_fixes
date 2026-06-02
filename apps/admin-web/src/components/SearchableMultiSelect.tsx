@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 
 export interface SearchableMultiSelectOption {
@@ -13,6 +13,8 @@ interface SearchableMultiSelectProps {
   placeholder?: string;
   emptyText?: string;
   className?: string;
+  leadingIcon?: ReactNode;
+  triggerClassName?: string;
 }
 
 export function SearchableMultiSelect({
@@ -22,6 +24,8 @@ export function SearchableMultiSelect({
   placeholder = 'Select...',
   emptyText = 'No results',
   className = '',
+  leadingIcon,
+  triggerClassName = '',
 }: SearchableMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -76,23 +80,24 @@ export function SearchableMultiSelect({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="mt-1 flex w-full items-center justify-between gap-2 rounded border bg-white px-3 py-2 text-left text-sm hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        className={`mt-1 flex w-full items-center gap-2 rounded-lg border bg-white py-2 pl-3 pr-2 text-left text-sm hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${triggerClassName}`}
       >
-        <div className="flex flex-1 flex-wrap gap-1">
+        {leadingIcon}
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
           {selectedOptions.length === 0 ? (
-            <span className="text-gray-400">{placeholder}</span>
+            <span className="truncate text-gray-400">{placeholder}</span>
           ) : (
             selectedOptions.map((o) => (
               <span
                 key={o.value}
-                className="inline-flex items-center gap-1 rounded bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700"
+                className="inline-flex max-w-full items-center gap-1 rounded bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700"
               >
-                {o.label}
+                <span className="truncate">{o.label}</span>
                 <span
                   role="button"
                   tabIndex={-1}
                   onClick={(e) => removeOne(o.value, e)}
-                  className="rounded p-0.5 hover:bg-indigo-200"
+                  className="shrink-0 rounded p-0.5 hover:bg-indigo-200"
                 >
                   <X size={10} />
                 </span>

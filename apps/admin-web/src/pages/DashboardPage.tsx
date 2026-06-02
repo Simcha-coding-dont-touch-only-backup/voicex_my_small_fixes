@@ -89,7 +89,7 @@ export function DashboardPage() {
     }
     if (canSeeProducts) {
       tasks.push(
-        apiGet<any>('/catalog/products?per_page=1')
+        apiGet<any>('/catalog/products?per_page=1&is_active=true')
           .then((res) => setStats((s) => ({ ...s, totalProducts: res.total ?? 0 })))
           .catch(() => {})
       );

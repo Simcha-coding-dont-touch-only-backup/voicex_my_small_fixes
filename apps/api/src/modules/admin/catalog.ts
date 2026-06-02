@@ -265,7 +265,27 @@ catalogRouter.delete('/categories/:id', async (req, res) => {
 
 // --- Products ---
 
-const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'name_sort_key', 'amazon_price_cents', 'custom_price_cents', 'local_price_cents', 'is_active', 'voicex_id', 'id', 'amazon_asin', 'lifetime_qty_sold'];
+const PRODUCTS_SORTABLE_COLUMNS = ['created_at', 'voice_name', 'amazon_name', 'name_sort_key', 'amazon_price_cents', 'custom_price_cents', 'local_price_cents', 'is_active', 'voicex_id', 'id', 'amazon_asin', 'lifetime_qty_sold', 'category_name'];
+
+function productPrimaryCategorySortKey(
+  p: { catalog_product_categories?: { catalog_categories?: { name?: string | null } | null }[] | null }
+): string {
+  const names = (p.catalog_product_categories ?? [])
+    .map((link) => link.catalog_categories?.name?.trim())
+    .filter((n): n is string => Boolean(n));
+  if (names.length === 0) return '';
+  return names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))[0]!;
+}
+
+function compareProductsByCategoryName(a: any, b: any, ascending: boolean): number {
+  const keyA = productPrimaryCategorySortKey(a);
+  const keyB = productPrimaryCategorySortKey(b);
+  if (!keyA && !keyB) return 0;
+  if (!keyA) return ascending ? 1 : -1;
+  if (!keyB) return ascending ? -1 : 1;
+  const cmp = keyA.localeCompare(keyB, undefined, { sensitivity: 'base' });
+  return ascending ? cmp : -cmp;
+}
 
 catalogRouter.get('/products', async (req, res) => {
   const { page = '1', per_page = '20', search, category_id, category_ids, is_active, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
@@ -311,11 +331,7 @@ catalogRouter.get('/products', async (req, res) => {
     }
   }
 
-  let query = supabaseAdmin
-    .from('catalog_products')
-    .select('*, catalog_product_categories(category_id, catalog_categories(name))', { count: 'exact' })
-    .is('deleted_at', null);
-
+  let searchOrFilter: string | null = null;
   if (search && typeof search === 'string') {
     const term = search.trim();
     const esc = escapePostgrestOrFilterValue(term);
@@ -345,18 +361,50 @@ catalogRouter.get('/products', async (req, res) => {
         orParts.push(`and(custom_price_cents.is.null,amazon_price_cents.in.(${amazonForComputed.join(',')}))`);
       }
     }
-    query = query.or(orParts.join(','));
-  }
-  if (is_active !== undefined) {
-    query = query.eq('is_active', is_active === 'true');
-  }
-  if (allowedProductIds) {
-    query = query.in('id', allowedProductIds);
+    searchOrFilter = orParts.join(',');
   }
 
-  const { data, count, error } = await query
+  const buildProductsQuery = (withCount: boolean) => {
+    let q = supabaseAdmin
+      .from('catalog_products')
+      .select('*, catalog_product_categories(category_id, catalog_categories(name))', withCount ? { count: 'exact' } : undefined)
+      .is('deleted_at', null);
+    if (searchOrFilter) q = q.or(searchOrFilter);
+    if (is_active !== undefined) q = q.eq('is_active', is_active === 'true');
+    if (allowedProductIds) q = q.in('id', allowedProductIds);
+    return q;
+  };
+
+  const perPageNum = parseInt(per_page as string);
+  const pageNum = parseInt(page as string);
+
+  if (sortColumn === 'category_name') {
+    const { data: allRows, error: fetchErr, truncated } = await fetchAllRows<any>(() => buildProductsQuery(false));
+    if (fetchErr) {
+      res.status(500).json({ success: false, error: fetchErr.message });
+      return;
+    }
+    if (truncated) {
+      res.status(500).json({ success: false, error: 'Product list too large to sort by category. Narrow your filters.' });
+      return;
+    }
+    const sorted = [...allRows].sort((a, b) => compareProductsByCategoryName(a, b, sortAscending));
+    const total = sorted.length;
+    const pageRows = sorted.slice(offset, offset + perPageNum);
+    res.json({
+      success: true,
+      data: pageRows.map(decorateProductWithThumbnail),
+      total,
+      page: pageNum,
+      per_page: perPageNum,
+      total_pages: Math.ceil(total / perPageNum),
+    });
+    return;
+  }
+
+  const { data, count, error } = await buildProductsQuery(true)
     .order(sortColumn, { ascending: sortAscending })
-    .range(offset, offset + parseInt(per_page as string) - 1);
+    .range(offset, offset + perPageNum - 1);
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -367,9 +415,9 @@ catalogRouter.get('/products', async (req, res) => {
     success: true,
     data: (data || []).map(decorateProductWithThumbnail),
     total: count || 0,
-    page: parseInt(page as string),
-    per_page: parseInt(per_page as string),
-    total_pages: Math.ceil((count || 0) / parseInt(per_page as string)),
+    page: pageNum,
+    per_page: perPageNum,
+    total_pages: Math.ceil((count || 0) / perPageNum),
   });
 });
 
@@ -559,19 +607,42 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   if (local_price_cents !== undefined) updates.local_price_cents = local_price_cents;
   if (is_active !== undefined) updates.is_active = is_active;
 
-  const { data, error } = await supabaseAdmin
-    .from('catalog_products')
-    .update(updates)
-    .eq('id', req.params.id)
-    .select()
-    .single();
+  const hasCategoryUpdate = category_ids !== undefined;
+  const hasProductFieldUpdates = Object.keys(updates).length > 0;
 
-  if (error) {
-    res.status(500).json({ success: false, error: error.message });
+  if (!hasProductFieldUpdates && !hasCategoryUpdate) {
+    res.status(400).json({ success: false, error: 'No updates provided' });
     return;
   }
 
-  if (category_ids !== undefined) {
+  let data: any = null;
+  if (hasProductFieldUpdates) {
+    const result = await supabaseAdmin
+      .from('catalog_products')
+      .update(updates)
+      .eq('id', req.params.id)
+      .select()
+      .single();
+    if (result.error) {
+      res.status(500).json({ success: false, error: result.error.message });
+      return;
+    }
+    data = result.data;
+  } else {
+    const result = await supabaseAdmin
+      .from('catalog_products')
+      .select('*')
+      .eq('id', req.params.id)
+      .is('deleted_at', null)
+      .single();
+    if (result.error || !result.data) {
+      res.status(404).json({ success: false, error: 'Product not found' });
+      return;
+    }
+    data = result.data;
+  }
+
+  if (hasCategoryUpdate) {
     await supabaseAdmin.from('catalog_product_categories').delete().eq('product_id', req.params.id);
     if (category_ids.length > 0) {
       const links = category_ids.map((cid: string) => ({
@@ -582,12 +653,15 @@ catalogRouter.patch('/products/:id', async (req, res) => {
     }
   }
 
+  const auditChanges: Record<string, unknown> = { ...updates };
+  if (hasCategoryUpdate) auditChanges.category_ids = category_ids;
+
   await supabaseAdmin.from('admin_audit_logs').insert({
     admin_user_id: (req as any).adminUser.id,
     action: 'update_product',
     entity_type: 'catalog_product',
     entity_id: req.params.id,
-    changes: updates,
+    changes: auditChanges,
   });
 
   if (

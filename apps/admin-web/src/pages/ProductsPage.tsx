@@ -1,10 +1,12 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
-import { Search, Plus, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Printer, Upload, Eye } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Printer, Upload, Eye, Tags, ToggleLeft, ArrowRight } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
+import { FilterSingleSelect } from '../components/FilterSingleSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 import { ImportProductsFlow } from '../components/ImportProductsFlow';
 import { ProductThumbnail } from '../components/ProductThumbnail';
@@ -38,6 +40,33 @@ type CreateProductOverrides = {
 
 function emptyCreateOverrides(): CreateProductOverrides {
   return { voice_name: '', voice_description: '', custom_price_cents: '', local_price_cents: '', category_ids: [] };
+}
+
+const PRODUCTS_TABLE_CELL = 'px-3 py-2';
+const PRODUCTS_TABLE_HEADER = `${PRODUCTS_TABLE_CELL} font-medium`;
+
+function getProductCategoryNames(p: {
+  catalog_product_categories?: { catalog_categories?: { name?: string | null } | null }[] | null;
+}): string[] {
+  return (p.catalog_product_categories ?? [])
+    .map((link) => link.catalog_categories?.name?.trim())
+    .filter((n): n is string => Boolean(n))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function ProductCategoryLabels({ product }: { product: { catalog_product_categories?: { catalog_categories?: { name?: string | null } | null }[] | null } }) {
+  const names = getProductCategoryNames(product);
+  if (names.length === 0) return <>—</>;
+  return (
+    <>
+      {names.map((name, i) => (
+        <span key={name} className="block hover:underline">
+          {name}
+          {i < names.length - 1 ? ',' : ''}
+        </span>
+      ))}
+    </>
+  );
 }
 
 /** Split on non-alphanumeric delimiters; keep first-seen order; dedupe. */
@@ -88,7 +117,238 @@ async function mapWithConcurrency<T>(
   await Promise.all(Array.from({ length: pool }, () => run()));
 }
 
-type QuickCategoryTarget = 'create' | 'edit' | { type: 'bulk'; rowId: string } | null;
+type QuickCategoryTarget = 'create' | 'edit' | { type: 'bulk'; rowId: string } | { type: 'inline' } | null;
+
+function buildCategoryLinks(categoryIds: string[], categories: { id: string; name: string }[]) {
+  return categoryIds.map((cid) => {
+    const cat = categories.find((c) => c.id === cid);
+    return { category_id: cid, catalog_categories: cat ? { name: cat.name } : null };
+  });
+}
+
+function CategoryInlineEditor({
+  open,
+  anchorEl,
+  categories,
+  draftIds,
+  saving,
+  onDraftChange,
+  onSave,
+  onCancel,
+  onQuickCategoryNew,
+  saveError,
+}: {
+  open: boolean;
+  anchorEl: HTMLElement | null;
+  categories: { id: string; name: string }[];
+  draftIds: string[];
+  saving: boolean;
+  onDraftChange: (ids: string[]) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  onQuickCategoryNew: () => void;
+  saveError?: string | null;
+}) {
+  const popupRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open || !anchorEl) {
+      setPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const rect = anchorEl.getBoundingClientRect();
+      const popupW = 320;
+      const popupH = 220;
+      let left = rect.left;
+      if (left + popupW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - popupW - 8);
+      let top = rect.bottom + 6;
+      if (top + popupH > window.innerHeight - 8) top = Math.max(8, rect.top - popupH - 6);
+      setPos({ top, left });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, anchorEl]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (anchorEl?.contains(target)) return;
+      if (popupRef.current?.contains(target)) return;
+      if (document.querySelector('[data-category-quick-create-modal]')?.contains(target)) return;
+      onCancel();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, anchorEl, onCancel]);
+
+  if (!open || !pos) return null;
+
+  return createPortal(
+    <div
+      ref={popupRef}
+      style={{ top: pos.top, left: pos.left }}
+      className="fixed z-[9999] w-80 rounded-lg border border-indigo-200 bg-white p-4 shadow-xl"
+      role="dialog"
+      aria-label="Edit categories"
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-sm font-medium text-gray-700">Categories</span>
+        <button
+          type="button"
+          onClick={onQuickCategoryNew}
+          className="flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100"
+          title="Create new category"
+        >
+          <Plus size={12} /> New
+        </button>
+      </div>
+      <SearchableMultiSelect
+        options={categories.map((c) => ({ value: c.id, label: c.name }))}
+        value={draftIds}
+        onChange={onDraftChange}
+        placeholder="Select categories..."
+        className="[&>button]:mt-0"
+      />
+      {saveError ? (
+        <p className="mt-2 text-sm text-red-600">{saveError}</p>
+      ) : null}
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+        <button type="button" onClick={onCancel} disabled={saving} className="rounded border px-3 py-1.5 text-sm">
+          Cancel
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function StatusInlineEditor({
+  open,
+  anchorEl,
+  draftActive,
+  saving,
+  onDraftChange,
+  onSave,
+  onCancel,
+  saveError,
+}: {
+  open: boolean;
+  anchorEl: HTMLElement | null;
+  draftActive: boolean;
+  saving: boolean;
+  onDraftChange: (active: boolean) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saveError?: string | null;
+}) {
+  const popupRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open || !anchorEl) {
+      setPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const rect = anchorEl.getBoundingClientRect();
+      const popupW = 240;
+      const popupH = 160;
+      let left = rect.left;
+      if (left + popupW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - popupW - 8);
+      let top = rect.bottom + 6;
+      if (top + popupH > window.innerHeight - 8) top = Math.max(8, rect.top - popupH - 6);
+      setPos({ top, left });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, anchorEl]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (anchorEl?.contains(target)) return;
+      if (popupRef.current?.contains(target)) return;
+      onCancel();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, anchorEl, onCancel]);
+
+  if (!open || !pos) return null;
+
+  return createPortal(
+    <div
+      ref={popupRef}
+      style={{ top: pos.top, left: pos.left }}
+      className="fixed z-[9999] w-60 rounded-lg border border-indigo-200 bg-white p-4 shadow-xl"
+      role="dialog"
+      aria-label="Edit status"
+    >
+      <span className="mb-3 block text-sm font-medium text-gray-700">Status</span>
+      <div className="flex flex-col gap-2">
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name="product-status"
+            checked={draftActive}
+            onChange={() => onDraftChange(true)}
+          />
+          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">Active</span>
+        </label>
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name="product-status"
+            checked={!draftActive}
+            onChange={() => onDraftChange(false)}
+          />
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Inactive</span>
+        </label>
+      </div>
+      {saveError ? (
+        <p className="mt-2 text-sm text-red-600">{saveError}</p>
+      ) : null}
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+        <button type="button" onClick={onCancel} disabled={saving} className="rounded border px-3 py-1.5 text-sm">
+          Cancel
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+type ProductStatusFilter = 'all' | 'active' | 'inactive';
 
 type BulkProductRow = {
   id: string;
@@ -330,6 +590,17 @@ export function ProductsPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [quickCategoryTarget, setQuickCategoryTarget] = useState<QuickCategoryTarget>(null);
+  const [categoryPopupProductId, setCategoryPopupProductId] = useState<string | null>(null);
+  const [categoryEditDraft, setCategoryEditDraft] = useState<string[]>([]);
+  const [categoryAnchorEl, setCategoryAnchorEl] = useState<HTMLElement | null>(null);
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categorySaveError, setCategorySaveError] = useState<string | null>(null);
+  const [statusPopupProductId, setStatusPopupProductId] = useState<string | null>(null);
+  const [statusEditDraft, setStatusEditDraft] = useState(true);
+  const [statusAnchorEl, setStatusAnchorEl] = useState<HTMLElement | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusSaveError, setStatusSaveError] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<ProductStatusFilter>('all');
   const [addProductMode, setAddProductMode] = useState<'single' | 'bulk'>('single');
   const [bulkAsinChips, setBulkAsinChips] = useState<string[]>([]);
   const [bulkPasteBuffer, setBulkPasteBuffer] = useState('');
@@ -344,7 +615,7 @@ export function ProductsPage() {
   const table = useAdminTableQuery<any>({
     defaultSort: { field: 'created_at', dir: 'desc' },
     defaultPerPage: 20,
-    filterKey: `${search}|${filterCategoryIds.join(',')}`,
+    filterKey: `${search}|${filterCategoryIds.join(',')}|${filterStatus}`,
     fetcher: ({ page, perPage, sortBy, sortDir }) => {
       const params = new URLSearchParams({
         page: String(page),
@@ -354,6 +625,8 @@ export function ProductsPage() {
       });
       if (search) params.set('search', search);
       if (filterCategoryIds.length > 0) params.set('category_ids', filterCategoryIds.join(','));
+      if (filterStatus === 'active') params.set('is_active', 'true');
+      else if (filterStatus === 'inactive') params.set('is_active', 'false');
       return apiGet<any>(`/catalog/products?${params}`).then((r) => ({
         data: r.data || [],
         total: r.total || 0,
@@ -599,6 +872,96 @@ export function ProductsPage() {
     setEditForm({});
   };
 
+  const closeCategoryPopup = () => {
+    setCategoryPopupProductId(null);
+    setCategoryEditDraft([]);
+    setCategoryAnchorEl(null);
+    setCategorySaveError(null);
+  };
+
+  const closeStatusPopup = () => {
+    setStatusPopupProductId(null);
+    setStatusAnchorEl(null);
+    setStatusSaveError(null);
+  };
+
+  const toggleCategoryPopup = (product: any, anchor: HTMLElement) => {
+    if (categoryPopupProductId === product.id) {
+      closeCategoryPopup();
+      return;
+    }
+    closeStatusPopup();
+    setCategorySaveError(null);
+    setCategoryAnchorEl(anchor);
+    setCategoryPopupProductId(product.id);
+    setCategoryEditDraft(product.catalog_product_categories?.map((c: any) => c.category_id) || []);
+  };
+
+  const toggleStatusPopup = (product: any, anchor: HTMLElement) => {
+    if (statusPopupProductId === product.id) {
+      closeStatusPopup();
+      return;
+    }
+    closeCategoryPopup();
+    setStatusSaveError(null);
+    setStatusAnchorEl(anchor);
+    setStatusPopupProductId(product.id);
+    setStatusEditDraft(Boolean(product.is_active));
+  };
+
+  const handleStatusSave = async () => {
+    if (!statusPopupProductId) return;
+    setStatusSaving(true);
+    setStatusSaveError(null);
+    try {
+      const savedId = statusPopupProductId;
+      const savedActive = statusEditDraft;
+      const resp = await apiPatch<any>(`/catalog/products/${savedId}`, { is_active: savedActive });
+      const updated = resp?.data;
+      table.setRows((prev) =>
+        prev.map((row) =>
+          row.id === savedId ? { ...row, ...(updated || {}), is_active: savedActive } : row,
+        ),
+      );
+      if (editingId === savedId) {
+        setEditForm((prev: any) => ({ ...prev, is_active: savedActive }));
+      }
+      if (viewProduct?.id === savedId) {
+        setViewProduct((prev: any) => (prev ? { ...prev, is_active: savedActive } : prev));
+      }
+      closeStatusPopup();
+    } catch (err: unknown) {
+      setStatusSaveError(err instanceof Error ? err.message : 'Failed to save status.');
+    } finally {
+      setStatusSaving(false);
+    }
+  };
+
+  const handleCategorySave = async () => {
+    if (!categoryPopupProductId) return;
+    setCategorySaving(true);
+    setCategorySaveError(null);
+    try {
+      const savedId = categoryPopupProductId;
+      const savedDraft = [...categoryEditDraft];
+      await apiPatch<any>(`/catalog/products/${savedId}`, { category_ids: savedDraft });
+      const nextCategoryLinks = buildCategoryLinks(savedDraft, categories);
+      table.setRows((prev) =>
+        prev.map((row) =>
+          row.id === savedId ? { ...row, catalog_product_categories: nextCategoryLinks } : row,
+        ),
+      );
+      if (editingId === savedId) {
+        setEditForm((prev: any) => ({ ...prev, category_ids: savedDraft }));
+      }
+      closeCategoryPopup();
+    } catch (err: unknown) {
+      setCategorySaveError(err instanceof Error ? err.message : 'Failed to save categories.');
+    } finally {
+      setCategorySaving(false);
+    }
+  };
+
   const handleEditSave = async () => {
     if (!editingId) return;
     setSaving(true);
@@ -623,10 +986,7 @@ export function ProductsPage() {
       if (updated) {
         // The PATCH response doesn't include the joined categories relation, so
         // rebuild it from the form so a subsequent edit shows the right values.
-        const nextCategoryLinks = (currentForm.category_ids || []).map((cid: string) => {
-          const cat = categories.find((c) => c.id === cid);
-          return { category_id: cid, catalog_categories: cat ? { name: cat.name } : null };
-        });
+        const nextCategoryLinks = buildCategoryLinks(currentForm.category_ids || [], categories);
         table.setRows((prev) =>
           prev.map((row) =>
             row.id === savedId
@@ -667,6 +1027,7 @@ export function ProductsPage() {
   const handleExportPdf = async () => {
     const capSearch = search;
     const capFilterIds = [...filterCategoryIds];
+    const capFilterStatus = filterStatus;
     const capSortBy = sortBy;
     const capSortDir = sortDir;
     const capTotal = total;
@@ -690,6 +1051,8 @@ export function ProductsPage() {
         });
         if (capSearch) params.set('search', capSearch);
         if (capFilterIds.length > 0) params.set('category_ids', capFilterIds.join(','));
+        if (capFilterStatus === 'active') params.set('is_active', 'true');
+        else if (capFilterStatus === 'inactive') params.set('is_active', 'false');
         const r = await apiGet<{ data?: CatalogProduct[] }>(`/catalog/products?${params}`);
         const chunk = r.data || [];
         if (chunk.length === 0) break;
@@ -707,6 +1070,8 @@ export function ProductsPage() {
           .filter((n): n is string => Boolean(n));
         subtitleLines.push(names.length > 0 ? `Categories: ${names.join(', ')}` : `Category IDs: ${capFilterIds.join(', ')}`);
       }
+      if (capFilterStatus === 'active') subtitleLines.push('Status: Active');
+      else if (capFilterStatus === 'inactive') subtitleLines.push('Status: Inactive');
 
       const blob = await buildProductsListPdfBlob(all, defaultMarkupPercent, { subtitleLines });
       const url = URL.createObjectURL(blob);
@@ -1016,56 +1381,95 @@ export function ProductsPage() {
         </div>
       )}
 
-      <div className="mb-4 flex flex-wrap items-start gap-3">
-        <form onSubmit={(e) => { e.preventDefault(); table.setPage(1); }} className="flex gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <form onSubmit={(e) => { e.preventDefault(); table.setPage(1); }} className="min-w-[16rem] shrink-0">
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Name, ASIN, ID, or price (e.g. 1.79 or 179 cents)..."
-              className="rounded-lg border pl-9 pr-4 py-2 text-sm" />
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Name, ASIN, ID, or price..."
+              className="w-full rounded-lg border py-2 pl-9 pr-10 text-sm"
+            />
+            <button
+              type={search.trim() ? 'button' : 'submit'}
+              title={search.trim() ? 'Clear search' : 'Search'}
+              aria-label={search.trim() ? 'Clear search' : 'Search'}
+              onClick={
+                search.trim()
+                  ? () => {
+                      setSearch('');
+                      table.setPage(1);
+                    }
+                  : undefined
+              }
+              className={`absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-md p-1 ${
+                search.trim()
+                  ? 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              }`}
+            >
+              {search.trim() ? <X size={14} aria-hidden /> : <ArrowRight size={14} aria-hidden />}
+            </button>
           </div>
-          <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white">Search</button>
         </form>
-        <div className="min-w-[260px] flex-1 max-w-sm -mt-1">
-          <SearchableMultiSelect
-            options={[
-              { value: '__all__', label: 'All' },
-              ...categories.map((c) => ({ value: c.id, label: c.name })),
-            ]}
-            value={filterCategoryIds.length === 0 ? ['__all__'] : filterCategoryIds}
-            onChange={(ids) => {
-              const wasAll = filterCategoryIds.length === 0;
-              const picked = ids.filter((id) => id !== '__all__');
-              const justSelectedAll = ids.includes('__all__') && !wasAll;
-              setFilterCategoryIds(justSelectedAll ? [] : picked);
-              table.setPage(1);
-            }}
-            placeholder="Filter by categories..."
-          />
-        </div>
+        <SearchableMultiSelect
+          className="w-[13.5rem] shrink-0"
+          leadingIcon={<Tags size={16} className="shrink-0 text-gray-400" aria-hidden />}
+          triggerClassName="mt-0"
+          options={[
+            { value: '__all__', label: 'All categories' },
+            ...categories.map((c) => ({ value: c.id, label: c.name })),
+          ]}
+          value={filterCategoryIds.length === 0 ? ['__all__'] : filterCategoryIds}
+          onChange={(ids) => {
+            const wasAll = filterCategoryIds.length === 0;
+            const picked = ids.filter((id) => id !== '__all__');
+            const justSelectedAll = ids.includes('__all__') && !wasAll;
+            setFilterCategoryIds(justSelectedAll ? [] : picked);
+            table.setPage(1);
+          }}
+          placeholder="All categories"
+        />
+        <FilterSingleSelect
+          className="w-[8.25rem] shrink-0"
+          leadingIcon={<ToggleLeft size={16} className="shrink-0 text-gray-400" aria-hidden />}
+          aria-label="Filter by status"
+          value={filterStatus}
+          onChange={(v) => {
+            setFilterStatus(v as ProductStatusFilter);
+            table.setPage(1);
+          }}
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Inactive' },
+          ]}
+        />
       </div>
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
-              <th className="px-3 py-3 font-medium w-16">Image</th>
-              <SortHeader label="VoiceX ID" field="voicex_id" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
-              <SortHeader label="Name" field="name_sort_key" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
-              <SortHeader label="ASIN" field="amazon_asin" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
-              <SortHeader label="Amazon Price" field="amazon_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
-              <SortHeader label="Custom Price" field="custom_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
-              <SortHeader label="Local Price" field="local_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
-              <SortHeader label="Active" field="is_active" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
-              <SortHeader label="Lifetime Sold" field="lifetime_qty_sold" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
-              <th className="px-6 py-3 font-medium w-24">Actions</th>
+              <th className={`${PRODUCTS_TABLE_HEADER} w-16`}>Image</th>
+              <SortHeader label="VoiceX ID" field="voicex_id" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="Name" field="name_sort_key" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="ASIN" field="amazon_asin" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="Amazon Price" field="amazon_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="Custom Price" field="custom_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="Local Price" field="local_price_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="Active" field="is_active" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="Lifetime Sold" field="lifetime_qty_sold" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <SortHeader label="Category" field="category_name" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
+              <th className={`${PRODUCTS_TABLE_HEADER} w-24`}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {products.map((p) => (
               <Fragment key={p.id}>
                 <tr className={`border-b hover:bg-gray-50 ${editingId === p.id || viewingId === p.id ? 'bg-indigo-50' : ''}`}>
-                  <td className="px-3 py-2">
+                  <td className={PRODUCTS_TABLE_CELL}>
                     <ProductThumbnail
                       thumbnailUrl={p.thumbnail_url}
                       images={p.amazon_image_urls}
@@ -1073,8 +1477,8 @@ export function ProductsPage() {
                       size={48}
                     />
                   </td>
-                  <td className="px-6 py-3 font-mono">{p.voicex_id}</td>
-                  <td className="px-6 py-3">
+                  <td className={`${PRODUCTS_TABLE_CELL} font-mono`}>{p.voicex_id}</td>
+                  <td className={PRODUCTS_TABLE_CELL}>
                     <button
                       type="button"
                       onClick={() => startView(p)}
@@ -1083,13 +1487,13 @@ export function ProductsPage() {
                       {p.voice_name || p.amazon_name || '-'}
                     </button>
                   </td>
-                  <td className="px-6 py-3 text-gray-500">{p.amazon_asin}</td>
-                  <td className="px-6 py-3">{p.amazon_price_cents ? `$${(p.amazon_price_cents / 100).toFixed(2)}` : '-'}</td>
-                  <td className="px-6 py-3">
+                  <td className={`${PRODUCTS_TABLE_CELL} text-gray-500`}>{p.amazon_asin}</td>
+                  <td className={PRODUCTS_TABLE_CELL}>{p.amazon_price_cents ? `$${(p.amazon_price_cents / 100).toFixed(2)}` : '-'}</td>
+                  <td className={PRODUCTS_TABLE_CELL}>
                     <CustomPriceReadonlyDisplay product={p} defaultMarkupPercent={defaultMarkupPercent} />
                   </td>
                   <td
-                    className={`px-6 py-3 tabular-nums ${
+                    className={`${PRODUCTS_TABLE_CELL} tabular-nums ${
                       isProductVoicexPriceAboveLocal(p, defaultMarkupPercent)
                         ? 'font-bold text-red-600'
                         : 'text-gray-600'
@@ -1097,13 +1501,32 @@ export function ProductsPage() {
                   >
                     {p.local_price_cents != null ? `$${(p.local_price_cents / 100).toFixed(2)}` : '—'}
                   </td>
-                  <td className="px-6 py-3">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {p.is_active ? 'Yes' : 'No'}
-                    </span>
+                  <td className={PRODUCTS_TABLE_CELL}>
+                    <button
+                      type="button"
+                      onClick={(e) => toggleStatusPopup(p, e.currentTarget)}
+                      className={`rounded-full px-2 py-0.5 text-xs hover:ring-2 hover:ring-indigo-200 ${
+                        p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                      } ${statusPopupProductId === p.id ? 'ring-2 ring-indigo-400' : ''}`}
+                      title="Edit status"
+                    >
+                      {p.is_active ? 'Active' : 'Inactive'}
+                    </button>
                   </td>
-                  <td className="px-6 py-3 text-gray-600">{p.lifetime_qty_sold}</td>
-                  <td className="px-6 py-3">
+                  <td className={`${PRODUCTS_TABLE_CELL} text-gray-600`}>{p.lifetime_qty_sold}</td>
+                  <td className={`${PRODUCTS_TABLE_CELL} text-gray-600`}>
+                    <button
+                      type="button"
+                      onClick={(e) => toggleCategoryPopup(p, e.currentTarget)}
+                      className={`max-w-[12rem] text-left leading-snug hover:text-indigo-600 ${
+                        categoryPopupProductId === p.id ? 'text-indigo-600' : ''
+                      }`}
+                      title="Edit categories"
+                    >
+                      <ProductCategoryLabels product={p} />
+                    </button>
+                  </td>
+                  <td className={PRODUCTS_TABLE_CELL}>
                     <div className="flex items-center gap-1">
                       {p.amazon_url && (
                         <a href={p.amazon_url} target="_blank" rel="noopener noreferrer" title="View on Amazon"
@@ -1148,7 +1571,7 @@ export function ProductsPage() {
                 </tr>
                 {viewingId === p.id && (
                   <tr className="border-b bg-indigo-50/50">
-                    <td colSpan={10} className="px-6 py-4">
+                    <td colSpan={11} className="px-6 py-4">
                       <div className="rounded-lg border border-indigo-200 bg-white p-5">
                         <div className="mb-4 flex items-center justify-between">
                           <h4 className="text-sm font-semibold text-gray-700">Product Details</h4>
@@ -1209,7 +1632,7 @@ export function ProductsPage() {
                 )}
                 {editingId === p.id && (
                   <tr className="border-b bg-indigo-50/50">
-                    <td colSpan={10} className="px-6 py-4">
+                    <td colSpan={11} className="px-6 py-4">
                       <div className="rounded-lg border border-indigo-200 bg-white p-5">
                         <h4 className="mb-4 text-sm font-semibold text-gray-700">Edit Product</h4>
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1349,24 +1772,53 @@ export function ProductsPage() {
         categories={categories.map((c) => ({ id: c.id, name: c.name }))}
       />
 
+      <CategoryInlineEditor
+        open={categoryPopupProductId !== null}
+        anchorEl={categoryAnchorEl}
+        categories={categories}
+        draftIds={categoryEditDraft}
+        saving={categorySaving}
+        saveError={categorySaveError}
+        onDraftChange={setCategoryEditDraft}
+        onSave={handleCategorySave}
+        onCancel={closeCategoryPopup}
+        onQuickCategoryNew={() => setQuickCategoryTarget({ type: 'inline' })}
+      />
+
+      <StatusInlineEditor
+        open={statusPopupProductId !== null}
+        anchorEl={statusAnchorEl}
+        draftActive={statusEditDraft}
+        saving={statusSaving}
+        saveError={statusSaveError}
+        onDraftChange={setStatusEditDraft}
+        onSave={handleStatusSave}
+        onCancel={closeStatusPopup}
+      />
+
       <CategoryQuickCreateModal
         open={quickCategoryTarget !== null}
         onClose={() => setQuickCategoryTarget(null)}
         categories={categories}
         onCreated={(newCat) => {
           setCategories((prev) => [...prev, newCat]);
-          if (quickCategoryTarget === 'create') {
+          const target = quickCategoryTarget;
+          if (target === 'create') {
             setCreateOverrides((prev) => ({
               ...prev,
               category_ids: [...prev.category_ids, newCat.id],
             }));
-          } else if (quickCategoryTarget === 'edit') {
+          } else if (target === 'edit') {
             setEditForm((prev: any) => ({
               ...prev,
               category_ids: [...(prev.category_ids || []), newCat.id],
             }));
-          } else if (quickCategoryTarget && typeof quickCategoryTarget === 'object' && quickCategoryTarget.type === 'bulk') {
-            const rid = quickCategoryTarget.rowId;
+          } else if (target && typeof target === 'object' && target.type === 'inline') {
+            setCategoryEditDraft((prev) =>
+              prev.includes(newCat.id) ? prev : [...prev, newCat.id],
+            );
+          } else if (target && typeof target === 'object' && target.type === 'bulk') {
+            const rid = target.rowId;
             setBulkRows((prev) =>
               prev.map((r) =>
                 r.id === rid ? { ...r, overrides: { ...r.overrides, category_ids: [...r.overrides.category_ids, newCat.id] } } : r,
