@@ -31,6 +31,7 @@ export function buildGather(options: {
   retryPrompt?: string;
   tries?: number;
   sessionData?: Record<string, string>;
+  regex?: string;
 }): TeltechResponse {
   const queryParams = new URLSearchParams(options.sessionData || {});
   const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
@@ -62,7 +63,7 @@ export function buildGather(options: {
     prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
     action_url: actionUrl,
     terminator,
-    regex: '[0-9*#]+',
+    regex: options.regex ?? '[0-9*#]+',
   };
 
   return { actions: [gather] };
