@@ -5,3 +5,4 @@ import './handlers/catalog-handlers.js';
 import './handlers/cart-handlers.js';
 import './handlers/checkout-handlers.js';
 import './handlers/orders-handlers.js';
+import './handlers/returns-handlers.js';

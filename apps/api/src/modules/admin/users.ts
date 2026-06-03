@@ -5,7 +5,7 @@ import { solaTokenize } from '../../lib/sola.js';
 
 export const usersRouter = Router();
 
-const USERS_SORTABLE_COLUMNS = ['created_at', 'name', 'email', 'status', 'id'];
+const USERS_SORTABLE_COLUMNS = ['created_at', 'name', 'email', 'status', 'id', 'returns_count'];
 
 usersRouter.get('/', async (req, res) => {
   const { page = '1', per_page = '20', search, status, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
@@ -554,6 +554,34 @@ usersRouter.delete('/:id/payment-methods/:paymentMethodId', async (req, res) => 
   });
 
   res.json({ success: true, message: 'Card deleted' });
+});
+
+usersRouter.get('/:id/returns', async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('order_returns')
+    .select(
+      'id, order_id, status, source, item_subtotal_cents, tax_refund_cents, amazon_refund_cents, refunded, created_at, completed_at, orders(created_at), order_return_items(product_name, voicex_id, quantity, unit_price_cents)',
+    )
+    .eq('user_id', req.params.id)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  const rows = (data || []).map((row: any) => {
+    const items = row.order_return_items || [];
+    return {
+      ...row,
+      item_count: items.length,
+      total_qty: items.reduce((sum: number, i: any) => sum + i.quantity, 0),
+      customer_refund_cents: row.item_subtotal_cents + row.tax_refund_cents,
+    };
+  });
+
+  res.json({ success: true, data: rows });
 });
 
 usersRouter.get('/:id/login-history', async (req, res) => {

@@ -4,7 +4,7 @@ import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
   ChevronsLeft, ChevronsRight, AlertTriangle, MapPin,
-  Wrench, ChevronDown, ShieldCheck, Inbox, Truck, Bell,
+  Wrench, ChevronDown, ShieldCheck, Inbox, Truck, Bell, RotateCcw,
 } from 'lucide-react';
 import type { AdminPermissionKey } from '@voicex/shared';
 import { BrandLogo } from './BrandLogo';
@@ -49,6 +49,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/admin/carts', label: 'Carts', icon: ShoppingBag, requires: { kind: 'fullAdmin' } },
   { to: '/admin/orders', label: 'Orders', icon: ShoppingCart, requires: { kind: 'fullAdmin' } },
   { to: '/admin/fulfillment', label: 'Fulfillment', icon: Truck, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/returns', label: 'Returns', icon: RotateCcw, requires: { kind: 'fullAdmin' } },
   { to: '/admin/settings', label: 'Settings', icon: Settings, requires: { kind: 'fullAdmin' } },
   { to: '/admin/reports', label: 'Reports', icon: BarChart3, requires: { kind: 'fullAdmin' } },
   { to: '/admin/ivr', label: 'IVR Flows', icon: Phone, requires: { kind: 'fullAdmin' } },
@@ -66,6 +67,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [pendingFulfillmentCount, setPendingFulfillmentCount] = useState(0);
   const [newAlertsCount, setNewAlertsCount] = useState(0);
+  const [pendingReturnsCount, setPendingReturnsCount] = useState(0);
   const location = useLocation();
 
   const isFullAdmin = adminUser?.role === 'super_admin' || adminUser?.role === 'admin';
@@ -82,6 +84,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
       setPendingFulfillmentCount(res.data.count || 0);
     } catch {
       setPendingFulfillmentCount(0);
+    }
+  }, [isFullAdmin]);
+
+  const loadReturnsCount = useCallback(async () => {
+    if (!isFullAdmin) {
+      setPendingReturnsCount(0);
+      return;
+    }
+
+    try {
+      const res = await apiGet<FulfillmentCountResponse>('/returns/pending-count');
+      setPendingReturnsCount(res.data.count || 0);
+    } catch {
+      setPendingReturnsCount(0);
     }
   }, [isFullAdmin]);
 
@@ -122,6 +138,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
       window.clearInterval(interval);
     };
   }, [isFullAdmin, loadFulfillmentCount]);
+
+  useEffect(() => {
+    void loadReturnsCount();
+    if (!isFullAdmin) return;
+
+    const handleReturnsRefresh = (event: Event) => {
+      const count = (event as CustomEvent<{ count?: number }>).detail?.count;
+      if (typeof count === 'number') {
+        setPendingReturnsCount(count);
+        return;
+      }
+      void loadReturnsCount();
+    };
+
+    window.addEventListener('focus', loadReturnsCount);
+    window.addEventListener('voicex:returns-count-refresh', handleReturnsRefresh);
+    const interval = window.setInterval(loadReturnsCount, 60_000);
+
+    return () => {
+      window.removeEventListener('focus', loadReturnsCount);
+      window.removeEventListener('voicex:returns-count-refresh', handleReturnsRefresh);
+      window.clearInterval(interval);
+    };
+  }, [isFullAdmin, loadReturnsCount]);
 
   useEffect(() => {
     void loadNewAlertsCount();
@@ -167,6 +207,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [toolsOpen, setToolsOpen] = useState(toolsActive);
   const fulfillmentBadge = pendingFulfillmentCount > 99 ? '99+' : String(pendingFulfillmentCount);
   const alertsBadge = newAlertsCount > 99 ? '99+' : String(newAlertsCount);
+  const returnsBadge = pendingReturnsCount > 99 ? '99+' : String(pendingReturnsCount);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -202,11 +243,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {visibleNav.map(({ to, label, icon: Icon }) => {
             const showFulfillmentBadge = to === '/admin/fulfillment' && pendingFulfillmentCount > 0;
             const showAlertsBadge = to === '/admin/alerts' && newAlertsCount > 0;
+            const showReturnsBadge = to === '/admin/returns' && pendingReturnsCount > 0;
             const title = showFulfillmentBadge
               ? `${label} (${pendingFulfillmentCount} pending)`
               : showAlertsBadge
                 ? `${label} (${newAlertsCount} new)`
-                : label;
+                : showReturnsBadge
+                  ? `${label} (${pendingReturnsCount} pending)`
+                  : label;
 
             return (
               <NavLink
@@ -223,10 +267,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   }`
                 }
                 onClick={() => setSidebarOpen(false)}
-                title={collapsed || showFulfillmentBadge || showAlertsBadge ? title : undefined}
+                title={collapsed || showFulfillmentBadge || showAlertsBadge || showReturnsBadge ? title : undefined}
               >
                 <Icon size={18} className="shrink-0" />
                 {!collapsed && <span className="flex-1">{label}</span>}
+                {showReturnsBadge && (
+                  <span
+                    className={`inline-flex items-center justify-center rounded-full bg-rose-500 text-[10px] font-semibold leading-none text-white ${
+                      collapsed
+                        ? 'absolute right-1 top-1 h-4 min-w-4 px-1'
+                        : 'ml-auto h-5 min-w-5 px-1.5'
+                    }`}
+                  >
+                    {returnsBadge}
+                  </span>
+                )}
                 {showFulfillmentBadge && (
                   <span
                     className={`inline-flex items-center justify-center rounded-full bg-rose-500 text-[10px] font-semibold leading-none text-white ${

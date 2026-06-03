@@ -6,7 +6,7 @@ import { etaPayloadSchema, replaceOrderFulfillmentEtas, sortOrderFulfillmentEtas
 export const ordersRouter = Router();
 
 const ORDERS_SORTABLE_COLUMNS = ['created_at', 'status', 'user_id', 'id', 'total_cents'];
-const ORDER_DETAIL_SELECT = '*, users(name, email), order_items(*), order_events(*), addresses(*), order_fulfillment_etas(*)';
+const ORDER_DETAIL_SELECT = '*, users(name, email), order_items(*), order_events(*), addresses(*), order_fulfillment_etas(*), order_returns(*, order_return_items(*), order_return_fees(*))';
 
 ordersRouter.get('/', async (req, res) => {
   const {

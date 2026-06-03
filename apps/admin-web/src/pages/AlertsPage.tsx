@@ -7,9 +7,9 @@ import { formatUsdFromCents } from '../lib/product-price';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import {
   ADMIN_ALERT_TYPES,
+  adminAlertTypeLabel,
   getProductDisplayName,
   PRODUCT_CATALOG_ALERT_TYPES,
-  productCatalogAlertTypeLabel,
   type CatalogProduct,
 } from '@voicex/shared';
 import { CatalogProductStatusBadge } from '../components/CatalogProductStatusBadge';
@@ -195,9 +195,16 @@ function AlertStatusInlineEditor({
   );
 }
 
-type AlertTypeTab = (typeof PRODUCT_CATALOG_ALERT_TYPES)[number];
+type AlertTypeTab = string;
 
-const ALERT_TYPE_TABS: AlertTypeTab[] = [...PRODUCT_CATALOG_ALERT_TYPES];
+const ALERT_TYPE_TABS: AlertTypeTab[] = [
+  ...PRODUCT_CATALOG_ALERT_TYPES,
+  ADMIN_ALERT_TYPES.HIGH_RETURNING_USER,
+];
+
+function isUserAlertTab(tab: AlertTypeTab): boolean {
+  return tab === ADMIN_ALERT_TYPES.HIGH_RETURNING_USER;
+}
 
 function TabButton({
   active,
@@ -243,8 +250,12 @@ export function AlertsPage() {
       const entries = await Promise.all(
         ALERT_TYPE_TABS.map(async (alertType) => {
           const params = new URLSearchParams({ page: '1', per_page: '1' });
-          params.set('alert_type', alertType);
           if (statusFilter) params.set('status', statusFilter);
+          if (isUserAlertTab(alertType)) {
+            const r = await apiGet<ListResponse>(`/alerts/user?${params}`);
+            return [alertType, r.total || 0] as const;
+          }
+          params.set('alert_type', alertType);
           const r = await apiGet<ListResponse>(`/alerts?${params}`);
           return [alertType, r.total || 0] as const;
         }),
@@ -278,10 +289,11 @@ export function AlertsPage() {
           per_page: String(perPage),
           sort_by: sortBy,
           sort_dir: sortDir,
-          alert_type: activeAlertType,
         });
         if (statusFilter) params.set('status', statusFilter);
-        const r = await apiGet<ListResponse>(`/alerts?${params}`);
+        const endpoint = isUserAlertTab(activeAlertType) ? '/alerts/user' : '/alerts';
+        if (!isUserAlertTab(activeAlertType)) params.set('alert_type', activeAlertType);
+        const r = await apiGet<ListResponse>(`${endpoint}?${params}`);
         setError('');
         return { data: r.data || [], total: r.total || 0 };
       } catch (err) {
@@ -387,7 +399,7 @@ export function AlertsPage() {
               }}
             >
               <span className="inline-flex items-center gap-2">
-                {productCatalogAlertTypeLabel(alertType)}
+                {adminAlertTypeLabel(alertType)}
                 <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-semibold tabular-nums leading-none text-white">
                   {typeCountsLoading && count === undefined ? '…' : (count ?? 0)}
                 </span>
@@ -402,6 +414,66 @@ export function AlertsPage() {
       )}
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+        {isUserAlertTab(activeAlertType) ? (
+        <table className="w-full min-w-[760px] text-sm">
+          <thead>
+            <tr className="border-b bg-gray-50 text-left text-gray-500">
+              <th className="px-4 py-3 font-medium">Customer</th>
+              <th className="px-4 py-3 font-medium">Email</th>
+              <th className="px-4 py-3 font-medium">Returns</th>
+              <th className="px-4 py-3 font-medium">User Status</th>
+              <SortHeader label="Created" field="created_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName="px-4 py-3 font-medium" />
+              <SortHeader label="Alert Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName="px-4 py-3 font-medium" />
+              <th className="px-4 py-3 font-medium w-24">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  {activeTabCount === 0 && !typeCountsLoading ? 'No high returning user alerts.' : 'No alerts match your filters.'}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row: any) => {
+                const user = row.user;
+                const count = user?.returns_count ?? (typeof row.payload?.return_count === 'number' ? row.payload.return_count : '—');
+                const name = user?.name ?? (row.payload?.user_name as string) ?? 'Unknown user';
+                return (
+                  <tr key={row.id} className="border-b hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      {user ? (
+                        <Link to={`/admin/users/${user.id}`} className="font-medium text-indigo-600 hover:underline">{name}</Link>
+                      ) : (
+                        <span className="text-gray-600">{name}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{user?.email ?? '—'}</td>
+                    <td className="px-4 py-3 font-semibold tabular-nums text-red-600">{count}</td>
+                    <td className="px-4 py-3 text-gray-600">{user?.status ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-500">{new Date(row.created_at).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={(e) => toggleStatusPopup(row, e.currentTarget)}
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold hover:ring-2 hover:ring-indigo-200 ${statusBadgeClass(row.status)} ${statusPopupAlertId === row.id ? 'ring-2 ring-indigo-400' : ''}`}
+                        title="Edit alert status"
+                      >
+                        {statusLabel(row.status)}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button type="button" title="Delete alert" onClick={() => setDeleteTarget(row)} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600">
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+        ) : (
         <table className="w-full min-w-[960px] text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
@@ -436,7 +508,7 @@ export function AlertsPage() {
               <tr>
                 <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
                   {activeTabCount === 0 && !typeCountsLoading
-                    ? `No ${productCatalogAlertTypeLabel(activeAlertType)} alerts.`
+                    ? `No ${adminAlertTypeLabel(activeAlertType)} alerts.`
                     : 'No alerts match your filters.'}
                 </td>
               </tr>
@@ -543,6 +615,7 @@ export function AlertsPage() {
             )}
           </tbody>
         </table>
+        )}
 
         <EndlessTail
           paginationMode={paginationMode}

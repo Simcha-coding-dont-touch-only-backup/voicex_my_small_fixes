@@ -4,6 +4,8 @@ export const ADMIN_ALERT_TYPES = {
   PRODUCT_VOICEX_PRICE_ABOVE_LOCAL: 'product_voicex_price_above_local',
   /** Catalog product has no Amazon price (`amazon_price_cents` is null). */
   PRODUCT_MISSING_AMAZON_PRICE: 'product_missing_amazon_price',
+  /** User has made more returns than the high-return threshold. */
+  HIGH_RETURNING_USER: 'high_returning_user',
 } as const;
 
 export type AdminAlertType = (typeof ADMIN_ALERT_TYPES)[keyof typeof ADMIN_ALERT_TYPES];
@@ -14,8 +16,15 @@ export const PRODUCT_CATALOG_ALERT_TYPES = [
   ADMIN_ALERT_TYPES.PRODUCT_MISSING_AMAZON_PRICE,
 ] as const;
 
+/** Alert types scoped to a user (entity_type = 'user', no product_id). */
+export const USER_ALERT_TYPES = [ADMIN_ALERT_TYPES.HIGH_RETURNING_USER] as const;
+
 export function isProductCatalogAlertType(value: string): value is (typeof PRODUCT_CATALOG_ALERT_TYPES)[number] {
   return (PRODUCT_CATALOG_ALERT_TYPES as readonly string[]).includes(value);
+}
+
+export function isUserAlertType(value: string): value is (typeof USER_ALERT_TYPES)[number] {
+  return (USER_ALERT_TYPES as readonly string[]).includes(value);
 }
 
 /** Capitalize the first letter of each word (e.g. "price above local" → "Price Above Local"). */
@@ -37,6 +46,13 @@ export function productCatalogAlertTypeLabel(alertType: string): string {
     return toTitleCase('Missing Amazon Price');
   }
   return toTitleCase(alertType);
+}
+
+export function adminAlertTypeLabel(alertType: string): string {
+  if (alertType === ADMIN_ALERT_TYPES.HIGH_RETURNING_USER) {
+    return 'High Returning User';
+  }
+  return productCatalogAlertTypeLabel(alertType);
 }
 
 export const ADMIN_ALERT_STATUSES = ['new', 'reviewing', 'resolved'] as const;
@@ -63,6 +79,13 @@ export interface ProductMissingAmazonPricePayload {
   amazon_name: string | null;
   custom_price_cents: number | null;
   local_price_cents: number | null;
+}
+
+/** Snapshot stored in `admin_alerts.payload` for high-returning-user alerts. */
+export interface HighReturningUserPayload {
+  user_id: string;
+  user_name: string | null;
+  return_count: number;
 }
 
 export interface AdminAlert {

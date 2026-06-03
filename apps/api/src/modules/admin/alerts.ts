@@ -4,7 +4,9 @@ import {
   ADMIN_ALERT_TYPES,
   getProductPriceCents,
   isProductCatalogAlertType,
+  isUserAlertType,
   PRODUCT_CATALOG_ALERT_TYPES,
+  USER_ALERT_TYPES,
   type CatalogProduct,
 } from '@voicex/shared';
 import { supabaseAdmin } from '../../lib/supabase.js';
@@ -131,6 +133,71 @@ alertsRouter.get('/', async (req, res) => {
   });
 });
 
+alertsRouter.get('/user/count', async (_req, res) => {
+  const { count, error } = await supabaseAdmin
+    .from('admin_alerts')
+    .select('id', { count: 'exact', head: true })
+    .in('alert_type', [...USER_ALERT_TYPES])
+    .eq('status', 'new');
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  res.json({ success: true, data: { count: count ?? 0 } });
+});
+
+alertsRouter.get('/user', async (req, res) => {
+  const parsed = listQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid query' });
+    return;
+  }
+
+  const { page, per_page, status, sort_by, sort_dir } = parsed.data;
+  const offset = (page - 1) * per_page;
+
+  let query = supabaseAdmin
+    .from('admin_alerts')
+    .select('*', { count: 'exact' })
+    .in('alert_type', [...USER_ALERT_TYPES])
+    .order(sort_by, { ascending: sort_dir === 'asc' });
+
+  if (status) {
+    query = query.eq('status', status);
+  }
+
+  const { data, count, error } = await query.range(offset, offset + per_page - 1);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  // entity_id has no FK to users, so the user is joined manually.
+  const userIds = Array.from(new Set((data || []).map((a: any) => a.entity_id).filter(Boolean)));
+  const usersById = new Map<string, any>();
+  if (userIds.length > 0) {
+    const { data: users } = await supabaseAdmin
+      .from('users')
+      .select('id, name, email, status, returns_count')
+      .in('id', userIds);
+    for (const u of users || []) usersById.set(u.id, u);
+  }
+
+  const rows = (data || []).map((a: any) => ({ ...a, user: usersById.get(a.entity_id) ?? null }));
+
+  res.json({
+    success: true,
+    data: rows,
+    total: count ?? 0,
+    page,
+    per_page,
+    total_pages: Math.ceil((count ?? 0) / per_page),
+  });
+});
+
 alertsRouter.patch('/:id', async (req, res) => {
   const parsed = patchBodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -151,7 +218,7 @@ alertsRouter.patch('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: findErr.message });
     return;
   }
-  if (!existing || !isProductCatalogAlertType(existing.alert_type)) {
+  if (!existing || (!isProductCatalogAlertType(existing.alert_type) && !isUserAlertType(existing.alert_type))) {
     res.status(404).json({ success: false, error: 'Alert not found' });
     return;
   }
@@ -194,7 +261,7 @@ alertsRouter.delete('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: findErr.message });
     return;
   }
-  if (!existing || !isProductCatalogAlertType(existing.alert_type)) {
+  if (!existing || (!isProductCatalogAlertType(existing.alert_type) && !isUserAlertType(existing.alert_type))) {
     res.status(404).json({ success: false, error: 'Alert not found' });
     return;
   }

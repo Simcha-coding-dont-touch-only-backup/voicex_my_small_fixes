@@ -5,6 +5,15 @@ import { ProductImageLightbox, type LightboxImage } from './ProductImageLightbox
 
 const DETAIL_IMAGE_SIZE = 96;
 
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
 export function ProductDetailView({
   product,
   defaultMarkupPercent,
@@ -138,6 +147,14 @@ export function ProductDetailView({
           <div>
             <dt className="font-medium text-blue-600">Lifetime Sold</dt>
             <dd className="mt-0.5">{product.lifetime_qty_sold}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-blue-600">Date Added</dt>
+            <dd className="mt-0.5 text-gray-700">{formatDate(product.created_at)}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-blue-600">Last Edited</dt>
+            <dd className="mt-0.5 text-gray-700">{formatDate(product.updated_at)}</dd>
           </div>
           <div className="col-span-2">
             <dt className="font-medium text-blue-600">Categories</dt>

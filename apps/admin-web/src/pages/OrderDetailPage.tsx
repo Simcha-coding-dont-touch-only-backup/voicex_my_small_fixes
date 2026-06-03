@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { orderIdFromParam } from '@voicex/shared';
 import { apiGet } from '../lib/api';
 import { OrderEtaEditor, normalizeEtaRows, type EtaFormRow } from '../components/OrderEtaEditor';
@@ -113,6 +113,52 @@ export function OrderDetailPage() {
             </table>
             </div>
           </div>
+
+          {order.order_returns && order.order_returns.length > 0 && (
+            <div className="rounded-xl bg-white p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Returns</h3>
+                <Link to="/admin/returns" className="text-sm text-indigo-600 hover:underline">Manage returns →</Link>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-gray-500">
+                      <th className="pb-2 font-medium">Return #</th>
+                      <th className="pb-2 font-medium">Status</th>
+                      <th className="pb-2 font-medium">Items</th>
+                      <th className="pb-2 font-medium">Customer Refund</th>
+                      <th className="pb-2 font-medium">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.order_returns.map((ret: any) => {
+                      const items = ret.order_return_items || [];
+                      const qty = items.reduce((s: number, i: any) => s + i.quantity, 0);
+                      const refund = (ret.item_subtotal_cents + ret.tax_refund_cents) / 100;
+                      return (
+                        <tr key={ret.id} className="border-b last:border-0">
+                          <td className="py-2">
+                            <Link to="/admin/returns" className="font-medium text-indigo-600 hover:underline">{ret.id}</Link>
+                          </td>
+                          <td className="py-2">
+                            <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                              ret.status === 'complete' ? 'bg-green-100 text-green-700' :
+                              ret.status === 'cancelled' || ret.status === 'rejected' ? 'bg-gray-200 text-gray-600' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>{ret.status}</span>
+                          </td>
+                          <td className="py-2 text-gray-600">{items.length} ({qty})</td>
+                          <td className="py-2 tabular-nums">${refund.toFixed(2)}</td>
+                          <td className="py-2 text-gray-500">{new Date(ret.created_at).toLocaleDateString()}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl bg-white p-6 shadow-sm">
             <h3 className="mb-4 text-lg font-semibold">Events</h3>
