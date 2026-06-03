@@ -45,6 +45,7 @@ registerHandler('check_user', async (ctx) => {
           numDigits: 4,
           timeout: 10,
           finishOnKey: '',
+          regex: '[0-9]+',
           sessionData: {
             call_sid: ctx.callSid,
             user_id: user.id,
@@ -61,11 +62,14 @@ registerHandler('check_user', async (ctx) => {
   return {
     type: 'actions',
     response: buildCollect({
-      type: 'text',
+      type: 'recording',
       id: 'caller_name',
-      prompt: 'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep.',
+      prompt: 'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
       confirm: true,
+      confirmMethod: 'transcribe',
+      transcribe: true,
       retry: 3,
+      maxDuration: 10,
       actionPath: '/api/ivr/voice/gather',
       sessionData: {
         call_sid: ctx.callSid,
