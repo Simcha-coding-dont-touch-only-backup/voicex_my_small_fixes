@@ -11,13 +11,16 @@ import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal
 import { ImportProductsFlow } from '../components/ImportProductsFlow';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import { ProductDetailView } from '../components/ProductDetailView';
+import { CatalogProductStatusBadge } from '../components/CatalogProductStatusBadge';
 import { buildProductsListPdfBlob } from '../lib/products-list-pdf';
 import {
   catalogProductStatusBadgeClass,
   catalogProductStatusLabel,
+  catalogProductFrozenSublabel,
   getProductPriceCents,
   isCatalogProductStatus,
   type CatalogProduct,
+  type CatalogProductFrozenSource,
   type CatalogProductStatus,
 } from '@voicex/shared';
 import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
@@ -251,26 +254,43 @@ function ProductStatusRadioGroup({
   name,
   value,
   onChange,
+  frozenSource,
 }: {
   name: string;
   value: CatalogProductStatus;
   onChange: (status: CatalogProductStatus) => void;
+  frozenSource?: CatalogProductFrozenSource | null;
 }) {
   return (
     <div className="flex flex-col gap-2">
-      {PRODUCT_STATUS_OPTIONS.map((status) => (
-        <label key={status} className="flex cursor-pointer items-center gap-2 text-sm">
-          <input
-            type="radio"
-            name={name}
-            checked={value === status}
-            onChange={() => onChange(status)}
-          />
-          <span className={`rounded-full px-2 py-0.5 text-xs ${catalogProductStatusBadgeClass(status)}`}>
-            {catalogProductStatusLabel(status)}
-          </span>
-        </label>
-      ))}
+      {PRODUCT_STATUS_OPTIONS.map((status) => {
+        const sublabel =
+          status === 'frozen' && value === 'frozen'
+            ? catalogProductFrozenSublabel('frozen', frozenSource)
+            : null;
+        return (
+          <label key={status} className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="radio"
+              name={name}
+              checked={value === status}
+              onChange={() => onChange(status)}
+            />
+            {sublabel ? (
+              <span className="inline-flex flex-col items-center gap-0.5">
+                <span className={`rounded-full px-2 py-0.5 text-xs ${catalogProductStatusBadgeClass(status)}`}>
+                  {catalogProductStatusLabel(status)}
+                </span>
+                <span className="text-[10px] font-medium text-gray-500">{sublabel}</span>
+              </span>
+            ) : (
+              <span className={`rounded-full px-2 py-0.5 text-xs ${catalogProductStatusBadgeClass(status)}`}>
+                {catalogProductStatusLabel(status)}
+              </span>
+            )}
+          </label>
+        );
+      })}
     </div>
   );
 }
@@ -941,14 +961,18 @@ export function ProductsPage() {
       const updated = resp?.data;
       table.setRows((prev) =>
         prev.map((row) =>
-          row.id === savedId ? { ...row, ...(updated || {}), status: savedStatus } : row,
+          row.id === savedId ? { ...row, ...(updated || {}), status: updated?.status ?? savedStatus } : row,
         ),
       );
       if (editingId === savedId) {
-        setEditForm((prev: any) => ({ ...prev, status: savedStatus }));
+        setEditForm((prev: any) => ({
+          ...prev,
+          status: updated?.status ?? savedStatus,
+          frozen_source: updated?.frozen_source ?? prev.frozen_source,
+        }));
       }
       if (viewProduct?.id === savedId) {
-        setViewProduct((prev: any) => (prev ? { ...prev, status: savedStatus } : prev));
+        setViewProduct((prev: any) => (prev ? { ...prev, ...(updated || {}), status: updated?.status ?? savedStatus } : prev));
       }
       closeStatusPopup();
     } catch (err: unknown) {
@@ -1527,12 +1551,14 @@ export function ProductsPage() {
                     <button
                       type="button"
                       onClick={(e) => toggleStatusPopup(p, e.currentTarget)}
-                      className={`rounded-full px-2 py-0.5 text-xs hover:ring-2 hover:ring-indigo-200 ${
-                        catalogProductStatusBadgeClass(isCatalogProductStatus(p.status) ? p.status : 'inactive')
-                      } ${statusPopupProductId === p.id ? 'ring-2 ring-indigo-400' : ''}`}
+                      className={`text-left hover:ring-2 hover:ring-indigo-200 rounded-full ${statusPopupProductId === p.id ? 'ring-2 ring-indigo-400' : ''}`}
                       title="Edit status"
                     >
-                      {catalogProductStatusLabel(isCatalogProductStatus(p.status) ? p.status : 'inactive')}
+                      <CatalogProductStatusBadge
+                        status={isCatalogProductStatus(p.status) ? p.status : 'inactive'}
+                        frozenSource={p.frozen_source}
+                        stacked
+                      />
                     </button>
                   </td>
                   <td className={`${PRODUCTS_TABLE_CELL} text-gray-600`}>{p.lifetime_qty_sold}</td>
@@ -1727,6 +1753,11 @@ export function ProductsPage() {
                                 name={`product-status-edit-${p.id}`}
                                 value={isCatalogProductStatus(editForm.status) ? editForm.status : 'inactive'}
                                 onChange={(status) => setEditForm((prev: any) => ({ ...prev, status }))}
+                                frozenSource={
+                                  p.status === 'frozen' && p.frozen_source === 'auto' && editForm.status === 'frozen'
+                                    ? 'auto'
+                                    : 'manual'
+                                }
                               />
                             </div>
                           </div>

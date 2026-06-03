@@ -7,6 +7,8 @@ import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import { ProductDetailView } from '../components/ProductDetailView';
+import { CatalogProductStatusBadge } from '../components/CatalogProductStatusBadge';
+import { isCatalogProductStatus } from '@voicex/shared';
 
 export function ProductDetailPage() {
   const { id } = useParams();
@@ -49,17 +51,22 @@ export function ProductDetailPage() {
   }, [id]);
 
   const handleSave = async () => {
-    await apiPatch(`/catalog/products/${id}`, {
-      ...form,
-      amazon_price_cents: form.amazon_price_cents ? parseInt(form.amazon_price_cents) : null,
-      custom_price_cents: form.custom_price_cents ? parseInt(form.custom_price_cents) : null,
-      local_price_cents: form.local_price_cents !== '' && form.local_price_cents != null
-        ? parseInt(String(form.local_price_cents), 10)
-        : null,
-    });
-    setEditing(false);
-    apiGet<any>(`/catalog/products/${id}`).then((r) => setProduct(r.data));
-    window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
+    try {
+      await apiPatch(`/catalog/products/${id}`, {
+        ...form,
+        amazon_price_cents: form.amazon_price_cents ? parseInt(form.amazon_price_cents) : null,
+        custom_price_cents: form.custom_price_cents ? parseInt(form.custom_price_cents) : null,
+        local_price_cents: form.local_price_cents !== '' && form.local_price_cents != null
+          ? parseInt(String(form.local_price_cents), 10)
+          : null,
+      });
+      setEditing(false);
+      const r = await apiGet<any>(`/catalog/products/${id}`);
+      setProduct(r.data);
+      window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to save product');
+    }
   };
 
   const handleDelete = async () => {
@@ -189,6 +196,19 @@ export function ProductDetailPage() {
                   <option value="inactive">Inactive</option>
                   <option value="frozen">Frozen</option>
                 </select>
+                {isCatalogProductStatus(form.status) && form.status === 'frozen' ? (
+                  <div className="mt-2">
+                    <CatalogProductStatusBadge
+                      status="frozen"
+                      frozenSource={
+                        product.status === 'frozen' && product.frozen_source === 'auto' && form.status === 'frozen'
+                          ? 'auto'
+                          : 'manual'
+                      }
+                      stacked
+                    />
+                  </div>
+                ) : null}
               </div>
               <div>
                 <div className="flex items-center justify-between">

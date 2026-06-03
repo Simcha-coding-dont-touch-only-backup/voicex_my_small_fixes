@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { catalogProductStatusLabel, isCatalogProductStatus } from '@voicex/shared';
+import { CatalogProductStatusBadge } from './CatalogProductStatusBadge';
 import { CustomPriceReadonlyDisplay } from '../lib/product-price';
 import { ProductImageLightbox, type LightboxImage } from './ProductImageLightbox';
 
@@ -128,7 +128,11 @@ export function ProductDetailView({
           <div>
             <dt className="font-medium text-blue-600">Status</dt>
             <dd className="mt-0.5">
-              {catalogProductStatusLabel(isCatalogProductStatus(product.status) ? product.status : 'inactive')}
+              <CatalogProductStatusBadge
+                status={product.status}
+                frozenSource={product.frozen_source}
+                stacked
+              />
             </dd>
           </div>
           <div>

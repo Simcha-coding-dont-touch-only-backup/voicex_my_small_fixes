@@ -1,13 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Trash2, AlertTriangle } from 'lucide-react';
 import { apiDelete, apiGet, apiPatch } from '../lib/api';
 import { formatUsdFromCents } from '../lib/product-price';
 import { ProductThumbnail } from '../components/ProductThumbnail';
-import { getProductDisplayName, type CatalogProduct } from '@voicex/shared';
+import {
+  ADMIN_ALERT_TYPES,
+  getProductDisplayName,
+  PRODUCT_CATALOG_ALERT_TYPES,
+  productCatalogAlertTypeLabel,
+  type CatalogProduct,
+} from '@voicex/shared';
+import { CatalogProductStatusBadge } from '../components/CatalogProductStatusBadge';
 import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
 type AlertStatus = 'new' | 'reviewing' | 'resolved';
+
+const ALERT_STATUS_OPTIONS: AlertStatus[] = ['new', 'reviewing', 'resolved'];
 
 type EmbeddedProduct = CatalogProduct & {
   thumbnail_url?: string | null;
@@ -64,16 +74,203 @@ function emitAlertsCountRefresh() {
   window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
 }
 
+function AlertStatusRadioGroup({
+  name,
+  value,
+  onChange,
+}: {
+  name: string;
+  value: AlertStatus;
+  onChange: (status: AlertStatus) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {ALERT_STATUS_OPTIONS.map((status) => (
+        <label key={status} className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name={name}
+            checked={value === status}
+            onChange={() => onChange(status)}
+          />
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(status)}`}>
+            {statusLabel(status)}
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function AlertStatusInlineEditor({
+  open,
+  anchorEl,
+  draftStatus,
+  saving,
+  onDraftChange,
+  onSave,
+  onCancel,
+  saveError,
+}: {
+  open: boolean;
+  anchorEl: HTMLElement | null;
+  draftStatus: AlertStatus;
+  saving: boolean;
+  onDraftChange: (status: AlertStatus) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saveError?: string | null;
+}) {
+  const popupRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open || !anchorEl) {
+      setPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const rect = anchorEl.getBoundingClientRect();
+      const popupW = 240;
+      const popupH = 200;
+      let left = rect.left;
+      if (left + popupW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - popupW - 8);
+      let top = rect.bottom + 6;
+      if (top + popupH > window.innerHeight - 8) top = Math.max(8, rect.top - popupH - 6);
+      setPos({ top, left });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, anchorEl]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (anchorEl?.contains(target)) return;
+      if (popupRef.current?.contains(target)) return;
+      onCancel();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, anchorEl, onCancel]);
+
+  if (!open || !pos) return null;
+
+  return createPortal(
+    <div
+      ref={popupRef}
+      style={{ top: pos.top, left: pos.left }}
+      className="fixed z-[9999] w-60 rounded-lg border border-indigo-200 bg-white p-4 shadow-xl"
+      role="dialog"
+      aria-label="Edit alert status"
+    >
+      <span className="mb-3 block text-sm font-medium text-gray-700">Alert status</span>
+      <AlertStatusRadioGroup
+        name="alert-status-inline"
+        value={draftStatus}
+        onChange={onDraftChange}
+      />
+      {saveError ? <p className="mt-2 text-sm text-red-600">{saveError}</p> : null}
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+        <button type="button" onClick={onCancel} disabled={saving} className="rounded border px-3 py-1.5 text-sm">
+          Cancel
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+type AlertTypeTab = (typeof PRODUCT_CATALOG_ALERT_TYPES)[number];
+
+const ALERT_TYPE_TABS: AlertTypeTab[] = [...PRODUCT_CATALOG_ALERT_TYPES];
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+        active
+          ? 'border-indigo-500 text-indigo-600'
+          : 'border-transparent text-gray-500 hover:text-gray-700'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function AlertsPage() {
+  const [activeAlertType, setActiveAlertType] = useState<AlertTypeTab>(ALERT_TYPE_TABS[0]);
   const [statusFilter, setStatusFilter] = useState<AlertStatus | ''>('');
+  const [typeCounts, setTypeCounts] = useState<Partial<Record<AlertTypeTab, number>>>({});
+  const [typeCountsLoading, setTypeCountsLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AdminAlertRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [statusPopupAlertId, setStatusPopupAlertId] = useState<string | null>(null);
+  const [statusEditDraft, setStatusEditDraft] = useState<AlertStatus>('new');
+  const [statusAnchorEl, setStatusAnchorEl] = useState<HTMLElement | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusSaveError, setStatusSaveError] = useState<string | null>(null);
+
+  const refreshTypeCounts = async () => {
+    setTypeCountsLoading(true);
+    try {
+      const entries = await Promise.all(
+        ALERT_TYPE_TABS.map(async (alertType) => {
+          const params = new URLSearchParams({ page: '1', per_page: '1' });
+          params.set('alert_type', alertType);
+          if (statusFilter) params.set('status', statusFilter);
+          const r = await apiGet<ListResponse>(`/alerts?${params}`);
+          return [alertType, r.total || 0] as const;
+        }),
+      );
+      setTypeCounts(Object.fromEntries(entries) as Record<AlertTypeTab, number>);
+    } catch {
+      // Table fetch surfaces list errors; keep prior tab counts on count-only failure.
+    } finally {
+      setTypeCountsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshTypeCounts();
+  }, [statusFilter]);
+
+  useEffect(() => {
+    const onRefresh = () => void refreshTypeCounts();
+    window.addEventListener('voicex:alerts-count-refresh', onRefresh);
+    return () => window.removeEventListener('voicex:alerts-count-refresh', onRefresh);
+  }, [statusFilter]);
 
   const table = useAdminTableQuery<AdminAlertRow>({
     defaultSort: { field: 'created_at', dir: 'desc' },
     defaultPerPage: 20,
-    filterKey: statusFilter,
+    filterKey: `${statusFilter}|${activeAlertType}`,
     fetcher: async ({ page, perPage, sortBy, sortDir }) => {
       try {
         const params = new URLSearchParams({
@@ -81,6 +278,7 @@ export function AlertsPage() {
           per_page: String(perPage),
           sort_by: sortBy,
           sort_dir: sortDir,
+          alert_type: activeAlertType,
         });
         if (statusFilter) params.set('status', statusFilter);
         const r = await apiGet<ListResponse>(`/alerts?${params}`);
@@ -95,13 +293,40 @@ export function AlertsPage() {
   const rows = table.rows;
   const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
 
-  const handleStatusChange = async (row: AdminAlertRow, status: AlertStatus) => {
+  const activeTabCount = typeCounts[activeAlertType];
+
+  const closeStatusPopup = () => {
+    setStatusPopupAlertId(null);
+    setStatusAnchorEl(null);
+    setStatusSaveError(null);
+  };
+
+  const toggleStatusPopup = (row: AdminAlertRow, anchor: HTMLElement) => {
+    if (statusPopupAlertId === row.id) {
+      closeStatusPopup();
+      return;
+    }
+    setStatusSaveError(null);
+    setStatusAnchorEl(anchor);
+    setStatusPopupAlertId(row.id);
+    setStatusEditDraft(row.status);
+  };
+
+  const handleStatusSave = async () => {
+    if (!statusPopupAlertId) return;
+    setStatusSaving(true);
+    setStatusSaveError(null);
     try {
-      await apiPatch(`/alerts/${row.id}`, { status });
-      table.setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, status } : x)));
+      const savedId = statusPopupAlertId;
+      const savedStatus = statusEditDraft;
+      await apiPatch(`/alerts/${savedId}`, { status: savedStatus });
+      table.setRows((prev) => prev.map((x) => (x.id === savedId ? { ...x, status: savedStatus } : x)));
       emitAlertsCountRefresh();
+      closeStatusPopup();
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Failed to update status');
+      setStatusSaveError(err instanceof Error ? err.message : 'Failed to update status');
+    } finally {
+      setStatusSaving(false);
     }
   };
 
@@ -112,6 +337,10 @@ export function AlertsPage() {
       await apiDelete(`/alerts/${deleteTarget.id}`);
       table.setRows((prev) => prev.filter((x) => x.id !== deleteTarget.id));
       table.setTotal((t) => Math.max(0, t - 1));
+      setTypeCounts((prev) => ({
+        ...prev,
+        [activeAlertType]: Math.max(0, (prev[activeAlertType] ?? 0) - 1),
+      }));
       setDeleteTarget(null);
       emitAlertsCountRefresh();
     } catch (err) {
@@ -123,26 +352,49 @@ export function AlertsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Alerts</h2>
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                table.setPage(1);
-                setStatusFilter(e.target.value as AlertStatus | '');
-              }}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">All</option>
-              <option value="new">New</option>
-              <option value="reviewing">Reviewing</option>
-              <option value="resolved">Resolved</option>
-            </select>
-          </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Status</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              table.setPage(1);
+              setStatusFilter(e.target.value as AlertStatus | '');
+            }}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">All</option>
+            <option value="new">New</option>
+            <option value="reviewing">Reviewing</option>
+            <option value="resolved">Resolved</option>
+          </select>
         </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-1 border-b">
+        {ALERT_TYPE_TABS.map((alertType) => {
+          const count = typeCounts[alertType];
+          const isActive = activeAlertType === alertType;
+          return (
+            <TabButton
+              key={alertType}
+              active={isActive}
+              onClick={() => {
+                if (alertType === activeAlertType) return;
+                table.setPage(1);
+                setActiveAlertType(alertType);
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                {productCatalogAlertTypeLabel(alertType)}
+                <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-semibold tabular-nums leading-none text-white">
+                  {typeCountsLoading && count === undefined ? '…' : (count ?? 0)}
+                </span>
+              </span>
+            </TabButton>
+          );
+        })}
       </div>
 
       {error && (
@@ -156,20 +408,21 @@ export function AlertsPage() {
               <th className="px-3 py-3 font-medium w-16">Image</th>
               <th className="px-4 py-3 font-medium">Product</th>
               <th className="px-4 py-3 font-medium">VoiceX ID</th>
+              <th className="px-4 py-3 font-medium">Product Status</th>
               <th className="px-4 py-3 font-medium">ASIN</th>
               <th className="px-4 py-3 font-medium">Custom price</th>
               <th className="px-4 py-3 font-medium">Local price</th>
               <SortHeader
-                label="Status"
-                field="status"
+                label="Created"
+                field="created_at"
                 sortBy={sortBy}
                 sortDir={sortDir}
                 onSort={table.handleSort}
                 thClassName="px-4 py-3 font-medium"
               />
               <SortHeader
-                label="Created"
-                field="created_at"
+                label="Alert Status"
+                field="status"
                 sortBy={sortBy}
                 sortDir={sortDir}
                 onSort={table.handleSort}
@@ -181,8 +434,10 @@ export function AlertsPage() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
-                  No alerts match your filters.
+                <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
+                  {activeTabCount === 0 && !typeCountsLoading
+                    ? `No ${productCatalogAlertTypeLabel(activeAlertType)} alerts.`
+                    : 'No alerts match your filters.'}
                 </td>
               </tr>
             ) : (
@@ -194,6 +449,13 @@ export function AlertsPage() {
                   (typeof row.payload.effective_custom_price_cents === 'number'
                     ? row.payload.effective_custom_price_cents
                     : null);
+                const customCents =
+                  p?.custom_price_cents ??
+                  (typeof row.payload.custom_price_cents === 'number' ? row.payload.custom_price_cents : null);
+                const customPriceDisplay =
+                  row.alert_type === ADMIN_ALERT_TYPES.PRODUCT_MISSING_AMAZON_PRICE
+                    ? customCents
+                    : effective;
                 const local =
                   p?.local_price_cents ??
                   (typeof row.payload.local_price_cents === 'number' ? row.payload.local_price_cents : null);
@@ -225,40 +487,45 @@ export function AlertsPage() {
                       {p?.deleted_at && (
                         <span className="ml-2 text-xs text-amber-600">(trashed)</span>
                       )}
+                      <div className="mt-0.5 text-xs text-gray-500">{row.title}</div>
                     </td>
                     <td className="px-4 py-3 font-mono text-gray-700">
                       {(p?.voicex_id as string | undefined) ?? (row.payload.voicex_id as string) ?? '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {p && !p.deleted_at ? (
+                        <CatalogProductStatusBadge
+                          status={p.status}
+                          frozenSource={p.frozen_source}
+                          stacked
+                        />
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {(p?.amazon_asin as string | undefined) ?? (row.payload.amazon_asin as string) ?? '—'}
                     </td>
                     <td className="px-4 py-3 tabular-nums">
-                      {effective != null ? formatUsdFromCents(effective) : '—'}
+                      {customPriceDisplay != null ? formatUsdFromCents(customPriceDisplay) : '—'}
                     </td>
                     <td className="px-4 py-3 font-semibold tabular-nums text-red-600">
                       {local != null ? formatUsdFromCents(local) : '—'}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-                        <span
-                          className={`inline-block w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(row.status)}`}
-                        >
-                          {statusLabel(row.status)}
-                        </span>
-                        <select
-                          value={row.status}
-                          onChange={(e) => void handleStatusChange(row, e.target.value as AlertStatus)}
-                          className="max-w-[140px] rounded border border-gray-200 px-2 py-1 text-xs"
-                          aria-label="Change alert status"
-                        >
-                          <option value="new">New</option>
-                          <option value="reviewing">Reviewing</option>
-                          <option value="resolved">Resolved</option>
-                        </select>
-                      </div>
-                    </td>
                     <td className="px-4 py-3 text-gray-500">
                       {new Date(row.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={(e) => toggleStatusPopup(row, e.currentTarget)}
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold hover:ring-2 hover:ring-indigo-200 ${statusBadgeClass(row.status)} ${
+                          statusPopupAlertId === row.id ? 'ring-2 ring-indigo-400' : ''
+                        }`}
+                        title="Edit alert status"
+                      >
+                        {statusLabel(row.status)}
+                      </button>
                     </td>
                     <td className="px-4 py-3">
                       <button
@@ -299,6 +566,17 @@ export function AlertsPage() {
           itemLabelPlural="Alerts"
         />
       </div>
+
+      <AlertStatusInlineEditor
+        open={statusPopupAlertId !== null}
+        anchorEl={statusAnchorEl}
+        draftStatus={statusEditDraft}
+        saving={statusSaving}
+        saveError={statusSaveError}
+        onDraftChange={setStatusEditDraft}
+        onSave={() => void handleStatusSave()}
+        onCancel={closeStatusPopup}
+      />
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

@@ -1,15 +1,23 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ADMIN_ALERT_TYPES, getProductPriceCents, type CatalogProduct } from '@voicex/shared';
+import {
+  ADMIN_ALERT_TYPES,
+  getProductPriceCents,
+  isProductCatalogAlertType,
+  PRODUCT_CATALOG_ALERT_TYPES,
+  type CatalogProduct,
+} from '@voicex/shared';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { getThumbnailPublicUrl } from '../../lib/product-images.js';
 import { getDefaultMarkupPercent } from '../../lib/product-price-alerts.js';
 
 export const alertsRouter = Router();
 
-const ALERT_TYPE = ADMIN_ALERT_TYPES.PRODUCT_VOICEX_PRICE_ABOVE_LOCAL;
-
 const alertStatusZod = z.enum(['new', 'reviewing', 'resolved']);
+const alertTypeZod = z.enum([
+  ADMIN_ALERT_TYPES.PRODUCT_VOICEX_PRICE_ABOVE_LOCAL,
+  ADMIN_ALERT_TYPES.PRODUCT_MISSING_AMAZON_PRICE,
+]);
 
 const ALERTS_SORTABLE_COLUMNS = ['created_at', 'status', 'alert_type'] as const;
 const alertSortByZod = z.enum(ALERTS_SORTABLE_COLUMNS);
@@ -19,6 +27,7 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   per_page: z.coerce.number().int().min(1).max(1000).default(20),
   status: alertStatusZod.optional(),
+  alert_type: alertTypeZod.optional(),
   sort_by: alertSortByZod.default('created_at'),
   sort_dir: alertSortDirZod.default('desc'),
 });
@@ -38,7 +47,7 @@ alertsRouter.get('/new-count', async (_req, res) => {
   const { count, error } = await supabaseAdmin
     .from('admin_alerts')
     .select('id', { count: 'exact', head: true })
-    .eq('alert_type', ALERT_TYPE)
+    .in('alert_type', [...PRODUCT_CATALOG_ALERT_TYPES])
     .eq('status', 'new');
 
   if (error) {
@@ -56,7 +65,7 @@ alertsRouter.get('/', async (req, res) => {
     return;
   }
 
-  const { page, per_page, status, sort_by, sort_dir } = parsed.data;
+  const { page, per_page, status, alert_type, sort_by, sort_dir } = parsed.data;
   const offset = (page - 1) * per_page;
 
   let query = supabaseAdmin
@@ -65,16 +74,19 @@ alertsRouter.get('/', async (req, res) => {
       `*,
       catalog_products (
         id, voicex_id, amazon_asin, amazon_name, voice_name,
-        thumbnail_path, amazon_image_urls, status, deleted_at,
+        thumbnail_path, amazon_image_urls, status, frozen_source, deleted_at,
         custom_price_cents, amazon_price_cents, local_price_cents
       )`,
       { count: 'exact' },
     )
-    .eq('alert_type', ALERT_TYPE)
+    .in('alert_type', [...PRODUCT_CATALOG_ALERT_TYPES])
     .order(sort_by, { ascending: sort_dir === 'asc' });
 
   if (status) {
     query = query.eq('status', status);
+  }
+  if (alert_type) {
+    query = query.eq('alert_type', alert_type);
   }
 
   const { data, count, error } = await query.range(offset, offset + per_page - 1);
@@ -91,7 +103,11 @@ alertsRouter.get('/', async (req, res) => {
     const product = Array.isArray(raw) ? raw[0] : raw;
     const decorated = decorateEmbeddedProduct(product);
     let effective_custom_price_cents: number | null = null;
-    if (decorated && !decorated.deleted_at) {
+    if (
+      decorated &&
+      !decorated.deleted_at &&
+      row.alert_type === ADMIN_ALERT_TYPES.PRODUCT_VOICEX_PRICE_ABOVE_LOCAL
+    ) {
       effective_custom_price_cents = getProductPriceCents(
         decorated as CatalogProduct,
         markupPercent,
@@ -125,6 +141,21 @@ alertsRouter.patch('/:id', async (req, res) => {
   const { status } = parsed.data;
   const resolved_at = status === 'resolved' ? new Date().toISOString() : null;
 
+  const { data: existing, error: findErr } = await supabaseAdmin
+    .from('admin_alerts')
+    .select('id, alert_type')
+    .eq('id', req.params.id)
+    .maybeSingle();
+
+  if (findErr) {
+    res.status(500).json({ success: false, error: findErr.message });
+    return;
+  }
+  if (!existing || !isProductCatalogAlertType(existing.alert_type)) {
+    res.status(404).json({ success: false, error: 'Alert not found' });
+    return;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('admin_alerts')
     .update({
@@ -133,17 +164,11 @@ alertsRouter.patch('/:id', async (req, res) => {
       updated_at: new Date().toISOString(),
     })
     .eq('id', req.params.id)
-    .eq('alert_type', ALERT_TYPE)
     .select()
     .single();
 
   if (error) {
     res.status(500).json({ success: false, error: error.message });
-    return;
-  }
-
-  if (!data) {
-    res.status(404).json({ success: false, error: 'Alert not found' });
     return;
   }
 
@@ -161,7 +186,7 @@ alertsRouter.patch('/:id', async (req, res) => {
 alertsRouter.delete('/:id', async (req, res) => {
   const { data: existing, error: findErr } = await supabaseAdmin
     .from('admin_alerts')
-    .select('id')
+    .select('id, alert_type')
     .eq('id', req.params.id)
     .maybeSingle();
 
@@ -169,7 +194,7 @@ alertsRouter.delete('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: findErr.message });
     return;
   }
-  if (!existing) {
+  if (!existing || !isProductCatalogAlertType(existing.alert_type)) {
     res.status(404).json({ success: false, error: 'Alert not found' });
     return;
   }

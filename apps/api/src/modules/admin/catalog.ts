@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { isCatalogProductStatus } from '@voicex/shared';
+import { getActivateProductBlockReason, isCatalogProductStatus, type CatalogProduct } from '@voicex/shared';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { fetchAmazonProduct, RainforestProductLookupError } from '../../lib/rainforest.js';
 import {
@@ -9,11 +9,22 @@ import {
   deleteThumbnailsForAsin,
   type ProductImageInput,
 } from '../../lib/product-images.js';
-import { syncProductVoicexPriceAboveLocalAlert } from '../../lib/product-price-alerts.js';
+import { getDefaultMarkupPercent, syncProductCatalogAlerts } from '../../lib/product-price-alerts.js';
 import { fetchAllRows } from '../../lib/fetch-all-rows.js';
 
 function decorateProductWithThumbnail<T extends { thumbnail_path?: string | null }>(p: T): T & { thumbnail_url: string | null } {
   return { ...p, thumbnail_url: getThumbnailPublicUrl(p.thumbnail_path ?? null) };
+}
+
+async function reloadCatalogProduct(productId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('catalog_products')
+    .select('*')
+    .eq('id', productId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data;
 }
 
 const DUPLICATE_ASIN_IN_CATALOG_MESSAGE =
@@ -582,9 +593,13 @@ catalogRouter.post('/products', async (req, res) => {
     changes: { voicex_id: product.voicex_id, amazon_asin: asinForStorage },
   });
 
-  void syncProductVoicexPriceAboveLocalAlert(product.id);
+  await syncProductCatalogAlerts(product.id);
+  const refreshed = await reloadCatalogProduct(product.id);
 
-  res.status(201).json({ success: true, data: decorateProductWithThumbnail(product) });
+  res.status(201).json({
+    success: true,
+    data: decorateProductWithThumbnail(refreshed ?? product),
+  });
 });
 
 catalogRouter.patch('/products/:id', async (req, res) => {
@@ -614,6 +629,11 @@ catalogRouter.patch('/products/:id', async (req, res) => {
       return;
     }
     updates.status = status;
+    if (status === 'frozen') {
+      updates.frozen_source = 'manual';
+    } else {
+      updates.frozen_source = null;
+    }
   }
 
   const hasCategoryUpdate = category_ids !== undefined;
@@ -622,6 +642,49 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   if (!hasProductFieldUpdates && !hasCategoryUpdate) {
     res.status(400).json({ success: false, error: 'No updates provided' });
     return;
+  }
+
+  const needsActivationCheck =
+    status === 'active' ||
+    (status === undefined &&
+      ['amazon_price_cents', 'custom_price_cents', 'local_price_cents'].some(
+        (k) => Object.prototype.hasOwnProperty.call(req.body ?? {}, k),
+      ));
+
+  const needsAlertSync =
+    hasProductFieldUpdates &&
+    (['amazon_price_cents', 'custom_price_cents', 'local_price_cents'].some(
+      (k) => Object.prototype.hasOwnProperty.call(req.body ?? {}, k),
+    ) ||
+      status !== undefined);
+
+  if (needsActivationCheck || needsAlertSync) {
+    const { data: current, error: loadErr } = await supabaseAdmin
+      .from('catalog_products')
+      .select('*')
+      .eq('id', req.params.id)
+      .is('deleted_at', null)
+      .single();
+
+    if (loadErr || !current) {
+      res.status(404).json({ success: false, error: 'Product not found' });
+      return;
+    }
+
+    const merged: CatalogProduct = {
+      ...(current as CatalogProduct),
+      ...(updates as Partial<CatalogProduct>),
+    };
+
+    const targetStatus = (updates.status ?? current.status) as string;
+    if (targetStatus === 'active') {
+      const markupPercent = await getDefaultMarkupPercent();
+      const blockReason = getActivateProductBlockReason(merged, markupPercent);
+      if (blockReason) {
+        res.status(400).json({ success: false, error: blockReason });
+        return;
+      }
+    }
   }
 
   let data: any = null;
@@ -673,12 +736,10 @@ catalogRouter.patch('/products/:id', async (req, res) => {
     changes: auditChanges,
   });
 
-  if (
-    ['amazon_price_cents', 'custom_price_cents', 'local_price_cents'].some(
-      (k) => Object.prototype.hasOwnProperty.call(req.body ?? {}, k),
-    )
-  ) {
-    void syncProductVoicexPriceAboveLocalAlert(req.params.id);
+  if (needsAlertSync) {
+    await syncProductCatalogAlerts(req.params.id);
+    const refreshed = await reloadCatalogProduct(req.params.id);
+    if (refreshed) data = refreshed;
   }
 
   res.json({ success: true, data: data ? decorateProductWithThumbnail(data) : data });
@@ -1034,7 +1095,7 @@ catalogRouter.post('/products/import-row', async (req, res) => {
     },
   });
 
-  void syncProductVoicexPriceAboveLocalAlert(product.id);
+  await syncProductCatalogAlerts(product.id);
 
   res.json({
     success: true,

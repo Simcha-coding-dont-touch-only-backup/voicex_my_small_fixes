@@ -17,6 +17,8 @@ export interface CatalogProductImage {
 
 export type CatalogProductStatus = 'active' | 'inactive' | 'frozen';
 
+export type CatalogProductFrozenSource = 'auto' | 'manual';
+
 const CATALOG_PRODUCT_STATUSES: CatalogProductStatus[] = ['active', 'inactive', 'frozen'];
 
 export function isCatalogProductStatus(value: string): value is CatalogProductStatus {
@@ -34,6 +36,40 @@ export function catalogProductStatusBadgeClass(status: CatalogProductStatus): st
   if (status === 'active') return 'bg-green-100 text-green-700';
   if (status === 'frozen') return 'bg-orange-100 text-orange-700';
   return 'bg-gray-100 text-gray-500';
+}
+
+/** Sub-label under Frozen status in admin UI (`null` frozen_source → Manual). */
+export function catalogProductFrozenSublabel(
+  status: CatalogProductStatus,
+  frozenSource: CatalogProductFrozenSource | null | undefined,
+): 'Auto' | 'Manual' | null {
+  if (status !== 'frozen') return null;
+  if (frozenSource === 'auto') return 'Auto';
+  return 'Manual';
+}
+
+export const ACTIVATE_PRODUCT_BLOCK = {
+  ABOVE_LOCAL: "Can't activate: VoiceX price is above local retail",
+  MISSING_AMAZON: "Can't activate: Amazon price is not set",
+} as const;
+
+export function getActivateProductBlockReason(
+  product: Pick<CatalogProduct, 'custom_price_cents' | 'amazon_price_cents' | 'local_price_cents'>,
+  markupPercent: number,
+): string | null {
+  if (product.amazon_price_cents == null) {
+    return ACTIVATE_PRODUCT_BLOCK.MISSING_AMAZON;
+  }
+  const effective = getProductPriceCents(
+    product as CatalogProduct,
+    markupPercent,
+    false,
+  );
+  const local = product.local_price_cents;
+  if (effective != null && local != null && effective > local) {
+    return ACTIVATE_PRODUCT_BLOCK.ABOVE_LOCAL;
+  }
+  return null;
 }
 
 export interface CatalogProduct {
@@ -58,6 +94,8 @@ export interface CatalogProduct {
   /** Server-decorated absolute public URL for `thumbnail_path` (admin API only). */
   thumbnail_url?: string | null;
   status: CatalogProductStatus;
+  /** Set when `status` is `frozen`: system auto-freeze vs admin manual freeze. */
+  frozen_source: CatalogProductFrozenSource | null;
   lifetime_qty_sold: number;
   created_at: string;
   updated_at: string;
