@@ -26,6 +26,7 @@ The implementation covers the broad feature shape: subscription packages by week
 - The pre-run/partial fulfillment logic does not yet check Amazon availability or reduce quantities.
 - Some admin filters/counts are based on delivery rows rather than truly subscribed active packages.
 - Alert resolution is too broad and can hide unresolved delivery problems.
+- Retrying a run that was already charged (but recorded failed) can double-charge the card because the idempotency key changes per attempt.
 
 ## Critical Issues
 
@@ -288,6 +289,31 @@ Suggested fix:
 
 Check every persistence result after charge. Prefer a database RPC/transaction for order, items, events, run update, and product counters, with a clear manual-review state if any post-charge write fails.
 
+### 20. Retrying a Charged-But-Failed Run Can Double-Charge the Card
+
+Severity: High
+
+Evidence:
+
+- The idempotency key (Sola `invoice`) includes the attempt number:
+  - `apps/api/src/lib/subscription-engine.ts:333`
+- `processRun` re-claims runs already in `failed`/`issue` and re-runs the charge:
+  - `apps/api/src/lib/subscription-engine.ts:317`
+  - `apps/api/src/lib/subscription-engine.ts:326`
+- `finishProcessRun` does not check for an existing `sola_ref_num`/charge before charging again:
+  - `apps/api/src/lib/subscription-engine.ts:378`
+- A charge can succeed at Sola while the run is recorded `failed`:
+  - The post-charge order-persist failure path marks the run `failed` with `sola_ref_num` set and `manual_review: true` (`apps/api/src/lib/subscription-engine.ts:417`).
+  - A network/timeout error thrown from `solaSaleRecurring` after the charge actually went through is caught and sent to `failRun` (`apps/api/src/lib/subscription-engine.ts:383`), leaving a retryable `failed` run.
+
+Impact:
+
+Because each retry uses a new attempt number (and therefore a new invoice), Sola will not dedupe it. An admin or caller retrying a run that was actually charged once (order-persist failure, or a Sola response lost to a timeout) charges the card a second time.
+
+Suggested fix:
+
+Before charging, short-circuit if the run already has a `sola_ref_num` (treat it as charged and route to order-repair/manual review instead of re-charging). Consider an idempotency key that excludes the attempt number, or pre-check the prior charge at Sola, so a retry is genuinely idempotent at the gateway.
+
 ## Medium Issues and Missing Spec Pieces
 
 ### 11. Queue Seeding Does Not Follow the "Next Week Only" Sequence
@@ -436,6 +462,28 @@ Suggested fix:
 
 Reuse the subscription pricing helper or snapshot the intended package total when pausing.
 
+### 21. A Run Going Issue -> Failed Leaves Its Delivery Issue Alert Open
+
+Severity: Medium
+
+Evidence:
+
+- The pre-run check sets a run to `issue` and creates a Delivery Issue alert:
+  - `apps/api/src/lib/subscription-engine.ts:149`
+  - `apps/api/src/lib/subscription-engine.ts:153`
+- At lock, an unresolved `issue` run (e.g. card still expired) becomes `failed` and a separate Failed Delivery alert is created:
+  - `apps/api/src/lib/subscription-engine.ts:262`
+  - `apps/api/src/lib/subscription-engine.ts:270`
+- Nothing resolves the original Delivery Issue alert when the run transitions to `failed`.
+
+Impact:
+
+The same underlying problem produces two open admin alerts (a `new` Delivery Issue and a `new` Failed Delivery) for one delivery/cycle, inflating the open-alert count on Subscriptions Management and the alerts tabs and making the Delivery Issue tab look perpetually unresolved.
+
+Suggested fix:
+
+When a run moves from `issue` to `failed`, resolve (or supersede) the Delivery Issue alert tied to that run/delivery+cycle so only the Failed Delivery alert remains open.
+
 ## Lower Priority / Clarifications
 
 ### 18. Entering the Subscription Menu Creates a Subscription Row
@@ -480,3 +528,48 @@ Add focused tests around:
 - Alert resolve/retry/skip lifecycle.
 - Partial snapshot generation.
 - Post-charge persistence failure handling.
+
+### 22. Failed Runs Do Not Immediately Seed the Next Cycle
+
+Severity: Low
+
+Evidence:
+
+- Successful processing and skip both re-seed the next cycle:
+  - `apps/api/src/lib/subscription-engine.ts:479`
+  - `apps/api/src/lib/subscription-engine.ts:617`
+- `failRun` and the lock-time hard-fail path do not call `scheduleNextCycle`:
+  - `apps/api/src/lib/subscription-engine.ts:484`
+  - `apps/api/src/lib/subscription-engine.ts:261`
+- The next pending run is therefore only created by the global `ensureAllUpcomingRuns` sweep in the prerun/lock cron endpoints:
+  - `apps/api/src/modules/cron/routes.ts:41`
+  - `apps/api/src/modules/cron/routes.ts:58`
+
+Impact:
+
+After a failure, the delivery's `next_cycle_date` keeps pointing at the failed (now past) cycle date until the next cron sweep re-seeds it, so the admin UI can briefly show a past next-cycle date and the queue has no forward pending row for that delivery. This is masked by the global sweep but is inconsistent with the processed/skip paths.
+
+Suggested fix:
+
+Call `scheduleNextCycle`/`recomputeNextCycleDate` from the failure paths too (delivery permitting), so a failed delivery immediately gets its next pending run and an up-to-date `next_cycle_date`.
+
+### 23. Add-Product "More Details"/"Reviews" Drop the Full Option Set
+
+Severity: Low
+
+Evidence:
+
+- Spec node 07 says after More Details or Reviews it returns to node 07 (Add / More Details / Reviews / Another Product):
+  - `docs/voicex-subscription-specs.md:54`
+  - `docs/voicex-subscription-specs.md:55`
+- The handler re-prompts with only "Press 1 to add / Press 4 for another product" after details and reviews, dropping options 2 and 3:
+  - `apps/api/src/modules/ivr/handlers/subscriptions-handlers.ts:243`
+  - `apps/api/src/modules/ivr/handlers/subscriptions-handlers.ts:261`
+
+Impact:
+
+A caller who listens to More Details can no longer jump to Reviews (and vice versa) without re-entering the catalog number, a minor divergence from the specified node 07 loop.
+
+Suggested fix:
+
+Re-offer all four options (add, more details, reviews, another product) after playing details or reviews.

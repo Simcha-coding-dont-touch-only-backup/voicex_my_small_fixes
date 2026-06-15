@@ -16,18 +16,26 @@ export function CheckoutModal({
   const [cardId, setCardId] = useState('');
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
-      const res = await apiGet<any>(`/subscriptions/${subscriptionId}/checkout`);
-      setData(res.data);
-      setAddressId(res.data.subscription?.subscription_address_id || '');
-      setCardId(res.data.subscription?.payment_method_id || '');
+      try {
+        const res = await apiGet<any>(`/subscriptions/${subscriptionId}/checkout`);
+        const d = res?.data;
+        if (!d) throw new Error('Unexpected response from server');
+        setData(d);
+        setAddressId(d.subscription?.subscription_address_id || '');
+        setCardId(d.subscription?.payment_method_id || '');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load checkout details');
+      }
     })();
   }, [subscriptionId]);
 
   const save = async () => {
     setBusy(true);
+    setError(null);
     try {
       await apiPut(`/subscriptions/${subscriptionId}/checkout`, {
         address_id: addressId || null,
@@ -36,10 +44,23 @@ export function CheckoutModal({
       setEditing(false);
       onChanged();
       onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save checkout details');
     } finally {
       setBusy(false);
     }
   };
+
+  if (error && !data) {
+    return (
+      <ModalShell onClose={onClose}>
+        <p className="text-sm text-red-600">{error}</p>
+        <div className="mt-4 text-right">
+          <button className="rounded bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200" onClick={onClose}>Close</button>
+        </div>
+      </ModalShell>
+    );
+  }
 
   if (!data) {
     return <ModalShell onClose={onClose}><p className="text-sm text-gray-500">Loading...</p></ModalShell>;
@@ -83,6 +104,7 @@ export function CheckoutModal({
             </select>
           </label>
           <p className="text-xs text-gray-400">To add a new card or address, add it on the customer's user page, then select it here.</p>
+          {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-2">
             <button disabled={busy} className="rounded bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700" onClick={save}>Save</button>
             <button className="rounded bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200" onClick={() => setEditing(false)}>Cancel</button>
