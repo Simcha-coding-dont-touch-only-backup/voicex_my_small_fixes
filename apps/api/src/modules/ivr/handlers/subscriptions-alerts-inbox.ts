@@ -10,7 +10,7 @@ import {
   getUnheardFailedDeliveryAlerts,
   markAlertHeard,
 } from '../../../lib/subscription-alerts.js';
-import { retryRun, skipRun } from '../../../lib/subscription-engine.js';
+import { retryRun, skipRun, findActionableRunForDelivery } from '../../../lib/subscription-engine.js';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { SUBSCRIPTION_ALERT_ISSUE_TYPES } from '@voicex/shared';
 
@@ -57,12 +57,35 @@ registerHandler('subscriptions_alerts_choice', async (ctx) => {
 
 registerHandler('subscriptions_alerts_read', async (ctx) => {
   const ids = (ctx.sessionData.alert_ids || '').split(',').filter(Boolean);
-  const idx = parseInt(ctx.sessionData.alert_idx || '0', 10);
-  if (idx >= ids.length) return say(ctx, 'You have no more alerts. Returning to the main menu.', 'main_menu');
+  const startIdx = parseInt(ctx.sessionData.alert_idx || '0', 10);
+  if (startIdx >= ids.length) return say(ctx, 'You have no more alerts. Returning to the main menu.', 'main_menu');
 
-  const { data: alert } = await supabaseAdmin.from('admin_alerts').select('*').eq('id', ids[idx]).maybeSingle();
+  // Alerts are normally only status-changed, not deleted, but an alert can
+  // disappear between the announce step and this read (e.g. cleared elsewhere).
+  // Skip over any missing alerts in-process so we don't emit empty `say` audio
+  // and an extra HTTP round-trip per gap; only stop on a real alert or the end.
+  let idx = startIdx;
+  let alert: any = null;
+  let skipped = 0;
+  while (idx < ids.length) {
+    const { data } = await supabaseAdmin.from('admin_alerts').select('*').eq('id', ids[idx]).maybeSingle();
+    if (data) {
+      alert = data;
+      break;
+    }
+    skipped += 1;
+    idx += 1;
+  }
+  if (skipped > 0) {
+    console.warn(`subscriptions_alerts_read: skipped ${skipped} missing alert(s) for call ${ctx.callSid}`);
+  }
   if (!alert) {
-    return say(ctx, '', 'subscriptions_alerts_read', { alert_ids: ids.join(','), alert_idx: String(idx + 1) });
+    // Every remaining alert in the list was gone. Tell the caller rather than
+    // silently dropping them back to the menu.
+    const msg = startIdx === 0
+      ? 'Your alerts are no longer available. Returning to the main menu.'
+      : 'You have no more alerts. Returning to the main menu.';
+    return say(ctx, msg, 'main_menu');
   }
   await markAlertHeard(alert.id);
 
@@ -72,7 +95,11 @@ registerHandler('subscriptions_alerts_read', async (ctx) => {
   const hasNext = idx + 1 < ids.length;
 
   if (cta) {
-    await setPostAction(ctx.callSid, { node: 'subscriptions_alerts_retry', run_id: payload.run_id || undefined });
+    await setPostAction(ctx.callSid, {
+      node: 'subscriptions_alerts_retry',
+      run_id: payload.run_id || undefined,
+      delivery_id: payload.delivery_id || undefined,
+    });
     const ctaLabel = cta === 'card' ? 'update your subscription card' : 'update your subscription address';
     const nextOpt = hasNext ? ' Press 2 to hear the next alert.' : '';
     return gather(
@@ -105,28 +132,41 @@ registerHandler('subscriptions_alerts_action', async (ctx) => {
 });
 
 registerHandler('subscriptions_alerts_retry', async (ctx) => {
-  const runId = ctx.sessionData.run_id;
   const digits = ctx.req.body.digits;
-
-  if (!runId) {
-    return say(ctx, 'Your subscription has been updated. Returning to the main menu.', 'main_menu');
+  // The failed-delivery alert may not carry a run_id directly; recover it from
+  // the delivery so the caller still gets the retry/skip choice they expect.
+  let runId: string | undefined = ctx.sessionData.run_id;
+  if (!runId && ctx.sessionData.delivery_id) {
+    runId = (await findActionableRunForDelivery(ctx.sessionData.delivery_id)) || undefined;
   }
 
+  if (!runId) {
+    // The card/address was updated, but there is no failed delivery left to act
+    // on (e.g. it was already processed/skipped). Don't imply the delivery itself
+    // was just processed.
+    return say(
+      ctx,
+      'Your subscription details have been updated. Your delivery will be retried automatically on the next cycle. Returning to the main menu.',
+      'main_menu',
+    );
+  }
+
+  const resolvedRunId: string = runId;
   if (digits === '1') {
-    const result = await retryRun(runId, 'hotline');
+    const result = await retryRun(resolvedRunId, 'hotline');
     if (result.status === 'processed' || result.status === 'partial') {
       return say(ctx, 'Your delivery has been processed successfully. Returning to the main menu.', 'main_menu');
     }
     return say(ctx, 'We were still unable to process your delivery. Our team has been notified. Returning to the main menu.', 'main_menu');
   }
   if (digits === '2') {
-    await skipRun(runId, 'hotline');
+    await skipRun(resolvedRunId, 'hotline');
     return say(ctx, 'This delivery has been skipped. Returning to the main menu.', 'main_menu');
   }
 
   return gather(
     'Press 1 to retry your failed delivery now. Press 2 to skip this delivery.',
-    { ...base(ctx), node_key: 'subscriptions_alerts_retry', run_id: runId },
+    { ...base(ctx), node_key: 'subscriptions_alerts_retry', run_id: resolvedRunId, delivery_id: ctx.sessionData.delivery_id || '' },
     { numDigits: 1 },
   );
 });

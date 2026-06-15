@@ -381,6 +381,7 @@ export function AlertsPage() {
           }
           if (isSubscriptionAlertTab(alertType)) {
             params.set('alert_type', alertType);
+            subParams(params);
             const r = await apiGet<ListResponse>(`/alerts/subscription?${params}`);
             return [alertType, r.total || 0] as const;
           }
@@ -399,13 +400,13 @@ export function AlertsPage() {
 
   useEffect(() => {
     void refreshTypeCounts();
-  }, [statusFilter]);
+  }, [statusFilter, heardFilter, dateFrom, dateTo, userFilter?.id]);
 
   useEffect(() => {
     const onRefresh = () => void refreshTypeCounts();
     window.addEventListener('voicex:alerts-count-refresh', onRefresh);
     return () => window.removeEventListener('voicex:alerts-count-refresh', onRefresh);
-  }, [statusFilter]);
+  }, [statusFilter, heardFilter, dateFrom, dateTo, userFilter?.id]);
 
   const table = useAdminTableQuery<AdminAlertRow>({
     defaultSort: { field: 'created_at', dir: 'desc' },
@@ -571,9 +572,11 @@ export function AlertsPage() {
             >
               <span className="inline-flex items-center gap-2">
                 {adminAlertTypeLabel(alertType)}
-                <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-semibold tabular-nums leading-none text-white">
-                  {typeCountsLoading && count === undefined ? '…' : (count ?? 0)}
-                </span>
+                {((typeCountsLoading && count === undefined) || (count ?? 0) > 0) && (
+                  <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-semibold tabular-nums leading-none text-white">
+                    {typeCountsLoading && count === undefined ? '…' : count}
+                  </span>
+                )}
               </span>
             </TabButton>
           );

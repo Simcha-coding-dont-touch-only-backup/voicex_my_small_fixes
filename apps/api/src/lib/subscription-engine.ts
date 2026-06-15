@@ -422,6 +422,7 @@ async function finishProcessRun(run: RunRow, actor: string, isRetry: boolean): P
       .update({
         status: 'failed',
         sola_ref_num: sale.xRefNum,
+        sola_transaction_id: sale.xRefNum,
         failure_details: { issue_type: ISSUE.OTHER, message: `Order persist failed after charge: ${orderErr?.message}`, sola_ref_num: sale.xRefNum, manual_review: true },
         processed_at: new Date().toISOString(),
       })
@@ -564,6 +565,25 @@ export function startSubscriptionWorker(): void {
 // ============================================================
 // Admin/IVR actions: retry & skip
 // ============================================================
+
+/**
+ * Resolve the run that a retry/skip action should target for a delivery, used
+ * when an alert/post-action arrives without an explicit run_id. Picks the most
+ * recent run still awaiting resolution (failed/issue/pending) so the caller can
+ * act on the delivery that triggered their alert.
+ */
+export async function findActionableRunForDelivery(deliveryId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('subscription_delivery_runs')
+    .select('id')
+    .eq('delivery_id', deliveryId)
+    .in('status', ['failed', 'issue', 'pending'])
+    .order('cycle_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data?.id as string) ?? null;
+}
 
 export async function retryRun(runId: string, actor: 'admin' | 'hotline' = 'admin', actorAdminId?: string | null): Promise<{ status: string }> {
   const { data: run } = await supabaseAdmin.from('subscription_delivery_runs').select('*').eq('id', runId).maybeSingle();

@@ -78,6 +78,7 @@ export function sayToMainMenu(ctx: any, message: string) {
 export interface PostAction {
   node: string;
   run_id?: string;
+  delivery_id?: string;
 }
 
 export async function setPostAction(callSid: string, payload: PostAction | null): Promise<void> {
@@ -102,7 +103,10 @@ export async function subscriptionSuccessReturn(ctx: any, message: string) {
   const pa = await getPostAction(ctx.callSid);
   if (pa) {
     await setPostAction(ctx.callSid, null);
-    return say(ctx, message, pa.node, pa.run_id ? { run_id: pa.run_id } : undefined);
+    const extra: Record<string, string> = {};
+    if (pa.run_id) extra.run_id = pa.run_id;
+    if (pa.delivery_id) extra.delivery_id = pa.delivery_id;
+    return say(ctx, message, pa.node, Object.keys(extra).length ? extra : undefined);
   }
   return sayToMenu(ctx, message);
 }
