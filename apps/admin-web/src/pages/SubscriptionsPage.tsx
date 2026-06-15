@@ -82,9 +82,10 @@ function ManagementTab() {
     let id = deliveryId;
     if (!id) {
       const res = await apiPost<any>(`/subscriptions/${subId}/deliveries/${week}/ensure`, {});
-      id = res.data.delivery_id;
+      id = res.data?.delivery_id ?? null;
     }
-    setPkg({ deliveryId: id!, week });
+    if (!id) return;
+    setPkg({ deliveryId: id, week });
   };
 
   const activate = async (deliveryId: string) => {
