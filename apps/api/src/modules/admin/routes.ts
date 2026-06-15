@@ -15,6 +15,8 @@ import { supportRouter } from './support.js';
 import { fulfillmentRouter } from './fulfillment.js';
 import { alertsRouter } from './alerts.js';
 import { returnsRouter } from './returns.js';
+import { subscriptionsRouter } from './subscriptions.js';
+import { subscriptionQueueRouter } from './subscription-queue.js';
 import {
   authMiddleware,
   requirePermission,
@@ -72,6 +74,8 @@ adminRouter.use('/address-test', requireFullAdmin, addressTestRouter);
 adminRouter.use('/support', requireFullAdmin, supportRouter);
 adminRouter.use('/fulfillment', requireFullAdmin, fulfillmentRouter);
 adminRouter.use('/returns', requireFullAdmin, returnsRouter);
+adminRouter.use('/subscriptions', requireFullAdmin, subscriptionsRouter);
+adminRouter.use('/subscription-queue', requireFullAdmin, subscriptionQueueRouter);
 
 // Sub-admin management is super_admin only — only the top-level admin
 // (the "Asteroid Band") can create or modify other admin accounts.

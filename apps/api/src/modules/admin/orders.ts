@@ -17,6 +17,7 @@ ordersRouter.get('/', async (req, res) => {
     date_from,
     date_to,
     product_id,
+    type,
     sort_by = 'created_at',
     sort_dir = 'desc',
   } = req.query;
@@ -33,6 +34,20 @@ ordersRouter.get('/', async (req, res) => {
   if (status) query = query.eq('status', status as string);
   if (date_from) query = query.gte('created_at', date_from as string);
   if (date_to) query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
+
+  // Type filter: 'cart' (no subscription week) and/or week numbers 1-4.
+  if (type) {
+    const requested = String(type).split(',').map((t) => t.trim()).filter(Boolean);
+    const includeCart = requested.includes('cart');
+    const weeks = requested.map((t) => parseInt(t, 10)).filter((n) => n >= 1 && n <= 4);
+    if (includeCart && weeks.length > 0) {
+      query = query.or(`subscription_week_number.is.null,subscription_week_number.in.(${weeks.join(',')})`);
+    } else if (includeCart) {
+      query = query.is('subscription_week_number', null);
+    } else if (weeks.length > 0) {
+      query = query.in('subscription_week_number', weeks);
+    }
+  }
 
   const { data, count, error } = await query
     .order(sortColumn, { ascending: sortAscending })

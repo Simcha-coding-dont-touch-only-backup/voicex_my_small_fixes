@@ -8,8 +8,10 @@ import { teltechRouter } from './modules/teltech/routes.js';
 import { adminRouter } from './modules/admin/routes.js';
 import { webhookRouter } from './modules/orders/webhook-routes.js';
 import { contactRouter } from './modules/contact/routes.js';
+import { cronRouter } from './modules/cron/routes.js';
 import { handleCallStatus } from './modules/teltech/handlers/call-status.js';
 import { handleErrorWebhook } from './modules/teltech/handlers/error-webhook.js';
+import { startSubscriptionWorker } from './lib/subscription-engine.js';
 
 const app = express();
 
@@ -45,6 +47,9 @@ app.use('/api/contact-submissions', contactCors, express.json(), contactRouter);
 
 app.use('/api/admin', express.json(), adminRouter);
 
+// Protected scheduler endpoints (triggered by Supabase pg_cron via pg_net).
+app.use('/api/cron', express.json(), cronRouter);
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -64,6 +69,8 @@ if (process.env.VERCEL !== '1') {
   app.listen(config.port, () => {
     console.log(`VoiceX API listening on port ${config.port}`);
   });
+  // The in-process worker drains locked subscription runs with time spacing.
+  startSubscriptionWorker();
 }
 
 export default app;

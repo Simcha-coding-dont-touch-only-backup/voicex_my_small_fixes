@@ -5,13 +5,17 @@ import {
   getProductPriceCents,
   isProductCatalogAlertType,
   isUserAlertType,
+  isSubscriptionAlertType,
   PRODUCT_CATALOG_ALERT_TYPES,
   USER_ALERT_TYPES,
+  SUBSCRIPTION_ALERT_TYPES,
   type CatalogProduct,
 } from '@voicex/shared';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { getThumbnailPublicUrl } from '../../lib/product-images.js';
 import { getDefaultMarkupPercent } from '../../lib/product-price-alerts.js';
+import { getOrCreateSubscription, getOrCreateDelivery } from '../../lib/subscriptions.js';
+import { createFailedDeliveryAlert } from '../../lib/subscription-alerts.js';
 
 export const alertsRouter = Router();
 
@@ -198,6 +202,107 @@ alertsRouter.get('/user', async (req, res) => {
   });
 });
 
+const subscriptionAlertTypeZod = z.enum([
+  ADMIN_ALERT_TYPES.SUBSCRIPTION_DELIVERY_ISSUE,
+  ADMIN_ALERT_TYPES.SUBSCRIPTION_FAILED_DELIVERY,
+]);
+
+const subscriptionListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  per_page: z.coerce.number().int().min(1).max(1000).default(20),
+  status: alertStatusZod.optional(),
+  alert_type: subscriptionAlertTypeZod.optional(),
+  user_id: z.string().uuid().optional(),
+  heard: z.enum(['heard', 'unheard']).optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+  sort_by: alertSortByZod.default('created_at'),
+  sort_dir: alertSortDirZod.default('desc'),
+});
+
+// Subscription alert tabs (Delivery Issues + Failed Deliveries).
+alertsRouter.get('/subscription', async (req, res) => {
+  const parsed = subscriptionListQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid query' });
+    return;
+  }
+  const { page, per_page, status, alert_type, user_id, heard, date_from, date_to, sort_by, sort_dir } = parsed.data;
+  const offset = (page - 1) * per_page;
+
+  let query = supabaseAdmin
+    .from('admin_alerts')
+    .select('*', { count: 'exact' })
+    .in('alert_type', alert_type ? [alert_type] : [...SUBSCRIPTION_ALERT_TYPES])
+    .order(sort_by, { ascending: sort_dir === 'asc' });
+
+  if (status) query = query.eq('status', status);
+  if (user_id) query = query.eq('user_id', user_id);
+  if (heard === 'heard') query = query.not('heard_at', 'is', null);
+  if (heard === 'unheard') query = query.is('heard_at', null);
+  if (date_from) query = query.gte('created_at', date_from as string);
+  if (date_to) query = query.lte('created_at', `${date_to}T23:59:59.999Z`);
+
+  const { data, count, error } = await query.range(offset, offset + per_page - 1);
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Join user (name/email/phone) since user_id has no embedded relation here.
+  const userIds = Array.from(new Set((data || []).map((a: any) => a.user_id).filter(Boolean)));
+  const usersById = new Map<string, any>();
+  const phonesById = new Map<string, string>();
+  if (userIds.length > 0) {
+    const [{ data: users }, { data: phones }] = await Promise.all([
+      supabaseAdmin.from('users').select('id, name, email').in('id', userIds),
+      supabaseAdmin.from('user_phones').select('user_id, phone_number, is_primary').in('user_id', userIds),
+    ]);
+    for (const u of users || []) usersById.set(u.id, u);
+    for (const p of phones || []) {
+      if (!phonesById.has(p.user_id) || p.is_primary) phonesById.set(p.user_id, p.phone_number);
+    }
+  }
+
+  const rows = (data || []).map((a: any) => ({
+    ...a,
+    user: a.user_id ? { ...(usersById.get(a.user_id) || {}), phone: phonesById.get(a.user_id) ?? null } : null,
+  }));
+
+  res.json({ success: true, data: rows, total: count ?? 0, page, per_page, total_pages: Math.ceil((count ?? 0) / per_page) });
+});
+
+const createSubscriptionAlertSchema = z.object({
+  user_id: z.string().uuid(),
+  week_number: z.coerce.number().int().min(1).max(4),
+  admin_note: z.string().trim().max(5000).optional(),
+  ivr_message: z.string().trim().max(2000).optional(),
+});
+
+// Manual Failed Delivery alert (the only manually-creatable type for now).
+alertsRouter.post('/subscription', async (req, res) => {
+  const parsed = createSubscriptionAlertSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid body' });
+    return;
+  }
+  const subscription = await getOrCreateSubscription(parsed.data.user_id);
+  const delivery = await getOrCreateDelivery(subscription.id, parsed.data.week_number);
+  const id = await createFailedDeliveryAlert({
+    userId: parsed.data.user_id,
+    deliveryId: delivery.id,
+    weekNumber: parsed.data.week_number,
+    issueType: 'other',
+    adminNote: parsed.data.admin_note ?? null,
+    ivrMessage: parsed.data.ivr_message ?? null,
+  });
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser?.id ?? null,
+    action: 'create_manual_subscription_alert',
+    entity_type: 'admin_alert',
+    entity_id: id,
+    changes: parsed.data,
+  });
+  res.json({ success: true, data: { id } });
+});
+
 alertsRouter.patch('/:id', async (req, res) => {
   const parsed = patchBodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -218,7 +323,7 @@ alertsRouter.patch('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: findErr.message });
     return;
   }
-  if (!existing || (!isProductCatalogAlertType(existing.alert_type) && !isUserAlertType(existing.alert_type))) {
+  if (!existing || (!isProductCatalogAlertType(existing.alert_type) && !isUserAlertType(existing.alert_type) && !isSubscriptionAlertType(existing.alert_type))) {
     res.status(404).json({ success: false, error: 'Alert not found' });
     return;
   }
@@ -261,7 +366,7 @@ alertsRouter.delete('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: findErr.message });
     return;
   }
-  if (!existing || (!isProductCatalogAlertType(existing.alert_type) && !isUserAlertType(existing.alert_type))) {
+  if (!existing || (!isProductCatalogAlertType(existing.alert_type) && !isUserAlertType(existing.alert_type) && !isSubscriptionAlertType(existing.alert_type))) {
     res.status(404).json({ success: false, error: 'Alert not found' });
     return;
   }

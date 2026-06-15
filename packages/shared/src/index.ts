@@ -3,6 +3,7 @@ export * from './types/catalog.js';
 export * from './types/cart.js';
 export * from './types/order.js';
 export * from './types/return.js';
+export * from './types/subscription.js';
 export * from './order-number.js';
 export * from './types/ivr.js';
 export * from './types/settings.js';

@@ -451,6 +451,33 @@ catalogRouter.get('/products/:id', async (req, res) => {
   res.json({ success: true, data: decorateProductWithThumbnail(data) });
 });
 
+// Subscriptions stats for a product: total quantity across active deliveries,
+// number of active deliveries containing it, and distinct subscribers.
+catalogRouter.get('/products/:id/subscriptions', async (req, res) => {
+  const { data: items, error } = await supabaseAdmin
+    .from('subscription_delivery_items')
+    .select('quantity, subscription_deliveries!inner(status, subscription_id, subscriptions(user_id))')
+    .eq('product_id', req.params.id)
+    .eq('subscription_deliveries.status', 'active');
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  let quantity = 0;
+  let deliveries = 0;
+  const subscribers = new Set<string>();
+  for (const it of items || []) {
+    quantity += it.quantity;
+    deliveries += 1;
+    const userId = (it as any).subscription_deliveries?.subscriptions?.user_id;
+    if (userId) subscribers.add(userId);
+  }
+
+  res.json({ success: true, data: { quantity, deliveries, subscribers: subscribers.size } });
+});
+
 catalogRouter.post('/products/lookup-asin', async (req, res) => {
   const { asin } = req.body;
 

@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildGatherFromNode, buildCollect, buildHangup } from '../../teltech/teltech-builder.js';
+import { buildGather, buildGatherFromNode, buildCollect, buildHangup, buildSay } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('capture_name', async (ctx) => {
@@ -176,21 +176,22 @@ registerHandler('confirm_pin_register', async (ctx) => {
 
     await ivrRuntime.updateSession(ctx.callSid, {
       user_id: user.id,
-      current_node_key: 'main_menu',
+      current_node_key: 'subscriptions_alerts_announce',
       retry_count: 0,
     });
     await ivrRuntime.clearMenuStack(ctx.callSid);
     (ctx.req as any)._suppressStackPush = true;
 
-    const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'confirmed');
-    if (nextNode) {
-      return {
-        type: 'actions',
-        response: buildGatherFromNode(nextNode, { call_sid: ctx.callSid, user_id: user.id }),
-      };
-    }
-
-    return { type: 'actions', response: buildHangup('Account created. Please call back.') };
+    // New users have no alerts; the inbox handler will fall straight through to
+    // the main menu (kept here for parity with the PIN success path).
+    return {
+      type: 'actions',
+      response: buildSay('', '/api/ivr/voice/gather', {
+        call_sid: ctx.callSid,
+        user_id: user.id,
+        node_key: 'subscriptions_alerts_announce',
+      }),
+    };
   } catch (error) {
     console.error('Registration error:', error);
     return { type: 'actions', response: buildHangup('We had trouble creating your account. Please try again later.') };

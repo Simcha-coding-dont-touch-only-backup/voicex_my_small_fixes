@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CatalogProductStatusBadge } from './CatalogProductStatusBadge';
 import { CustomPriceReadonlyDisplay } from '../lib/product-price';
 import { ProductImageLightbox, type LightboxImage } from './ProductImageLightbox';
+import { apiGet } from '../lib/api';
 
 const DETAIL_IMAGE_SIZE = 96;
 
@@ -22,7 +23,17 @@ export function ProductDetailView({
   defaultMarkupPercent: number;
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [subStats, setSubStats] = useState<{ quantity: number; deliveries: number; subscribers: number } | null>(null);
   const imageAlt = product.voice_name || product.amazon_name || product.voicex_id;
+
+  useEffect(() => {
+    if (!product.id) return;
+    let cancelled = false;
+    apiGet<any>(`/catalog/products/${product.id}/subscriptions`)
+      .then((res) => { if (!cancelled) setSubStats(res.data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [product.id]);
   const galleryImages: LightboxImage[] = product.amazon_image_urls ?? [];
   const featuredImage = galleryImages.find((img) => img.is_featured) ?? galleryImages[0];
   const previewUrl = featuredImage?.url ?? product.thumbnail_url;
@@ -163,6 +174,25 @@ export function ProductDetailView({
             </dd>
           </div>
         </dl>
+      </div>
+
+      <div className="border-t pt-4">
+        <h4 className="mb-3 text-sm font-semibold text-indigo-600 uppercase tracking-wide">Subscriptions</h4>
+        <dl className="grid grid-cols-3 gap-x-6">
+          <div>
+            <dt className="font-medium text-blue-600">Quantity</dt>
+            <dd className="mt-0.5">{subStats ? subStats.quantity : '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-blue-600">Deliveries</dt>
+            <dd className="mt-0.5">{subStats ? subStats.deliveries : '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-blue-600">Subscribers</dt>
+            <dd className="mt-0.5">{subStats ? subStats.subscribers : '—'}</dd>
+          </div>
+        </dl>
+        <p className="mt-1 text-xs text-gray-400">Across all currently active weekly deliveries.</p>
       </div>
     </div>
   );

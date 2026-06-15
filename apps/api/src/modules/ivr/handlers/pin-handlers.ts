@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
-import { buildGather, buildGatherFromNode, buildHangup } from '../../teltech/teltech-builder.js';
+import { buildGather, buildHangup, buildSay } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
 registerHandler('validate_pin', async (ctx) => {
@@ -88,17 +88,18 @@ registerHandler('validate_pin', async (ctx) => {
     failure_reason: null,
   });
 
-  await ivrRuntime.updateSession(ctx.callSid, { current_node_key: 'main_menu', retry_count: 0 });
+  await ivrRuntime.updateSession(ctx.callSid, { current_node_key: 'subscriptions_alerts_announce', retry_count: 0 });
   await ivrRuntime.clearMenuStack(ctx.callSid);
   (ctx.req as any)._suppressStackPush = true;
 
-  const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'success');
-  if (nextNode) {
-    return {
-      type: 'actions',
-      response: buildGatherFromNode(nextNode, { call_sid: ctx.callSid, user_id: userId }),
-    };
-  }
-
-  return { type: 'actions', response: buildHangup('System error. Please call again.') };
+  // Route through the subscription alerts inbox; it announces any unheard
+  // failed-delivery alerts, otherwise it redirects straight to the main menu.
+  return {
+    type: 'actions',
+    response: buildSay('', '/api/ivr/voice/gather', {
+      call_sid: ctx.callSid,
+      user_id: userId,
+      node_key: 'subscriptions_alerts_announce',
+    }),
+  };
 });

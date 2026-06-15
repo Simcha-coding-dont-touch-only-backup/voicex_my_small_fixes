@@ -1,10 +1,197 @@
 import { Router } from 'express';
-import { ACTIVE_RETURN_STATUSES } from '@voicex/shared';
+import { ACTIVE_RETURN_STATUSES, weekLabel } from '@voicex/shared';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { fetchAllRows } from '../../lib/fetch-all-rows.js';
+import { getThumbnailPublicUrl } from '../../lib/product-images.js';
 import * as XLSX from 'xlsx';
 
 export const reportsRouter = Router();
+
+// ---- Subscription report helpers ----
+
+async function decorateUsers(userIds: string[]): Promise<Map<string, { name: string; email: string | null; phone: string | null }>> {
+  const map = new Map<string, { name: string; email: string | null; phone: string | null }>();
+  const ids = Array.from(new Set(userIds.filter(Boolean)));
+  if (ids.length === 0) return map;
+  const [{ data: users }, { data: phones }] = await Promise.all([
+    supabaseAdmin.from('users').select('id, name, email').in('id', ids),
+    supabaseAdmin.from('user_phones').select('user_id, phone_number, is_primary').in('user_id', ids),
+  ]);
+  const phoneByUser = new Map<string, string>();
+  for (const p of phones || []) {
+    if (!phoneByUser.has(p.user_id) || p.is_primary) phoneByUser.set(p.user_id, p.phone_number);
+  }
+  for (const u of users || []) map.set(u.id, { name: u.name, email: u.email, phone: phoneByUser.get(u.id) ?? null });
+  return map;
+}
+
+function rangeFilter(query: any, column: string, dateFrom?: string, dateTo?: string) {
+  if (dateFrom) query = query.gte(column, dateFrom);
+  if (dateTo) query = query.lte(column, `${dateTo}T23:59:59.999Z`);
+  return query;
+}
+
+// Monthly Subscription Revenue: processed + partial runs in range.
+reportsRouter.get('/subscription-revenue', async (req, res) => {
+  const { date_from, date_to } = req.query as Record<string, string>;
+  const { data, error } = await fetchAllRows<any>(() =>
+    rangeFilter(
+      supabaseAdmin
+        .from('subscription_delivery_runs')
+        .select('*, subscription_delivery_run_items(quantity, amazon_price_cents, unit_price_cents, status)')
+        .in('status', ['processed', 'partial']),
+      'processed_at', date_from, date_to,
+    ).order('processed_at', { ascending: false }),
+  );
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  const users = await decorateUsers((data || []).map((r: any) => r.user_id));
+  let gProducts = 0, gOrder = 0, gAmazon = 0, gProfit = 0;
+  const rows = (data || []).map((r: any) => {
+    const included = (r.subscription_delivery_run_items || []).filter((i: any) => i.status === 'included' || i.status === 'reduced');
+    const products = included.length;
+    const amazon = included.reduce((s: number, i: any) => s + i.amazon_price_cents * i.quantity, 0);
+    const orderTotal = r.total_cents || 0;
+    const profit = orderTotal - amazon;
+    gProducts += products; gOrder += orderTotal; gAmazon += amazon; gProfit += profit;
+    const u = users.get(r.user_id);
+    return {
+      status: r.status, order_id: r.order_id, week: r.week_number, week_label: weekLabel(r.week_number),
+      customer_name: u?.name || 'Unknown', email: u?.email || null, phone: u?.phone || null,
+      total_products: products, order_total_cents: orderTotal, amazon_total_cents: amazon, profit_cents: profit,
+      processed_at: r.processed_at,
+    };
+  });
+  res.json({ success: true, data: rows, totals: { total_products: gProducts, order_total_cents: gOrder, amazon_total_cents: gAmazon, profit_cents: gProfit } });
+});
+
+// Paused Subscriptions: temp + perm paused deliveries (by paused_at) in range.
+reportsRouter.get('/subscription-paused', async (req, res) => {
+  const { date_from, date_to } = req.query as Record<string, string>;
+  const { data, error } = await fetchAllRows<any>(() =>
+    rangeFilter(
+      supabaseAdmin
+        .from('subscription_deliveries')
+        .select('*, subscriptions(user_id), subscription_delivery_items(quantity, product_id, catalog_products(custom_price_cents, amazon_price_cents))')
+        .in('status', ['temp_paused', 'perm_paused']),
+      'paused_at', date_from, date_to,
+    ).order('paused_at', { ascending: false }),
+  );
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  const users = await decorateUsers((data || []).map((d: any) => d.subscriptions?.user_id));
+  let gProducts = 0, gOrder = 0;
+  const rows = (data || []).map((d: any) => {
+    const items = d.subscription_delivery_items || [];
+    const products = items.length;
+    const orderTotal = items.reduce((s: number, i: any) => {
+      const p = i.catalog_products;
+      const unit = p?.custom_price_cents ?? p?.amazon_price_cents ?? 0;
+      return s + unit * i.quantity;
+    }, 0);
+    gProducts += products; gOrder += orderTotal;
+    const u = users.get(d.subscriptions?.user_id);
+    return {
+      status: d.status, week: d.week_number, week_label: weekLabel(d.week_number),
+      customer_name: u?.name || 'Unknown', email: u?.email || null, phone: u?.phone || null,
+      total_products: products, order_total_cents: orderTotal, paused_at: d.paused_at,
+    };
+  });
+  res.json({ success: true, data: rows, totals: { total_products: gProducts, order_total_cents: gOrder } });
+});
+
+// Failed Subscriptions: failed runs in range + failure rate.
+reportsRouter.get('/subscription-failed', async (req, res) => {
+  const { date_from, date_to } = req.query as Record<string, string>;
+  const fetchByStatus = (statuses: string[], column: string) =>
+    fetchAllRows<any>(() =>
+      rangeFilter(
+        supabaseAdmin.from('subscription_delivery_runs').select('*, subscription_delivery_run_items(quantity, status)').in('status', statuses),
+        column, date_from, date_to,
+      ).order(column, { ascending: false }),
+    );
+
+  const [{ data: failed, error: e1 }, { data: success, error: e2 }] = await Promise.all([
+    fetchByStatus(['failed'], 'processed_at'),
+    fetchByStatus(['processed', 'partial'], 'processed_at'),
+  ]);
+  if (e1 || e2) { res.status(500).json({ success: false, error: (e1 || e2)!.message }); return; }
+
+  const users = await decorateUsers((failed || []).map((r: any) => r.user_id));
+  let gProducts = 0, gOrder = 0;
+  const rows = (failed || []).map((r: any) => {
+    const items = r.subscription_delivery_run_items || [];
+    const products = items.length;
+    const orderTotal = r.total_cents || 0;
+    gProducts += products; gOrder += orderTotal;
+    const u = users.get(r.user_id);
+    return {
+      week: r.week_number, week_label: weekLabel(r.week_number),
+      customer_name: u?.name || 'Unknown', email: u?.email || null, phone: u?.phone || null,
+      total_products: products, order_total_cents: orderTotal, processed_at: r.processed_at,
+      failure_details: r.failure_details || null,
+    };
+  });
+  const failedCount = (failed || []).length;
+  const successCount = (success || []).length;
+  const denom = failedCount + successCount;
+  const failureRate = denom > 0 ? (failedCount / denom) * 100 : 0;
+  res.json({ success: true, data: rows, totals: { total_products: gProducts, order_total_cents: gOrder, failure_rate: Number(failureRate.toFixed(1)), failed_count: failedCount, success_count: successCount } });
+});
+
+// Most-Subscribed Products: products in processed/partial runs in range.
+reportsRouter.get('/subscription-products', async (req, res) => {
+  const { date_from, date_to } = req.query as Record<string, string>;
+  const { data: runs, error } = await fetchAllRows<any>(() =>
+    rangeFilter(
+      supabaseAdmin
+        .from('subscription_delivery_runs')
+        .select('id, user_id, week_number, delivery_id, subscription_delivery_run_items(product_id, voicex_id, product_name, quantity, status, catalog_products(amazon_asin, thumbnail_path, voice_name, amazon_name))')
+        .in('status', ['processed', 'partial']),
+      'processed_at', date_from, date_to,
+    ),
+  );
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  // Aggregate per product.
+  const agg = new Map<string, any>();
+  for (const run of runs || []) {
+    for (const it of run.subscription_delivery_run_items || []) {
+      if (it.status !== 'included' && it.status !== 'reduced') continue;
+      if (!it.product_id) continue;
+      let row = agg.get(it.product_id);
+      if (!row) {
+        row = {
+          product_id: it.product_id, voicex_id: it.voicex_id, product_name: it.product_name,
+          amazon_asin: it.catalog_products?.amazon_asin || null,
+          thumbnail_url: getThumbnailPublicUrl(it.catalog_products?.thumbnail_path ?? null),
+          quantity: 0, deliveries: new Set<string>(), subscribers: new Set<string>(), breakdown: new Map<string, Map<number, number>>(),
+        };
+        agg.set(it.product_id, row);
+      }
+      row.quantity += it.quantity;
+      row.deliveries.add(run.delivery_id);
+      row.subscribers.add(run.user_id);
+      if (!row.breakdown.has(run.user_id)) row.breakdown.set(run.user_id, new Map());
+      const wk = row.breakdown.get(run.user_id);
+      wk.set(run.week_number, (wk.get(run.week_number) || 0) + it.quantity);
+    }
+  }
+
+  const allUserIds = Array.from(new Set(Array.from(agg.values()).flatMap((r: any) => Array.from(r.subscribers))));
+  const users = await decorateUsers(allUserIds as string[]);
+
+  const rows = Array.from(agg.values()).map((r: any) => ({
+    product_id: r.product_id, voicex_id: r.voicex_id, product_name: r.product_name, amazon_asin: r.amazon_asin, thumbnail_url: r.thumbnail_url,
+    quantity: r.quantity, deliveries: r.deliveries.size, subscribers: r.subscribers.size,
+    subscriber_detail: Array.from(r.breakdown.entries() as Iterable<[string, Map<number, number>]>).map(([uid, weeks]) => ({
+      name: users.get(uid)?.name || 'Unknown',
+      weeks: Array.from(weeks.entries()).map(([w, q]) => `${weekLabel(w)} x${q}`),
+    })),
+  })).sort((a, b) => b.quantity - a.quantity);
+
+  res.json({ success: true, data: rows });
+});
 
 reportsRouter.get('/purchases', async (req, res) => {
   const { date_from, date_to, sort_dir = 'desc' } = req.query;

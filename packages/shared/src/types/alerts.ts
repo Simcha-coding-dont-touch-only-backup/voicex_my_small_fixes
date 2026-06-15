@@ -6,6 +6,10 @@ export const ADMIN_ALERT_TYPES = {
   PRODUCT_MISSING_AMAZON_PRICE: 'product_missing_amazon_price',
   /** User has made more returns than the high-return threshold. */
   HIGH_RETURNING_USER: 'high_returning_user',
+  /** 24h pre-run check found an issue with a pending subscription delivery. */
+  SUBSCRIPTION_DELIVERY_ISSUE: 'subscription_delivery_issue',
+  /** A subscription delivery failed to process (declined card, etc.). */
+  SUBSCRIPTION_FAILED_DELIVERY: 'subscription_failed_delivery',
 } as const;
 
 export type AdminAlertType = (typeof ADMIN_ALERT_TYPES)[keyof typeof ADMIN_ALERT_TYPES];
@@ -19,12 +23,25 @@ export const PRODUCT_CATALOG_ALERT_TYPES = [
 /** Alert types scoped to a user (entity_type = 'user', no product_id). */
 export const USER_ALERT_TYPES = [ADMIN_ALERT_TYPES.HIGH_RETURNING_USER] as const;
 
+/**
+ * Alert types scoped to a subscription delivery (entity_type =
+ * 'subscription_delivery', entity_id = delivery id, plus user_id column).
+ */
+export const SUBSCRIPTION_ALERT_TYPES = [
+  ADMIN_ALERT_TYPES.SUBSCRIPTION_DELIVERY_ISSUE,
+  ADMIN_ALERT_TYPES.SUBSCRIPTION_FAILED_DELIVERY,
+] as const;
+
 export function isProductCatalogAlertType(value: string): value is (typeof PRODUCT_CATALOG_ALERT_TYPES)[number] {
   return (PRODUCT_CATALOG_ALERT_TYPES as readonly string[]).includes(value);
 }
 
 export function isUserAlertType(value: string): value is (typeof USER_ALERT_TYPES)[number] {
   return (USER_ALERT_TYPES as readonly string[]).includes(value);
+}
+
+export function isSubscriptionAlertType(value: string): value is (typeof SUBSCRIPTION_ALERT_TYPES)[number] {
+  return (SUBSCRIPTION_ALERT_TYPES as readonly string[]).includes(value);
 }
 
 /** Capitalize the first letter of each word (e.g. "price above local" → "Price Above Local"). */
@@ -52,7 +69,66 @@ export function adminAlertTypeLabel(alertType: string): string {
   if (alertType === ADMIN_ALERT_TYPES.HIGH_RETURNING_USER) {
     return 'High Returning User';
   }
+  if (alertType === ADMIN_ALERT_TYPES.SUBSCRIPTION_DELIVERY_ISSUE) {
+    return 'Delivery Issues';
+  }
+  if (alertType === ADMIN_ALERT_TYPES.SUBSCRIPTION_FAILED_DELIVERY) {
+    return 'Failed Deliveries';
+  }
   return productCatalogAlertTypeLabel(alertType);
+}
+
+/** Issue/type detail codes carried in subscription alert payloads. */
+export const SUBSCRIPTION_ALERT_ISSUE_TYPES = {
+  EXPIRED_CARD: 'expired_card',
+  DECLINED_CARD: 'declined_card',
+  PRODUCTS_UNAVAILABLE: 'products_unavailable',
+  QTY_UNAVAILABLE: 'qty_unavailable',
+  INVALID_ADDRESS: 'invalid_address',
+  NO_PAYMENT_METHOD: 'no_payment_method',
+  NO_ADDRESS: 'no_address',
+  PRODUCT_DISABLED: 'product_disabled',
+  OTHER: 'other',
+} as const;
+
+export type SubscriptionAlertIssueType =
+  (typeof SUBSCRIPTION_ALERT_ISSUE_TYPES)[keyof typeof SUBSCRIPTION_ALERT_ISSUE_TYPES];
+
+export function subscriptionAlertIssueLabel(issueType: string): string {
+  switch (issueType) {
+    case SUBSCRIPTION_ALERT_ISSUE_TYPES.EXPIRED_CARD:
+      return 'Expired Card';
+    case SUBSCRIPTION_ALERT_ISSUE_TYPES.DECLINED_CARD:
+      return 'Declined Card';
+    case SUBSCRIPTION_ALERT_ISSUE_TYPES.PRODUCTS_UNAVAILABLE:
+      return 'Products Unavailable';
+    case SUBSCRIPTION_ALERT_ISSUE_TYPES.QTY_UNAVAILABLE:
+      return 'Quantity Unavailable';
+    case SUBSCRIPTION_ALERT_ISSUE_TYPES.INVALID_ADDRESS:
+      return 'Incorrect Address';
+    case SUBSCRIPTION_ALERT_ISSUE_TYPES.NO_PAYMENT_METHOD:
+      return 'No Subscription Card';
+    case SUBSCRIPTION_ALERT_ISSUE_TYPES.NO_ADDRESS:
+      return 'No Subscription Address';
+    case SUBSCRIPTION_ALERT_ISSUE_TYPES.PRODUCT_DISABLED:
+      return 'Product Disabled';
+    default:
+      return toTitleCase(issueType);
+  }
+}
+
+/** Snapshot stored in `admin_alerts.payload` for subscription alerts. */
+export interface SubscriptionAlertPayload {
+  delivery_id: string;
+  run_id?: string | null;
+  week_number: number;
+  cycle_date?: string | null;
+  issue_type?: string;
+  /** What is read to the user on the hotline if they listen to the alert. */
+  ivr_message?: string;
+  /** Free-form internal admin note (manual alerts). */
+  admin_note?: string;
+  card_last4?: string | null;
 }
 
 export const ADMIN_ALERT_STATUSES = ['new', 'reviewing', 'resolved'] as const;
@@ -94,7 +170,11 @@ export interface AdminAlert {
   status: AdminAlertStatus;
   entity_type: string;
   entity_id: string;
-  product_id: string;
+  product_id: string | null;
+  /** Set for user-scoped and subscription alerts (clean User filter / joins). */
+  user_id: string | null;
+  /** User-facing "tag": when the customer heard the alert on the hotline. */
+  heard_at: string | null;
   title: string;
   message: string | null;
   payload: Record<string, unknown>;

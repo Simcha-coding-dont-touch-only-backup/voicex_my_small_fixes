@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Trash2, AlertTriangle } from 'lucide-react';
-import { apiDelete, apiGet, apiPatch } from '../lib/api';
+import { Trash2, AlertTriangle, Plus } from 'lucide-react';
+import { apiDelete, apiGet, apiPatch, apiPost } from '../lib/api';
 import { formatUsdFromCents } from '../lib/product-price';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import {
@@ -10,6 +10,8 @@ import {
   adminAlertTypeLabel,
   getProductDisplayName,
   PRODUCT_CATALOG_ALERT_TYPES,
+  SUBSCRIPTION_ALERT_TYPES,
+  subscriptionAlertIssueLabel,
   type CatalogProduct,
 } from '@voicex/shared';
 import { CatalogProductStatusBadge } from '../components/CatalogProductStatusBadge';
@@ -200,10 +202,117 @@ type AlertTypeTab = string;
 const ALERT_TYPE_TABS: AlertTypeTab[] = [
   ...PRODUCT_CATALOG_ALERT_TYPES,
   ADMIN_ALERT_TYPES.HIGH_RETURNING_USER,
+  ...SUBSCRIPTION_ALERT_TYPES,
 ];
 
 function isUserAlertTab(tab: AlertTypeTab): boolean {
   return tab === ADMIN_ALERT_TYPES.HIGH_RETURNING_USER;
+}
+
+function isSubscriptionAlertTab(tab: AlertTypeTab): boolean {
+  return (SUBSCRIPTION_ALERT_TYPES as readonly string[]).includes(tab);
+}
+
+/** Inline user picker (searchable) for the manual-alert modal + user filter. */
+function UserPicker({ value, onChange }: { value: { id: string; name: string } | null; onChange: (u: { id: string; name: string } | null) => void }) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const [open, setOpen] = useState(false);
+
+  const search = async (term: string) => {
+    if (!term.trim()) { setResults([]); return; }
+    const params = new URLSearchParams({ search: term.trim(), per_page: '8' });
+    const r = await apiGet<any>(`/users?${params}`);
+    setResults(r.data || []);
+    setOpen(true);
+  };
+
+  if (value) {
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <span className="rounded bg-indigo-50 px-2 py-1 text-indigo-700">{value.name}</span>
+        <button type="button" className="text-xs text-gray-400 hover:underline" onClick={() => onChange(null)}>change</button>
+      </div>
+    );
+  }
+  return (
+    <div className="relative">
+      <input
+        className="w-full rounded border px-3 py-2 text-sm"
+        placeholder="Search user by name"
+        value={q}
+        onChange={(e) => { setQ(e.target.value); void search(e.target.value); }}
+      />
+      {open && results.length > 0 && (
+        <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded border bg-white text-sm shadow">
+          {results.map((u) => (
+            <li key={u.id}>
+              <button type="button" className="block w-full px-3 py-2 text-left hover:bg-gray-50" onClick={() => { onChange({ id: u.id, name: u.name }); setOpen(false); }}>
+                {u.name} <span className="text-gray-400">{u.email || ''}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AddAlertModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [user, setUser] = useState<{ id: string; name: string } | null>(null);
+  const [week, setWeek] = useState(1);
+  const [note, setNote] = useState('');
+  const [ivr, setIvr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async () => {
+    if (!user) { setErr('Select a user'); return; }
+    setBusy(true);
+    setErr('');
+    try {
+      await apiPost('/alerts/subscription', { user_id: user.id, week_number: week, admin_note: note, ivr_message: ivr });
+      onCreated();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to create alert');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-4 text-lg font-semibold">Add Failed Delivery Alert</h3>
+        <div className="space-y-3 text-sm">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">User</label>
+            <UserPicker value={user} onChange={setUser} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Week</label>
+            <select className="rounded border px-2 py-1" value={week} onChange={(e) => setWeek(parseInt(e.target.value, 10))}>
+              {[1, 2, 3, 4].map((w) => <option key={w} value={w}>Week {w}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Admin note</label>
+            <textarea className="w-full rounded border px-2 py-1" value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">IVR message (read to the customer)</label>
+            <textarea className="w-full rounded border px-2 py-1" value={ivr} onChange={(e) => setIvr(e.target.value)} />
+          </div>
+          {err && <p className="text-sm text-red-600">{err}</p>}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="rounded border px-4 py-2 text-sm" onClick={onClose}>Cancel</button>
+          <button disabled={busy} className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700" onClick={submit}>Create</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function TabButton({
@@ -243,6 +352,21 @@ export function AlertsPage() {
   const [statusAnchorEl, setStatusAnchorEl] = useState<HTMLElement | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusSaveError, setStatusSaveError] = useState<string | null>(null);
+  // Subscription-tab filters.
+  const [heardFilter, setHeardFilter] = useState<'' | 'heard' | 'unheard'>('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [userFilter, setUserFilter] = useState<{ id: string; name: string } | null>(null);
+  const [showAddAlert, setShowAddAlert] = useState(false);
+
+  const subActive = isSubscriptionAlertTab(activeAlertType);
+
+  const subParams = (params: URLSearchParams) => {
+    if (heardFilter) params.set('heard', heardFilter);
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    if (userFilter) params.set('user_id', userFilter.id);
+  };
 
   const refreshTypeCounts = async () => {
     setTypeCountsLoading(true);
@@ -253,6 +377,11 @@ export function AlertsPage() {
           if (statusFilter) params.set('status', statusFilter);
           if (isUserAlertTab(alertType)) {
             const r = await apiGet<ListResponse>(`/alerts/user?${params}`);
+            return [alertType, r.total || 0] as const;
+          }
+          if (isSubscriptionAlertTab(alertType)) {
+            params.set('alert_type', alertType);
+            const r = await apiGet<ListResponse>(`/alerts/subscription?${params}`);
             return [alertType, r.total || 0] as const;
           }
           params.set('alert_type', alertType);
@@ -281,7 +410,7 @@ export function AlertsPage() {
   const table = useAdminTableQuery<AdminAlertRow>({
     defaultSort: { field: 'created_at', dir: 'desc' },
     defaultPerPage: 20,
-    filterKey: `${statusFilter}|${activeAlertType}`,
+    filterKey: `${statusFilter}|${activeAlertType}|${heardFilter}|${dateFrom}|${dateTo}|${userFilter?.id || ''}`,
     fetcher: async ({ page, perPage, sortBy, sortDir }) => {
       try {
         const params = new URLSearchParams({
@@ -291,8 +420,16 @@ export function AlertsPage() {
           sort_dir: sortDir,
         });
         if (statusFilter) params.set('status', statusFilter);
-        const endpoint = isUserAlertTab(activeAlertType) ? '/alerts/user' : '/alerts';
-        if (!isUserAlertTab(activeAlertType)) params.set('alert_type', activeAlertType);
+        let endpoint = '/alerts';
+        if (isUserAlertTab(activeAlertType)) {
+          endpoint = '/alerts/user';
+        } else if (isSubscriptionAlertTab(activeAlertType)) {
+          endpoint = '/alerts/subscription';
+          params.set('alert_type', activeAlertType);
+          subParams(params);
+        } else {
+          params.set('alert_type', activeAlertType);
+        }
         const r = await apiGet<ListResponse>(`${endpoint}?${params}`);
         setError('');
         return { data: r.data || [], total: r.total || 0 };
@@ -366,23 +503,57 @@ export function AlertsPage() {
     <div>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Alerts</h2>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Status</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              table.setPage(1);
-              setStatusFilter(e.target.value as AlertStatus | '');
-            }}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+        <div className="flex items-end gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Status</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                table.setPage(1);
+                setStatusFilter(e.target.value as AlertStatus | '');
+              }}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">All</option>
+              <option value="new">New</option>
+              <option value="reviewing">Reviewing</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowAddAlert(true)}
+            className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
           >
-            <option value="">All</option>
-            <option value="new">New</option>
-            <option value="reviewing">Reviewing</option>
-            <option value="resolved">Resolved</option>
-          </select>
+            <Plus size={16} /> Add Alert
+          </button>
         </div>
       </div>
+
+      {subActive && (
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          <div className="w-56">
+            <label className="mb-1 block text-xs font-medium text-gray-500">User</label>
+            <UserPicker value={userFilter} onChange={(u) => { table.setPage(1); setUserFilter(u); }} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Heard</label>
+            <select value={heardFilter} onChange={(e) => { table.setPage(1); setHeardFilter(e.target.value as any); }} className="rounded-lg border px-3 py-2 text-sm">
+              <option value="">All</option>
+              <option value="unheard">Unheard</option>
+              <option value="heard">Heard</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">From</label>
+            <input type="date" value={dateFrom} onChange={(e) => { table.setPage(1); setDateFrom(e.target.value); }} className="rounded-lg border px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">To</label>
+            <input type="date" value={dateTo} onChange={(e) => { table.setPage(1); setDateTo(e.target.value); }} className="rounded-lg border px-3 py-2 text-sm" />
+          </div>
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap gap-1 border-b">
         {ALERT_TYPE_TABS.map((alertType) => {
@@ -414,7 +585,69 @@ export function AlertsPage() {
       )}
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-        {isUserAlertTab(activeAlertType) ? (
+        {subActive ? (
+        <table className="w-full min-w-[900px] text-sm">
+          <thead>
+            <tr className="border-b bg-gray-50 text-left text-gray-500">
+              <th className="px-4 py-3 font-medium">Customer</th>
+              <th className="px-4 py-3 font-medium">Phone</th>
+              <th className="px-4 py-3 font-medium">Email</th>
+              <th className="px-4 py-3 font-medium">Week</th>
+              <th className="px-4 py-3 font-medium">Issue</th>
+              <th className="px-4 py-3 font-medium">Heard</th>
+              <SortHeader label="Created" field="created_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName="px-4 py-3 font-medium" />
+              <SortHeader label="Alert Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName="px-4 py-3 font-medium" />
+              <th className="px-4 py-3 font-medium w-24">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={9} className="px-6 py-12 text-center text-gray-500">No alerts match your filters.</td></tr>
+            ) : (
+              rows.map((row: any) => {
+                const user = row.user;
+                const payload = row.payload || {};
+                return (
+                  <tr key={row.id} className="border-b hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      {user?.id ? (
+                        <Link to={`/admin/users/${user.id}`} className="font-medium text-indigo-600 hover:underline">{user.name || 'Unknown'}</Link>
+                      ) : (
+                        <span className="text-gray-600">{user?.name || 'Unknown'}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{user?.phone ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{user?.email ?? '—'}</td>
+                    <td className="px-4 py-3">{payload.week_number ? `Week ${payload.week_number}` : '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{payload.issue_type ? subscriptionAlertIssueLabel(payload.issue_type) : (row.message || '—')}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${row.heard_at ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {row.heard_at ? 'Heard' : 'Unheard'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{new Date(row.created_at).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={(e) => toggleStatusPopup(row, e.currentTarget)}
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold hover:ring-2 hover:ring-indigo-200 ${statusBadgeClass(row.status)} ${statusPopupAlertId === row.id ? 'ring-2 ring-indigo-400' : ''}`}
+                        title="Edit alert status"
+                      >
+                        {statusLabel(row.status)}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button type="button" title="Delete alert" onClick={() => setDeleteTarget(row)} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600">
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+        ) : isUserAlertTab(activeAlertType) ? (
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
@@ -650,6 +883,13 @@ export function AlertsPage() {
         onSave={() => void handleStatusSave()}
         onCancel={closeStatusPopup}
       />
+
+      {showAddAlert && (
+        <AddAlertModal
+          onClose={() => setShowAddAlert(false)}
+          onCreated={() => { table.refresh(); void refreshTypeCounts(); emitAlertsCountRefresh(); }}
+        />
+      )}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

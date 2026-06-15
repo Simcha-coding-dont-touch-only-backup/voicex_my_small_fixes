@@ -4,7 +4,7 @@ import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
   ChevronsLeft, ChevronsRight, AlertTriangle, MapPin,
-  Wrench, ChevronDown, ShieldCheck, Inbox, Truck, Bell, RotateCcw,
+  Wrench, ChevronDown, ShieldCheck, Inbox, Truck, Bell, RotateCcw, Repeat,
 } from 'lucide-react';
 import type { AdminPermissionKey } from '@voicex/shared';
 import { BrandLogo } from './BrandLogo';
@@ -48,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/admin/alerts', label: 'Alerts', icon: Bell, requires: { kind: 'permission', key: 'manageProducts' } },
   { to: '/admin/carts', label: 'Carts', icon: ShoppingBag, requires: { kind: 'fullAdmin' } },
   { to: '/admin/orders', label: 'Orders', icon: ShoppingCart, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/subscriptions', label: 'Subscriptions', icon: Repeat, requires: { kind: 'fullAdmin' } },
   { to: '/admin/fulfillment', label: 'Fulfillment', icon: Truck, requires: { kind: 'fullAdmin' } },
   { to: '/admin/returns', label: 'Returns', icon: RotateCcw, requires: { kind: 'fullAdmin' } },
   { to: '/admin/settings', label: 'Settings', icon: Settings, requires: { kind: 'fullAdmin' } },

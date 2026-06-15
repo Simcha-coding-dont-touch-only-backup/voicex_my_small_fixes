@@ -77,11 +77,30 @@ dashboardRouter.get('/', async (_req, res) => {
     };
   });
 
+  // Subscription cards: active deliveries in the system, and the number of
+  // distinct users that have at least one active delivery.
+  const { data: activeDeliveries } = await supabaseAdmin
+    .from('subscription_deliveries')
+    .select('subscription_id')
+    .eq('status', 'active');
+  const activeDeliveryCount = (activeDeliveries || []).length;
+  const subscribingUserSubs = new Set((activeDeliveries || []).map((d: any) => d.subscription_id));
+  let subscribingUsers = 0;
+  if (subscribingUserSubs.size > 0) {
+    const { data: subs } = await supabaseAdmin
+      .from('subscriptions')
+      .select('user_id')
+      .in('id', Array.from(subscribingUserSubs));
+    subscribingUsers = new Set((subs || []).map((s: any) => s.user_id)).size;
+  }
+
   res.json({
     success: true,
     data: {
       ...raw,
       best_sellers: enrichedSellers,
+      subscribing_users: subscribingUsers,
+      active_deliveries: activeDeliveryCount,
     },
   });
 });

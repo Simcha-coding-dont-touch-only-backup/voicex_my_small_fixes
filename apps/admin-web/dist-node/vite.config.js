@@ -20,6 +20,12 @@ export default defineConfig(({ mode }) => {
     return {
         plugins: [react()],
         envDir: repoRoot,
+        resolve: {
+            alias: {
+                // Use shared source in dev so tab labels and types update without rebuilding dist.
+                '@voicex/shared': path.resolve(repoRoot, 'packages/shared/src/index.ts'),
+            },
+        },
         define: {
             'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
             'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),

@@ -6,6 +6,7 @@ import {
   ShoppingCart,
   DollarSign,
   TrendingUp,
+  Repeat,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
@@ -32,6 +33,8 @@ interface DashboardStats {
   salesTotalCents: number | null;
   profitTotalCents: number | null;
   bestSellers: BestSellerRow[] | null;
+  subscribingUsers: number | null;
+  activeDeliveries: number | null;
 }
 
 function formatUsdFromCents(cents: number): string {
@@ -68,6 +71,8 @@ export function DashboardPage() {
     salesTotalCents: null,
     profitTotalCents: null,
     bestSellers: null,
+    subscribingUsers: null,
+    activeDeliveries: null,
   });
 
   const isFullAdmin = adminUser?.role === 'super_admin' || adminUser?.role === 'admin';
@@ -131,6 +136,8 @@ export function DashboardPage() {
               salesTotalCents: Number(d.sales_total_cents ?? 0),
               profitTotalCents: Number(d.profit_total_cents ?? 0),
               bestSellers,
+              subscribingUsers: d.subscribing_users == null ? 0 : Number(d.subscribing_users),
+              activeDeliveries: d.active_deliveries == null ? 0 : Number(d.active_deliveries),
             }));
           })
           .catch(() => {})
@@ -160,6 +167,18 @@ export function DashboardPage() {
       value: stats.profitTotalCents == null ? '-' : formatUsdFromCents(stats.profitTotalCents),
       icon: TrendingUp,
       color: 'bg-emerald-600',
+    });
+    cards.push({
+      label: 'Subscribing Users',
+      value: stats.subscribingUsers ?? '-',
+      icon: Users,
+      color: 'bg-indigo-500',
+    });
+    cards.push({
+      label: 'Deliveries',
+      value: stats.activeDeliveries ?? '-',
+      icon: Repeat,
+      color: 'bg-pink-500',
     });
   }
 

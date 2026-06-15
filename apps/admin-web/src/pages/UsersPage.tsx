@@ -109,6 +109,7 @@ export function UsersPage() {
               <SortHeader label="Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Whitelisted</th>
               <SortHeader label="Returns" field="returns_count" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
+              <th className="px-6 py-3 font-medium">Subscription</th>
               <SortHeader label="Joined" field="created_at" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Actions</th>
             </tr>
@@ -155,6 +156,15 @@ export function UsersPage() {
                     <span className="text-gray-400">0</span>
                   )}
                 </td>
+                <td className="px-6 py-4">
+                  {(user.subscription_count ?? 0) > 0 ? (
+                    <Link to="/admin/subscriptions" className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700 hover:ring-2 hover:ring-indigo-200" title="View subscriptions">
+                      {user.subscription_count}
+                    </Link>
+                  ) : (
+                    <span className="text-gray-400">0</span>
+                  )}
+                </td>
                 <td className="px-6 py-4 text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-1">
@@ -179,7 +189,7 @@ export function UsersPage() {
               );
             })}
             {users.length === 0 && (
-              <tr><td colSpan={8} className="px-6 py-8 text-center text-gray-400">No users found</td></tr>
+              <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-400">No users found</td></tr>
             )}
           </tbody>
         </table>

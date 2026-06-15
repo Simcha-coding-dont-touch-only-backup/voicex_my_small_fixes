@@ -34,6 +34,13 @@ export interface SolaCaptureResponse extends SolaBaseResponse {
 
 export interface SolaVoidResponse extends SolaBaseResponse {}
 
+export interface SolaSaleResponse extends SolaBaseResponse {
+  xAuthAmount: string;
+  xMaskedCardNumber: string;
+  xCardType: string;
+  xToken: string;
+}
+
 function basePayload() {
   return {
     xKey: config.sola.apiKey,
@@ -137,4 +144,36 @@ export async function solaVoidRelease(refNum: string): Promise<SolaVoidResponse>
   };
 
   return solaRequest<SolaVoidResponse>(payload);
+}
+
+/**
+ * Charge a stored card token in a single step (sale = auth + capture) for a
+ * merchant-initiated, unattended subscription charge.
+ *
+ * Cardknox/Sola flags merchant-initiated recurring transactions with
+ * `xRecurringIndicator: 'Recurring'`; omitting it on a stored-token charge with
+ * no cardholder present (no CVV) risks issuer declines. Used by the subscription
+ * processing engine, NOT the interactive cardholder-present checkout (which
+ * stays on the auth/capture flow in checkout-handlers).
+ *
+ * Returns the response even for declines (xResult='D'); callers must check
+ * xResult === 'A'. Only transport/gateway errors (xResult='E') throw.
+ */
+export async function solaSaleRecurring(
+  token: string,
+  amountCents: number,
+  opts?: { invoice?: string; name?: string; description?: string }
+): Promise<SolaSaleResponse> {
+  const payload: Record<string, string> = {
+    ...basePayload(),
+    xCommand: 'cc:sale',
+    xToken: token,
+    xAmount: (amountCents / 100).toFixed(2),
+    xRecurringIndicator: 'Recurring',
+  };
+  if (opts?.invoice) payload.xInvoice = opts.invoice;
+  if (opts?.name) payload.xName = opts.name;
+  if (opts?.description) payload.xDescription = opts.description;
+
+  return solaRequest<SolaSaleResponse>(payload);
 }

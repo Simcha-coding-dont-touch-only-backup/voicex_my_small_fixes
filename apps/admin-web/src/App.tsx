@@ -25,6 +25,7 @@ import { DeletedCategoriesPage } from './pages/DeletedCategoriesPage';
 import { SupportPage } from './pages/SupportPage';
 import { FulfillmentPage } from './pages/FulfillmentPage';
 import { ReturnsPage } from './pages/ReturnsPage';
+import { SubscriptionsPage } from './pages/SubscriptionsPage';
 import { MarketingLayout } from './components/marketing/MarketingLayout';
 import { HomePage } from './pages/marketing/HomePage';
 import { FeaturesPage } from './pages/marketing/FeaturesPage';
@@ -149,6 +150,7 @@ function ProtectedAdminRoutes() {
         <Route path="/settings" element={<RequireFullAdmin><SettingsPage /></RequireFullAdmin>} />
         <Route path="/fulfillment" element={<RequireFullAdmin><FulfillmentPage /></RequireFullAdmin>} />
         <Route path="/returns" element={<RequireFullAdmin><ReturnsPage /></RequireFullAdmin>} />
+        <Route path="/subscriptions" element={<RequireFullAdmin><SubscriptionsPage /></RequireFullAdmin>} />
         <Route path="/reports" element={<RequireFullAdmin><ReportsPage /></RequireFullAdmin>} />
         <Route path="/ivr" element={<RequireFullAdmin><IvrFlowsPage /></RequireFullAdmin>} />
         <Route path="/logs" element={<RequireFullAdmin><LogsPage /></RequireFullAdmin>} />

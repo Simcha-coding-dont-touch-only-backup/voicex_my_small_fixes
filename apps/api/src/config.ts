@@ -35,4 +35,18 @@ export const config = {
   defaults: {
     markupPercent: parseInt(process.env.DEFAULT_MARKUP_PERCENT || '15', 10),
   },
+
+  // Shared secret that pg_cron (via pg_net) must present to call the protected
+  // subscription cron endpoints.
+  cron: {
+    secret: process.env.CRON_SECRET || '',
+  },
+
+  subscriptions: {
+    // Delay between processing each delivery run so the midnight batch is spread
+    // out instead of hammering the gateway all at once.
+    processSpacingMs: parseInt(process.env.SUBSCRIPTION_PROCESS_SPACING_MS || '4000', 10),
+    // How often the in-process worker polls for due (locked) runs to drain.
+    workerPollMs: parseInt(process.env.SUBSCRIPTION_WORKER_POLL_MS || '15000', 10),
+  },
 } as const;

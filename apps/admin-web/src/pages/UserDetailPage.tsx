@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiGet, apiPatch, apiPost, apiDelete } from '../lib/api';
 
 interface AddressForm {
@@ -580,6 +580,16 @@ export function UserDetailPage() {
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Phone(s)</dt><dd>{user.user_phones?.map((p: any) => p.phone_number).join(', ') || '-'}</dd></div>
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Addresses</dt><dd>{addresses.length}</dd></div>
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Cards</dt><dd>{user.payment_methods?.length || 0}</dd></div>
+              <div className="flex gap-2">
+                <dt className="font-medium text-gray-500 w-28">Subscription</dt>
+                <dd>
+                  {(user.subscription_count ?? 0) > 0 ? (
+                    <Link to="/admin/subscriptions" className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700 hover:ring-2 hover:ring-indigo-200">
+                      {user.subscription_count} active {user.subscription_count === 1 ? 'delivery' : 'deliveries'}
+                    </Link>
+                  ) : '0'}
+                </dd>
+              </div>
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Joined</dt><dd>{new Date(user.created_at).toLocaleString()}</dd></div>
             </dl>
           )}

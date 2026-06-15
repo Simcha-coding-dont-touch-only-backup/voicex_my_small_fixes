@@ -3,15 +3,33 @@ import { Link } from 'react-router-dom';
 import { apiGet } from '../lib/api';
 import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 
+const ORDER_TYPE_OPTIONS: { id: string; label: string }[] = [
+  { id: 'cart', label: 'Cart' },
+  { id: '1', label: 'Week 1' },
+  { id: '2', label: 'Week 2' },
+  { id: '3', label: 'Week 3' },
+  { id: '4', label: 'Week 4' },
+];
+
+function orderTypeLabel(order: any): string {
+  return order.subscription_week_number ? `Week ${order.subscription_week_number}` : 'Cart';
+}
+
 export function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
+
+  const toggleType = (id: string) => {
+    setTypeFilter((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
+    table.setPage(1);
+  };
 
   const table = useAdminTableQuery<any>({
     defaultSort: { field: 'created_at', dir: 'desc' },
     defaultPerPage: 20,
-    filterKey: `${statusFilter}|${dateFrom}|${dateTo}`,
+    filterKey: `${statusFilter}|${dateFrom}|${dateTo}|${typeFilter.join(',')}`,
     fetcher: ({ page, perPage, sortBy, sortDir }) => {
       const params = new URLSearchParams({
         page: String(page),
@@ -22,6 +40,7 @@ export function OrdersPage() {
       if (statusFilter) params.set('status', statusFilter);
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
+      if (typeFilter.length > 0) params.set('type', typeFilter.join(','));
       return apiGet<any>(`/orders?${params}`).then((r) => ({
         data: r.data || [],
         total: r.total || 0,
@@ -49,6 +68,19 @@ export function OrdersPage() {
           className="rounded-lg border px-3 py-2 text-sm" placeholder="From" />
         <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); table.setPage(1); }}
           className="rounded-lg border px-3 py-2 text-sm" placeholder="To" />
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs font-medium text-gray-500">Type:</span>
+          {ORDER_TYPE_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => toggleType(opt.id)}
+              className={`rounded-full border px-3 py-1 text-xs ${typeFilter.includes(opt.id) ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
@@ -57,6 +89,7 @@ export function OrdersPage() {
             <tr className="border-b bg-gray-50 text-left text-gray-500">
               <SortHeader label="Order ID" field="id" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Customer</th>
+              <th className="px-6 py-3 font-medium">Type</th>
               <th className="px-6 py-3 font-medium">Items</th>
               <SortHeader label="Total" field="total_cents" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} />
               <th className="px-6 py-3 font-medium">Fulfillment</th>
@@ -73,6 +106,11 @@ export function OrdersPage() {
                   </Link>
                 </td>
                 <td className="px-6 py-3">{order.users?.name || 'N/A'}</td>
+                <td className="px-6 py-3">
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${order.subscription_week_number ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {orderTypeLabel(order)}
+                  </span>
+                </td>
                 <td className="px-6 py-3 text-gray-500">{order.order_items?.length || 0}</td>
                 <td className="px-6 py-3">${(order.total_cents / 100).toFixed(2)}</td>
                 <td className="px-6 py-3">
@@ -95,7 +133,7 @@ export function OrdersPage() {
               </tr>
             ))}
             {orders.length === 0 && (
-              <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">No orders found</td></tr>
+              <tr><td colSpan={8} className="px-6 py-8 text-center text-gray-400">No orders found</td></tr>
             )}
           </tbody>
         </table>

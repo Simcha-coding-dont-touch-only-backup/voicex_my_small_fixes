@@ -6,3 +6,7 @@ import './handlers/cart-handlers.js';
 import './handlers/checkout-handlers.js';
 import './handlers/orders-handlers.js';
 import './handlers/returns-handlers.js';
+import './handlers/subscriptions-handlers.js';
+import './handlers/subscriptions-handlers-edit.js';
+import './handlers/subscriptions-handlers-manage.js';
+import './handlers/subscriptions-alerts-inbox.js';

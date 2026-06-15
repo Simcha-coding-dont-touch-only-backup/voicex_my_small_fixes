@@ -33,15 +33,35 @@ usersRouter.get('/', async (req, res) => {
     return;
   }
 
+  // Subscription column: number of active deliveries (0-4) per user.
+  const userIds = (data || []).map((u: any) => u.id);
+  const subCountByUser = await activeDeliveryCountByUser(userIds);
+  const enriched = (data || []).map((u: any) => ({ ...u, subscription_count: subCountByUser.get(u.id) || 0 }));
+
   res.json({
     success: true,
-    data,
+    data: enriched,
     total: count || 0,
     page: parseInt(page as string),
     per_page: parseInt(per_page as string),
     total_pages: Math.ceil((count || 0) / parseInt(per_page as string)),
   });
 });
+
+/** Map of user_id -> count of active subscription deliveries (0-4). */
+async function activeDeliveryCountByUser(userIds: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (userIds.length === 0) return map;
+  const { data: subs } = await supabaseAdmin
+    .from('subscriptions')
+    .select('id, user_id, subscription_deliveries(status)')
+    .in('user_id', userIds);
+  for (const s of subs || []) {
+    const active = ((s as any).subscription_deliveries || []).filter((d: any) => d.status === 'active').length;
+    map.set((s as any).user_id, active);
+  }
+  return map;
+}
 
 usersRouter.get('/:id', async (req, res) => {
   const { data, error } = await supabaseAdmin
@@ -55,7 +75,15 @@ usersRouter.get('/:id', async (req, res) => {
     return;
   }
 
-  res.json({ success: true, data });
+  // Subscription box: active delivery count + subscription id (if any).
+  const { data: sub } = await supabaseAdmin
+    .from('subscriptions')
+    .select('id, subscription_deliveries(status)')
+    .eq('user_id', req.params.id)
+    .maybeSingle();
+  const subscriptionCount = sub ? ((sub as any).subscription_deliveries || []).filter((d: any) => d.status === 'active').length : 0;
+
+  res.json({ success: true, data: { ...data, subscription_id: sub?.id ?? null, subscription_count: subscriptionCount } });
 });
 
 usersRouter.post('/', async (req, res) => {
