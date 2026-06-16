@@ -48,5 +48,11 @@ export const config = {
     processSpacingMs: parseInt(process.env.SUBSCRIPTION_PROCESS_SPACING_MS || '4000', 10),
     // How often the in-process worker polls for due (locked) runs to drain.
     workerPollMs: parseInt(process.env.SUBSCRIPTION_WORKER_POLL_MS || '15000', 10),
+    // Serverless drain (Supabase pg_cron-triggered): max runs processed per
+    // invocation and the wall-clock budget so each call returns inside the
+    // serverless function timeout. The scheduler fires frequently to continue
+    // draining whatever is still locked.
+    drainBatchSize: parseInt(process.env.SUBSCRIPTION_DRAIN_BATCH_SIZE || '8', 10),
+    drainTimeBudgetMs: parseInt(process.env.SUBSCRIPTION_DRAIN_TIME_BUDGET_MS || '50000', 10),
   },
 } as const;

@@ -539,6 +539,72 @@ export async function drainDueRuns(maxRuns = 500): Promise<{ processed: number }
   return { processed };
 }
 
+/**
+ * Serverless-safe drain: processes a bounded batch of locked runs within a wall
+ * clock time budget so the whole call returns well inside a serverless function
+ * timeout. Designed to be triggered frequently by an external scheduler
+ * (Supabase pg_cron) instead of relying on a long-lived in-process worker.
+ *
+ * Runs are claimed atomically in `processRun` (locked -> processing), so it is
+ * safe for overlapping invocations: each picks up whatever is still `locked`.
+ * `more` signals the scheduler that work remains (a run was still available when
+ * the batch/time budget was hit), useful for diagnostics.
+ */
+export async function drainDueRunsBatch(options?: {
+  maxRuns?: number;
+  timeBudgetMs?: number;
+}): Promise<{ processed: number; more: boolean }> {
+  const maxRuns = options?.maxRuns ?? config.subscriptions.drainBatchSize;
+  const timeBudgetMs = options?.timeBudgetMs ?? config.subscriptions.drainTimeBudgetMs;
+  const startedAt = Date.now();
+  let processed = 0;
+  let more = false;
+
+  for (let i = 0; i < maxRuns; i += 1) {
+    const { data: next } = await supabaseAdmin
+      .from('subscription_delivery_runs')
+      .select('id')
+      .eq('status', 'locked')
+      .order('scheduled_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!next) break;
+
+    // Only count runs we actually handled. Under concurrent invocations the
+    // atomic claim in `processRun` can be lost to another instance, returning
+    // `skipped_claim` (or `not_found` if the row vanished) without doing work;
+    // counting those would overstate throughput to the scheduler.
+    const { status } = await processRun(next.id, 'system');
+    if (status !== 'skipped_claim' && status !== 'not_found') {
+      processed += 1;
+    }
+
+    // Check whether more locked work remains before deciding to wait/continue.
+    const { count: remaining } = await supabaseAdmin
+      .from('subscription_delivery_runs')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'locked');
+    if (!remaining || remaining === 0) break;
+
+    // Stop if the next iteration (process + spacing) would risk exceeding the
+    // time budget; the next scheduled tick will continue draining.
+    const spacing = config.subscriptions.processSpacingMs;
+    if (i + 1 < maxRuns && Date.now() - startedAt + spacing >= timeBudgetMs) {
+      more = true;
+      break;
+    }
+    if (i + 1 >= maxRuns) {
+      more = true;
+      break;
+    }
+    if (spacing > 0) {
+      await sleep(spacing);
+    }
+  }
+
+  return { processed, more };
+}
+
 let workerTimer: NodeJS.Timeout | null = null;
 let workerRunning = false;
 

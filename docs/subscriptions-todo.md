@@ -2,7 +2,7 @@ BS"D
 
 Good question. The code is complete and builds, but "working in production" needs a few config, deployment, verification, and one code-risk item. Here's the honest punch list, ordered by what blocks it.
 
-1. Config required before anything fires (blocking)
+✅ 1. Config required before anything fires (blocking)
 Set CRON_SECRET in the API's .env.
 Insert the matching secret + public API URL into Supabase so the cron jobs stop no-op'ing:
 insert into private.cron_settings(key, value) values
@@ -13,7 +13,10 @@ on conflict (key) do update set value = excluded.value;
 
 2. Deployment prerequisites (blocking)
 The API must be publicly reachable from Supabase. pg_net makes an outbound HTTPS call to api_base_url; if the API is on localhost or behind a private network, the cron can't reach it. Confirm the production API URL is internet-reachable.
-Deploy the API as the long-running Express server (not Vercel serverless). The time-spaced worker is startSubscriptionWorker() in server.ts, guarded by process.env.VERCEL !== '1'. On a serverless deploy the worker never starts and locked runs won't drain.
+
+Processing on Vercel serverless (current setup): the in-process worker startSubscriptionWorker() does NOT run on Vercel (guarded by process.env.VERCEL !== '1'). Instead, charging + order creation is driven by a frequent Supabase pg_cron job (subscriptions_drain, every 2 min) that calls the protected, bounded POST /api/cron/subscriptions/drain endpoint. Each call processes a small batch of locked runs within a wall-clock budget (config: SUBSCRIPTION_DRAIN_BATCH_SIZE, SUBSCRIPTION_DRAIN_TIME_BUDGET_MS) so it finishes inside the serverless function timeout; the next tick continues draining. The endpoint is idempotent and claims runs atomically, so overlapping fires are safe. The lock endpoint also kicks off one awaited bounded drain so processing starts promptly at midnight.
+Cron jobs (Supabase pg_cron): subscriptions_prerun (daily), subscriptions_lock (midnight-ET window), subscriptions_drain (every 2 min).
+Alternative (only if you leave Vercel): deploy the API as a long-running Express server and the in-process worker drains automatically; the drain cron is then redundant but harmless (idempotent).
 
 
 3. One code risk to verify (potentially blocking — affects ALL logins)
