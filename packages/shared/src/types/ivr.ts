@@ -46,10 +46,11 @@ export interface IvrNodeConfig {
   timeout_seconds?: number;
   max_retries?: number;
   finish_on_key?: string;
-  // Overrides the DTMF capture regex for this node's gather. When unset the
-  // builder falls back to its default of `[0-9*#]+`. Used to scope which keys
-  // a node will collect (e.g. `[0-9*]+` to ignore `#`).
-  regex?: string;
+  // DTMF keys to silently ignore on this node. When a caller presses one of
+  // these on a `menu` node, the dispatcher re-arms the gather without matching
+  // an intent and without re-speaking the prompt (e.g. ["#"] to make `#` a
+  // no-op on the main menu only).
+  ignore_keys?: string[];
   speech_hints?: string[];
   speech_model?: string;
   intents?: IvrIntent[];

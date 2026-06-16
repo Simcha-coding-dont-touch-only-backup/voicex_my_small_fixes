@@ -120,7 +120,6 @@ export function buildGatherFromNode(
     numDigits: node.config.num_digits,
     timeout: overrides?.timeout || node.config.timeout_seconds || 5,
     finishOnKey: node.config.finish_on_key,
-    regex: node.config.regex,
     sessionData: {
       ...sessionData,
       node_key: node.node_key,
