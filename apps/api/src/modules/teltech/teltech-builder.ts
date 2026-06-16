@@ -70,9 +70,11 @@ export function buildGather(options: {
 }
 
 export function buildSay(message: string, redirectPath?: string, sessionData?: Record<string, string>): TeltechResponse {
-  const actions: TeltechResponse['actions'] = [
-    { action: 'say', text: sanitizeForTTS(message) },
-  ];
+  const actions: TeltechResponse['actions'] = [];
+  const text = sanitizeForTTS(message);
+  if (text) {
+    actions.push({ action: 'say', text });
+  }
   if (redirectPath) {
     let url = `${BASE}${redirectPath}`;
     if (sessionData) {
