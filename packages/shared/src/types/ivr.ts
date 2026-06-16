@@ -46,11 +46,6 @@ export interface IvrNodeConfig {
   timeout_seconds?: number;
   max_retries?: number;
   finish_on_key?: string;
-  // DTMF keys to silently ignore on this node. When a caller presses one of
-  // these on a `menu` node, the dispatcher re-arms the gather without matching
-  // an intent and without re-speaking the prompt (e.g. ["#"] to make `#` a
-  // no-op on the main menu only).
-  ignore_keys?: string[];
   speech_hints?: string[];
   speech_model?: string;
   intents?: IvrIntent[];

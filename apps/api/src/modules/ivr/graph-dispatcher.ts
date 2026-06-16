@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ivrRuntime } from './runtime.js';
 import { getHandler } from './handler-registry.js';
-import { buildMenuFromNode, buildGatherFromNode, buildGather, buildHangup, buildSay } from '../teltech/teltech-builder.js';
+import { buildMenuFromNode, buildGather, buildHangup, buildSay } from '../teltech/teltech-builder.js';
 import { normalizeInput } from '../teltech/input-normalizer.js';
 import type { HandlerContext } from './handler-registry.js';
 
@@ -57,20 +57,6 @@ export async function dispatchNode(
     case 'menu': {
       const intents = node.config.intents || [];
       const digits = req.body.digits;
-
-      // Per-node "ignore keys": swallow these DTMF presses without matching an
-      // intent and without re-speaking the (often long) menu prompt. Configure
-      // via `config.ignore_keys` (e.g. ["#"]) on a single node so callers who
-      // press an ignored key just stay put on the current menu. We re-arm the
-      // gather with a near-silent prompt so the provider keeps listening.
-      const ignoreKeys: string[] = node.config.ignore_keys ?? [];
-      if (digits && ignoreKeys.includes(digits)) {
-        (req as any)._suppressStackPush = true;
-        res.json(
-          buildGatherFromNode(node, { ...sessionData, node_key: nodeKey }, { prompt: ' ' })
-        );
-        return;
-      }
 
       if (digits) {
         const input = normalizeInput(digits, intents);
