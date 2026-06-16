@@ -9,6 +9,7 @@ import { teltechRouter } from '../apps/api/src/modules/teltech/routes.js';
 import { adminRouter } from '../apps/api/src/modules/admin/routes.js';
 import { webhookRouter } from '../apps/api/src/modules/orders/webhook-routes.js';
 import { contactRouter } from '../apps/api/src/modules/contact/routes.js';
+import { cronRouter } from '../apps/api/src/modules/cron/routes.js';
 import '../apps/api/src/modules/ivr/init-handlers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +44,9 @@ app.use('/api/ivr', express.json(), teltechRouter);
 app.use('/api/webhooks', express.json(), webhookRouter);
 
 app.use('/api/admin', express.json(), adminRouter);
+
+// Protected scheduler endpoints (triggered by Supabase pg_cron via pg_net).
+app.use('/api/cron', express.json(), cronRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

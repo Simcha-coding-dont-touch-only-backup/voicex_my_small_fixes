@@ -34,6 +34,8 @@ The implementation covers the broad feature shape: subscription packages by week
 
 Severity: Critical
 
+Found by: GPT 5.5
+
 Evidence:
 
 - `apps/api/src/lib/subscriptions.ts:533` defines `pauseDelivery`.
@@ -53,6 +55,8 @@ Add a scheduler step that finds `temp_paused` deliveries with `pause_resume_date
 ### 2. Package/Card/Address Changes Do Not Maintain Pending Runs
 
 Severity: Critical
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -97,6 +101,8 @@ Centralize subscription mutations through a helper that:
 
 Severity: Critical
 
+Found by: GPT 5.5
+
 Evidence:
 
 - Clear/remove flows do not delete open pending/issue runs:
@@ -120,6 +126,8 @@ When a package becomes empty, delete pending/issue runs for that delivery and se
 ### 4. Availability, Quantity Reduction, and Partial Fulfillment Are Not Implemented
 
 Severity: Critical
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -147,6 +155,8 @@ Implement a product availability check before lock and/or during snapshot. Persi
 
 Severity: High
 
+Found by: GPT 5.5
+
 Evidence:
 
 - `ensureAllUpcomingRuns` runs inside the lock endpoint:
@@ -167,6 +177,8 @@ When a delivery becomes processable before cutoff, seed that exact upcoming proc
 ### 6. Subscription Management Status Filter Is Applied After Pagination
 
 Severity: High
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -190,6 +202,8 @@ Move status filtering into SQL or fetch/decorate all matching rows before pagina
 ### 7. Dashboard and User Subscription Counts Can Overcount Empty Deliveries
 
 Severity: High
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -220,6 +234,8 @@ Count active deliveries that have at least one `subscription_delivery_items` row
 
 Severity: High
 
+Found by: GPT 5.5
+
 Evidence:
 
 - Any card/address update resolves all open subscription alerts for the user:
@@ -246,6 +262,8 @@ Resolve alerts by `run_id`/`delivery_id` and issue type after re-evaluating the 
 
 Severity: High
 
+Found by: GPT 5.5
+
 Evidence:
 
 - The hear-package prompt changes wording based on paused state:
@@ -268,6 +286,8 @@ In `subscriptions_hear_full_action`, load the delivery state and route option 6 
 ### 10. Subscription Order Persistence Is Not Transactional Enough After Charge
 
 Severity: High
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -292,6 +312,8 @@ Check every persistence result after charge. Prefer a database RPC/transaction f
 ### 20. Retrying a Charged-But-Failed Run Can Double-Charge the Card
 
 Severity: High
+
+Found by: Claude Opus High
 
 Evidence:
 
@@ -320,6 +342,8 @@ Before charging, short-circuit if the run already has a `sola_ref_num` (treat it
 
 Severity: Medium
 
+Found by: GPT 5.5
+
 Evidence:
 
 - The spec says the queue should show upcoming subscriptions of the next week delivery, then add the next week after the prior week processes:
@@ -340,6 +364,8 @@ Decide whether "one pending run per active delivery" is the intended behavior. I
 ### 12. Queue Pending Rows Do Not Show Useful Product/Cost Totals Before Lock
 
 Severity: Medium
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -364,6 +390,8 @@ For `pending`/`issue` rows, compute totals from the live delivery package. For l
 
 Severity: Medium
 
+Found by: GPT 5.5
+
 Evidence:
 
 - The UI offers all other weeks, without checking whether the product already exists there:
@@ -386,6 +414,8 @@ Validate destination week is different from source week, and reject destinations
 
 Severity: Medium
 
+Found by: GPT 5.5
+
 Evidence:
 
 - The popup only renders saved-address and saved-card selects:
@@ -407,6 +437,8 @@ Reuse or embed the user detail address/card add forms inside the checkout modal.
 
 Severity: Medium
 
+Found by: GPT 5.5
+
 Evidence:
 
 - Package modal always adds quantity 1:
@@ -425,6 +457,8 @@ Show a quantity input/stepper before submitting the add request.
 ### 16. Failed/Skipped Alert Lifecycle Is Incomplete
 
 Severity: Medium
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -447,6 +481,8 @@ When retry succeeds or skip is confirmed, resolve the alert tied to that run/del
 
 Severity: Medium
 
+Found by: GPT 5.5
+
 Evidence:
 
 - Paused report prices use `custom_price_cents ?? amazon_price_cents`:
@@ -466,6 +502,8 @@ Reuse the subscription pricing helper or snapshot the intended package total whe
 
 Severity: Medium
 
+Found by: Claude Opus High
+
 Evidence:
 
 - The pre-run check sets a run to `issue` and creates a Delivery Issue alert:
@@ -484,11 +522,88 @@ Suggested fix:
 
 When a run moves from `issue` to `failed`, resolve (or supersede) the Delivery Issue alert tied to that run/delivery+cycle so only the Failed Delivery alert remains open.
 
+### 24. Derived "Failed" Delivery Status Is Masked Once the Next Cycle Is Seeded
+
+Severity: Medium
+
+Found by: Claude Opus Extra High
+
+Evidence:
+
+- The management card derives "failed" from the single most recent run by `cycle_date`:
+  - `apps/api/src/modules/admin/subscriptions.ts:33` (`order('cycle_date', desc).limit(1)`)
+  - `apps/api/src/modules/admin/subscriptions.ts:49` (`display = 'failed'` only if `delivery.status === 'active' && lastRun === 'failed'`)
+- After a failure, a later `pending` run for the next cycle is created by the global sweep (`ensureAllUpcomingRuns`) on the next cron tick:
+  - `apps/api/src/modules/cron/routes.ts:41`
+  - `apps/api/src/modules/cron/routes.ts:58`
+- That next-month pending run has a greater `cycle_date`, so it becomes the "latest" and `latestRunStatus` returns `pending`, not `failed`.
+
+Impact:
+
+A delivery whose last cycle genuinely failed (and was never retried/skipped, and whose Failed alert is still open) reverts to showing "Active" on Subscriptions Management as soon as the next cycle's pending run is seeded. The spec wants a Failed delivery to remain "Failed" (showing the failed date) until it is resolved, and the status filter (#6) for `failed` would also stop matching it.
+
+Suggested fix:
+
+Derive "failed" from whether the most recent *non-future* (due) run failed, or from an unresolved Failed Delivery alert / a failed run that has not been retried or skipped, rather than from the single latest run by `cycle_date`.
+
+### 25. Management and Queue Lists Are Hard-Capped at 50 Rows With No Pagination
+
+Severity: Medium
+
+Found by: Claude Opus Extra High
+
+Evidence:
+
+- The management tab always requests `per_page=50` and renders no pager:
+  - `apps/admin-web/src/pages/SubscriptionsPage.tsx:69`
+- The queue tab does the same:
+  - `apps/admin-web/src/pages/SubscriptionsPage.tsx:214`
+- Both APIs return `total`/`page`/`per_page`, but the UI never reads `total` or exposes page navigation.
+
+Impact:
+
+Once there are more than 50 subscriptions (or more than 50 queue runs in the current filter), the remaining rows are simply invisible in the admin UI, with no way to reach them. This compounds the status-filter problem in #6 (which filters a single page in memory).
+
+Suggested fix:
+
+Add pagination controls (or infinite scroll) driven by the API `total`, and fix #6 so status filtering happens before pagination.
+
+### 26. Checkout (Card/Address) Change History Is Not Viewable Anywhere
+
+Severity: Medium
+
+Found by: Claude Opus Extra High
+
+Evidence:
+
+- The spec requires a history icon on the checkout popup logging each card/address change with actor (admin name or hotline):
+  - `docs/voicex-subscription-specs.md:182`
+- The checkout popup renders no history view at all:
+  - `apps/admin-web/src/components/subscriptions/CheckoutModal.tsx` (address/card selects only)
+- `address_changed` / `card_changed` events are logged with `delivery_id = null`:
+  - `apps/api/src/modules/admin/subscriptions.ts:352`
+  - `apps/api/src/modules/admin/subscriptions.ts:356`
+  - `apps/api/src/modules/ivr/handlers/subscriptions-handlers-manage.ts:168`
+  - `apps/api/src/modules/ivr/handlers/subscriptions-handlers-manage.ts:384`
+- The only history modal filters by `delivery_id` and is only ever opened per-week with a delivery id:
+  - `apps/admin-web/src/components/subscriptions/HistoryModal.tsx:28`
+  - `apps/admin-web/src/pages/SubscriptionsPage.tsx:165`
+
+Impact:
+
+Card/address change events are recorded but unreachable in the UI: the per-week History modal filters them out (they have no `delivery_id`), and the checkout popup has no history view, so the required address/card audit trail is effectively hidden.
+
+Suggested fix:
+
+Add a history icon to the checkout popup that loads the subscription history (unfiltered, or filtered to address/address-card events), reusing the existing `/subscriptions/:id/history` endpoint without a `delivery_id`.
+
 ## Lower Priority / Clarifications
 
 ### 18. Entering the Subscription Menu Creates a Subscription Row
 
 Severity: Low
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -508,6 +623,8 @@ Either create the row only on first meaningful subscription action, or filter ma
 ### 19. No Automated Behavioral Tests Cover Subscription Edge Cases
 
 Severity: Low
+
+Found by: GPT 5.5
 
 Evidence:
 
@@ -533,6 +650,8 @@ Add focused tests around:
 
 Severity: Low
 
+Found by: Claude Opus High
+
 Evidence:
 
 - Successful processing and skip both re-seed the next cycle:
@@ -557,6 +676,8 @@ Call `scheduleNextCycle`/`recomputeNextCycleDate` from the failure paths too (de
 
 Severity: Low
 
+Found by: Claude Opus High
+
 Evidence:
 
 - Spec node 07 says after More Details or Reviews it returns to node 07 (Add / More Details / Reviews / Another Product):
@@ -573,3 +694,48 @@ A caller who listens to More Details can no longer jump to Reviews (and vice ver
 Suggested fix:
 
 Re-offer all four options (add, more details, reviews, another product) after playing details or reviews.
+
+### 27. Package Edit Popup Omits the Status and Pause/Activate Control
+
+Severity: Low
+
+Found by: Claude Opus Extra High
+
+Evidence:
+
+- The spec says the delivery edit popup should also show the status and a Pause/Activate button:
+  - `docs/voicex-subscription-specs.md:193`
+- `PackageModal` renders only the item table, the package total, and an add-product box; it has no status badge or pause/activate control:
+  - `apps/admin-web/src/components/subscriptions/PackageModal.tsx:205`
+
+Impact:
+
+Pause/activate and status are available on the row mini-card, but not inside the package edit popup as the spec describes, so an admin editing a package must close it to change pause state.
+
+Suggested fix:
+
+Surface the delivery's status badge and a Pause/Activate button inside the package modal (reusing the row's pause/activate handlers).
+
+### 28. Queue "Retry" on an Issue Run Can Charge Before the Cycle Date
+
+Severity: Low
+
+Found by: Claude Opus Extra High
+
+Evidence:
+
+- The queue detail modal enables Retry/Skip for `issue` (not just `failed`) runs:
+  - `apps/admin-web/src/components/subscriptions/QueueDetailModal.tsx:37`
+- `processRun` will claim a run in `issue` and proceed to snapshot + charge immediately:
+  - `apps/api/src/lib/subscription-engine.ts:317`
+  - `apps/api/src/lib/subscription-engine.ts:378`
+- Pre-run flags runs as `issue` up to ~2 days before their cycle date:
+  - `apps/api/src/lib/subscription-engine.ts:136`
+
+Impact:
+
+An `issue` run is a not-yet-due delivery flagged during the pre-run check, not a failed one. Clicking Retry on it charges the customer's card immediately, before the scheduled processing date, which is not the intended retry semantics.
+
+Suggested fix:
+
+Restrict queue Retry to `failed` runs (the spec's retry target). For `issue` runs, expose only the underlying fix (card/address/availability) and let the normal lock/process flow charge on the cycle date.
