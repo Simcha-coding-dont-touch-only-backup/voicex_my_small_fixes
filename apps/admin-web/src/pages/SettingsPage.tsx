@@ -108,10 +108,10 @@ export function SettingsPage() {
   // Poll while a sync is running/paused so the status bar stays live and
   // continues even if the admin navigates back to this page.
   useEffect(() => {
-    const running = syncJob?.status === 'running';
-    if (running && !pollRef.current) {
+    const active = syncJob?.status === 'running' || syncJob?.status === 'paused';
+    if (active && !pollRef.current) {
       pollRef.current = setInterval(refreshSyncStatus, 2000);
-    } else if (!running && pollRef.current) {
+    } else if (!active && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
