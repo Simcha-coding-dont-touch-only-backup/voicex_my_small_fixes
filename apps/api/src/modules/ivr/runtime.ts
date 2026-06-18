@@ -182,7 +182,7 @@ class IvrRuntime {
       : [];
 
     // #region agent log
-    await debugStarBack(callSid, 'runtime:popMenuStack-entry', { hypothesisId: 'C', stackBefore: stateData.menu_stack, current_menu: stateData.current_menu, stackLen: stack.length });
+    await debugStarBack(callSid, 'runtime:popMenuStack-entry', { hypothesisId: 'I', runId: 'post-fix', stackBefore: stateData.menu_stack, current_menu: stateData.current_menu, stackLen: stack.length });
     // #endregion
 
     if (stack.length === 0) return null;
@@ -197,7 +197,7 @@ class IvrRuntime {
     await this.updateSession(callSid, { state_data: next });
 
     // #region agent log
-    await debugStarBack(callSid, 'runtime:popMenuStack-result', { hypothesisId: 'C', popped: prev, stackAfter: stack });
+    await debugStarBack(callSid, 'runtime:popMenuStack-result', { hypothesisId: 'I', runId: 'post-fix', popped: prev, stackAfter: stack });
     // #endregion
 
     return prev;
@@ -230,7 +230,7 @@ class IvrRuntime {
     const current = typeof stateData.current_menu === 'string' ? stateData.current_menu : null;
 
     // #region agent log
-    await debugStarBack(callSid, 'runtime:recordMenuVisit-entry', { hypothesisId: 'C/D', nodeKey, current_menu: current, stackBefore: stateData.menu_stack, sameAsCurrent: current === nodeKey });
+    await debugStarBack(callSid, 'runtime:recordMenuVisit-entry', { hypothesisId: 'I', runId: 'post-fix', nodeKey, current_menu: current, stackBefore: stateData.menu_stack, sameAsCurrent: current === nodeKey });
     // #endregion
 
     // Re-render of the same menu (invalid input, retries): nothing changed.
@@ -257,7 +257,7 @@ class IvrRuntime {
     });
 
     // #region agent log
-    await debugStarBack(callSid, 'runtime:recordMenuVisit-result', { hypothesisId: 'C/D', nodeKey, current_was: current, stackAfter: nextStack });
+    await debugStarBack(callSid, 'runtime:recordMenuVisit-result', { hypothesisId: 'I', runId: 'post-fix', nodeKey, current_was: current, stackAfter: nextStack });
     // #endregion
   }
 

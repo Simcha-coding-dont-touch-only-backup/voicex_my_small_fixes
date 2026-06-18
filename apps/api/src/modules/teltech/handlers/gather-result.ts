@@ -129,7 +129,8 @@ export async function handleGatherResult(req: Request, res: Response) {
 
   // #region agent log
   void debugStarBack(callSid, 'gather-result:rawEntry', {
-    hypothesisId: 'F/G/H',
+    hypothesisId: 'I',
+    runId: 'post-fix',
     entryNodeKey: nodeKey,
     bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : null,
     body_digits: req.body?.digits,
@@ -146,11 +147,24 @@ export async function handleGatherResult(req: Request, res: Response) {
     return;
   }
 
+  // Buffer the response instead of flushing it immediately. On serverless
+  // platforms the function can be frozen/suspended right after the HTTP
+  // response is sent, which kills any in-flight awaited work that runs *after*
+  // res.json() — including the menu-stack bookkeeping below. By capturing the
+  // body here and only sending it once all bookkeeping has completed, the
+  // stack writes are guaranteed to finish before the response flushes.
   const origJson = res.json.bind(res);
   let captured: any = null;
+  let sent = false;
   res.json = (body: any) => {
     captured = body;
-    return origJson(body);
+    return res;
+  };
+  const flush = () => {
+    if (sent) return;
+    sent = true;
+    res.json = origJson;
+    origJson(captured ?? buildHangup('An error occurred. Please call back.'));
   };
 
   try {
@@ -161,9 +175,11 @@ export async function handleGatherResult(req: Request, res: Response) {
       const activeVersion = await ivrRuntime.getActiveFlowVersion();
       if (!activeVersion) {
         res.json(buildHangup('System is not configured. Please contact support.'));
+        flush();
         return;
       }
       await dispatchNode(req, res, nodeKey, callSid, activeVersion.id, extractSessionData(req));
+      flush();
       return;
     }
 
@@ -211,7 +227,8 @@ export async function handleGatherResult(req: Request, res: Response) {
 
     // #region agent log
     void debugStarBack(callSid, 'gather-result:pushSite', {
-      hypothesisId: 'A/B/E',
+      hypothesisId: 'I',
+      runId: 'post-fix',
       entryNodeKey: req.query.node_key,
       resolvedNodeKey: nodeKey,
       incomingDigits,
@@ -239,6 +256,9 @@ export async function handleGatherResult(req: Request, res: Response) {
       }
     }
 
+    // Bookkeeping is done — now it's safe to flush the buffered response.
+    flush();
+
     const actionCount = countActions(captured);
     const responseType = getResponseType(captured);
     const recursionDepth = (req as any)._dispatchDepth || 0;
@@ -246,7 +266,8 @@ export async function handleGatherResult(req: Request, res: Response) {
     await logWebhookStep(callSid, nodeKey, incomingDigits, actionCount, responseType, recursionDepth, session);
   } catch (error) {
     console.error(`Error in gather result for node ${nodeKey}:`, error);
-    res.json(buildHangup('We encountered an error. Please try again later.'));
+    captured = buildHangup('We encountered an error. Please try again later.');
+    flush();
   }
 }
 
