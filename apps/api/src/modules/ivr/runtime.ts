@@ -1,22 +1,6 @@
 import { supabaseAdmin } from '../../lib/supabase.js';
 import type { CallSession, IvrNode, IvrEdge, IvrFlowVersion } from '@voicex/shared';
 
-// #region agent log
-async function debugStarBack(callSid: string, location: string, data: Record<string, unknown>): Promise<void> {
-  try {
-    await supabaseAdmin.from('ivr_error_logs').insert({
-      call_sid: callSid || 'unknown',
-      error_type: 'debug_starback',
-      error_detail: location,
-      session_data: { location, ...data, ts: Date.now() },
-      raw_payload: { location },
-    });
-  } catch {
-    // ignore
-  }
-}
-// #endregion
-
 interface CachedFlow {
   versionId: string;
   nodes: Map<string, IvrNode>;
@@ -181,10 +165,6 @@ class IvrRuntime {
       ? [...(stateData.menu_stack as string[])]
       : [];
 
-    // #region agent log
-    await debugStarBack(callSid, 'runtime:popMenuStack-entry', { hypothesisId: 'I', runId: 'post-fix', stackBefore: stateData.menu_stack, current_menu: stateData.current_menu, stackLen: stack.length });
-    // #endregion
-
     if (stack.length === 0) return null;
 
     const prev = stack.pop() ?? null;
@@ -195,11 +175,6 @@ class IvrRuntime {
     if (prev === null) delete next.current_menu;
     else next.current_menu = prev;
     await this.updateSession(callSid, { state_data: next });
-
-    // #region agent log
-    await debugStarBack(callSid, 'runtime:popMenuStack-result', { hypothesisId: 'I', runId: 'post-fix', popped: prev, stackAfter: stack });
-    // #endregion
-
     return prev;
   }
 
@@ -229,10 +204,6 @@ class IvrRuntime {
     const stateData = (session.state_data || {}) as Record<string, unknown>;
     const current = typeof stateData.current_menu === 'string' ? stateData.current_menu : null;
 
-    // #region agent log
-    await debugStarBack(callSid, 'runtime:recordMenuVisit-entry', { hypothesisId: 'I', runId: 'post-fix', nodeKey, current_menu: current, stackBefore: stateData.menu_stack, sameAsCurrent: current === nodeKey });
-    // #endregion
-
     // Re-render of the same menu (invalid input, retries): nothing changed.
     if (current === nodeKey) return;
 
@@ -255,10 +226,6 @@ class IvrRuntime {
     await this.updateSession(callSid, {
       state_data: { ...stateData, menu_stack: nextStack, current_menu: nodeKey },
     });
-
-    // #region agent log
-    await debugStarBack(callSid, 'runtime:recordMenuVisit-result', { hypothesisId: 'I', runId: 'post-fix', nodeKey, current_was: current, stackAfter: nextStack });
-    // #endregion
   }
 
   private async getCachedFlow(flowVersionId: string): Promise<CachedFlow | null> {
