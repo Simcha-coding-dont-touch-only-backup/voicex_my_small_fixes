@@ -17,6 +17,7 @@ import {
   addSyncRunItem,
   finalizeSyncRun,
   runFullSync,
+  runBulkSync,
   requestSyncPause,
   getSyncJobState,
   adminActor,
@@ -1304,7 +1305,9 @@ catalogRouter.post('/products/:id/sync', async (req, res) => {
   });
 });
 
-// Bulk manual sync for selected products.
+// Bulk manual sync for selected products. Fire-and-forget into the shared
+// in-memory sync job so large selections don't hold the HTTP connection open
+// (which previously caused gateway 504s). The admin UI polls /sync/status.
 catalogRouter.post('/products/sync', async (req, res) => {
   const ids = parseProductIds(req.body?.ids);
   if (!ids) {
@@ -1312,28 +1315,18 @@ catalogRouter.post('/products/sync', async (req, res) => {
     return;
   }
 
+  const state = getSyncJobState();
+  if (state.status === 'running') {
+    res.status(409).json({ success: false, error: 'A sync is already running', data: state });
+    return;
+  }
+
   const actor = adminActor((req as any).adminUser);
-  const runId = await createSyncRun({ trigger: 'manual_bulk', actor, total: ids.length });
-
-  const results: ProductSyncResult[] = [];
-  let changed = 0;
-  for (const id of ids) {
-    const result = await syncProductPriceFromAmazon(id, actor);
-    results.push(result);
-    if (runId) await addSyncRunItem(runId, result);
-    if (result.priceChanged || result.becameUnavailable) changed += 1;
-  }
-
-  if (runId) {
-    await finalizeSyncRun(runId, { total: ids.length, processed: ids.length, changed });
-  }
-
-  res.json({
-    success: true,
-    synced: ids.length,
-    changed,
-    results: results.map(syncResultSummary),
+  void runBulkSync({ ids, actor }).catch((err) => {
+    console.error('[catalog] bulk sync failed:', err);
   });
+
+  res.json({ success: true, data: getSyncJobState() });
 });
 
 // Start a full sync over all active products (in-memory job, survives navigation).

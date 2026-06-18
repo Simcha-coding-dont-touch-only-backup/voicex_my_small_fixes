@@ -23,6 +23,7 @@ import {
   type CatalogProduct,
   type CatalogProductFrozenSource,
   type CatalogProductStatus,
+  type SyncJobState,
 } from '@voicex/shared';
 import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery, useRowSelection, SelectAllCheckbox, RowCheckbox, BulkActionBar } from '../components/admin-table';
 
@@ -658,6 +659,8 @@ export function ProductsPage() {
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [syncJob, setSyncJob] = useState<SyncJobState | null>(null);
+  const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [historyProduct, setHistoryProduct] = useState<{ id: string; name: string } | null>(null);
 
   const table = useAdminTableQuery<any>({
@@ -1148,32 +1151,81 @@ export function ProductsPage() {
     }
   };
 
+  const refreshSyncStatus = async (): Promise<SyncJobState | null> => {
+    try {
+      const res = await apiGet<{ data: SyncJobState }>('/catalog/sync/status');
+      setSyncJob(res.data);
+      return res.data;
+    } catch {
+      return null;
+    }
+  };
+
+  // Pick up an in-progress sync (e.g. started here or from Settings) on mount.
+  useEffect(() => {
+    refreshSyncStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Poll the shared sync job while it's active. When it finishes (returns to
+  // idle), surface a completion message and refresh the table. Bulk sync runs
+  // server-side and reports progress here, so large selections no longer hold
+  // the request open (which previously caused gateway 504s).
+  useEffect(() => {
+    const active = syncJob?.status === 'running' || syncJob?.status === 'paused';
+    if (active && !syncPollRef.current) {
+      syncPollRef.current = setInterval(() => {
+        void (async () => {
+          const state = await refreshSyncStatus();
+          if (state && state.status === 'idle') {
+            setSyncFeedback(
+              `Synced ${state.processed} product${state.processed === 1 ? '' : 's'}, ${state.changed} changed.` +
+                (state.lastError ? ` Last error: ${state.lastError}` : ''),
+            );
+            setBulkSyncing(false);
+            table.refresh();
+            window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
+          }
+        })();
+      }, 2000);
+    } else if (!active && syncPollRef.current) {
+      clearInterval(syncPollRef.current);
+      syncPollRef.current = null;
+    }
+    return () => {
+      if (syncPollRef.current) {
+        clearInterval(syncPollRef.current);
+        syncPollRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncJob?.status]);
+
   const handleBulkSync = async (): Promise<void> => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
     setBulkSyncing(true);
     setSyncFeedback(null);
     try {
-      const res = await apiPost<{ synced: number; changed: number }>('/catalog/products/sync', { ids });
-      setSyncFeedback(`Synced ${res.synced} product${res.synced === 1 ? '' : 's'}, ${res.changed} changed.`);
-      table.refresh();
+      const res = await apiPost<{ data: SyncJobState }>('/catalog/products/sync', { ids });
+      setSyncJob(res.data);
       clearSelection();
-      window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
     } catch (err: any) {
       setSyncFeedback(err?.message || 'Failed to sync products');
-    } finally {
       setBulkSyncing(false);
     }
   };
+
+  const syncActive = bulkSyncing || syncJob?.status === 'running' || syncJob?.status === 'paused';
 
   const bulkDeleteActions = useMemo(
     () => [
       {
         id: 'sync',
         label: (count: number) => `Sync ${count} Product${count === 1 ? '' : 's'}`,
-        icon: <RefreshCw size={16} className={bulkSyncing ? 'animate-spin' : ''} />,
+        icon: <RefreshCw size={16} className={syncActive ? 'animate-spin' : ''} />,
         variant: 'default' as const,
-        disabled: bulkSyncing,
+        disabled: syncActive,
         onRun: (): void => {
           void handleBulkSync();
         },
@@ -1188,7 +1240,7 @@ export function ProductsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [deleting, bulkSyncing, selected],
+    [deleting, syncActive, selected],
   );
 
   const handleExportPdf = async () => {
@@ -1617,6 +1669,15 @@ export function ProductsPage() {
       </div>
 
       <BulkActionBar selectedCount={selectedCount} actions={bulkDeleteActions} />
+
+      {syncJob && (syncJob.status === 'running' || syncJob.status === 'paused') && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-700">
+          <RefreshCw size={16} className="animate-spin" />
+          <span>
+            Syncing products… {syncJob.processed}/{syncJob.total} processed, {syncJob.changed} changed.
+          </span>
+        </div>
+      )}
 
       {syncFeedback && (
         <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">

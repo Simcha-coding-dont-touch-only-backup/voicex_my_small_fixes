@@ -317,18 +317,18 @@ export async function backfillSyncRunOrder(runId: string, orderId: number): Prom
 }
 
 /**
- * Finalize every full-sync row left in a non-terminal state (`running` or
- * `paused`) as `failed`. In-memory job state tracks only a single run, so a
- * process restart while a row is still `running`/`paused` strands that row
- * forever. This DB-level sweep reconciles all such orphans, regardless of how
- * many accumulated. Pass `exceptRunId` to skip a row that is still actively
- * owned by the current in-memory job.
+ * Finalize every full/auto/bulk-sync row left in a non-terminal state
+ * (`running` or `paused`) as `failed`. In-memory job state tracks only a single
+ * run, so a process restart while a row is still `running`/`paused` strands
+ * that row forever. This DB-level sweep reconciles all such orphans, regardless
+ * of how many accumulated. Pass `exceptRunId` to skip a row that is still
+ * actively owned by the current in-memory job.
  */
 export async function reconcileOrphanedSyncRuns(exceptRunId?: string | null): Promise<void> {
   let query = supabaseAdmin
     .from('product_sync_runs')
     .update({ status: 'failed', finished_at: new Date().toISOString() })
-    .in('trigger', ['auto', 'manual_full'])
+    .in('trigger', ['auto', 'manual_full', 'manual_bulk'])
     .in('status', ['running', 'paused']);
   if (exceptRunId) query = query.neq('id', exceptRunId);
   const { error } = await query;
@@ -501,6 +501,93 @@ export async function runFullSync(opts: RunFullSyncOptions): Promise<{ runId: st
   if (!persistedPause) {
     jobState.runId = null;
   }
+
+  return { runId, processed, changed, paused };
+}
+
+export interface RunBulkSyncOptions {
+  /** Specific product ids to sync (the admin's selection). */
+  ids: string[];
+  actor: SyncActor;
+}
+
+/**
+ * Runs a manual bulk sync over a specific set of selected product ids. Shares
+ * the same in-memory `jobState` and `product_sync_runs` row machinery as
+ * `runFullSync`, so the admin UI can poll `/sync/status` for live progress and
+ * the HTTP request that triggers it returns immediately (avoiding gateway
+ * timeouts on large selections). Honors the in-memory pause flag between
+ * products.
+ */
+export async function runBulkSync(opts: RunBulkSyncOptions): Promise<{ runId: string | null; processed: number; changed: number; paused: boolean }> {
+  // Same single-slot guard as runFullSync: a running job owns jobState.
+  if (jobState.status === 'running') {
+    return { runId: jobState.runId, processed: jobState.processed, changed: jobState.changed, paused: false };
+  }
+
+  // Claim the slot synchronously before any await.
+  jobState.status = 'running';
+  jobState.pauseRequested = false;
+  jobState.lastError = null;
+
+  // Finalize any orphaned full/auto runs stranded by a prior process.
+  await reconcileOrphanedSyncRuns();
+
+  const ids = opts.ids;
+  const runId = await createSyncRun({ trigger: 'manual_bulk', actor: opts.actor, total: ids.length });
+
+  jobState.total = ids.length;
+  jobState.processed = 0;
+  jobState.changed = 0;
+  jobState.currentProductId = null;
+  jobState.currentProductName = null;
+  jobState.startedAt = new Date().toISOString();
+  jobState.runId = runId;
+  jobState.pauseRequested = false;
+  jobState.lastError = null;
+
+  let paused = false;
+  try {
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      jobState.currentProductId = id;
+      jobState.currentProductName = null;
+
+      const result = await syncProductPriceFromAmazon(id, opts.actor);
+      if (runId) await addSyncRunItem(runId, result);
+      if (result.priceChanged || result.becameUnavailable) jobState.changed += 1;
+      if (result.error) jobState.lastError = result.error;
+      jobState.processed += 1;
+
+      if (jobState.pauseRequested) {
+        paused = true;
+        break;
+      }
+      if (i < ids.length - 1) await delay(SYNC_SPACING_MS);
+    }
+  } catch (err) {
+    jobState.lastError = err instanceof Error ? err.message : String(err);
+  }
+
+  if (runId) {
+    await finalizeSyncRun(runId, {
+      total: jobState.total,
+      processed: jobState.processed,
+      changed: jobState.changed,
+      status: paused ? 'paused' : 'completed',
+    });
+  }
+
+  const processed = jobState.processed;
+  const changed = jobState.changed;
+
+  // Bulk runs are not resumable (the selection isn't persisted), so settle to
+  // 'idle' even when paused; the run row is finalized as 'paused' above.
+  jobState.status = 'idle';
+  jobState.currentProductId = null;
+  jobState.currentProductName = null;
+  jobState.pauseRequested = false;
+  jobState.runId = null;
 
   return { runId, processed, changed, paused };
 }
