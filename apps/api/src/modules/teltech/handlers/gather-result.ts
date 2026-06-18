@@ -4,6 +4,26 @@ import { dispatchNode } from '../../ivr/graph-dispatcher.js';
 import { buildHangup } from '../teltech-builder.js';
 import { supabaseAdmin } from '../../../lib/supabase.js';
 
+// #region agent log
+// Debug-mode instrumentation for the `*`-back menu stack. The API runs on a
+// remote server, so HTTP-to-localhost logging can't reach the debugger; we
+// persist debug rows to ivr_error_logs and read them back via Supabase MCP.
+async function debugStarBack(callSid: string, location: string, data: Record<string, unknown>): Promise<void> {
+  try {
+    await supabaseAdmin.from('ivr_error_logs').insert({
+      call_sid: callSid || 'unknown',
+      error_type: 'debug_starback',
+      error_detail: location,
+      node_key: typeof data.resolvedNodeKey === 'string' ? data.resolvedNodeKey : null,
+      session_data: { location, ...data, ts: Date.now() },
+      raw_payload: { location },
+    });
+  } catch {
+    // ignore
+  }
+}
+// #endregion
+
 function countActions(response: any): number {
   if (!response?.actions) return 0;
   let count = 0;
@@ -175,6 +195,20 @@ export async function handleGatherResult(req: Request, res: Response) {
     await dispatchNode(req, res, nodeKey, callSid, flowVersionId, sessionData);
 
     const suppressPush = (req as any)._suppressStackPush === true;
+
+    // #region agent log
+    void debugStarBack(callSid, 'gather-result:pushSite', {
+      hypothesisId: 'A/B/E',
+      entryNodeKey: req.query.node_key,
+      resolvedNodeKey: nodeKey,
+      incomingDigits,
+      isBackRequest,
+      didPop,
+      suppressPush,
+      parkedNodeKey: extractGatheredNodeKey(captured),
+      capturedActions: Array.isArray(captured?.actions) ? captured.actions.map((a: any) => a.action) : null,
+    });
+    // #endregion
 
     // Track the menu the caller is now parked at (the gather/collect their next
     // keypress routes to). `recordMenuVisit` pushes the menu they're leaving
