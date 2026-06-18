@@ -30,7 +30,7 @@ The implementation covers the broad feature shape: subscription packages by week
 
 ## Critical Issues
 
-### 1. Temporary Pauses Never Auto-Resume
+ ✅ ### 1. Temporary Pauses Never Auto-Resume
 
 Severity: Critical
 

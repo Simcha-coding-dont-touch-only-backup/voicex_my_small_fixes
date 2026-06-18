@@ -3,6 +3,7 @@
  * processing engine. Pure-ish data access + business rules; no Express/TelTech.
  */
 import { supabaseAdmin } from './supabase.js';
+import { createDeliveryIssueAlert, resolveDeliveryIssueAlert } from './subscription-alerts.js';
 import {
   getProductDisplayName,
   getProductPriceCents,
@@ -10,6 +11,7 @@ import {
   SUBSCRIPTION_TIMEZONE,
   SUBSCRIPTION_WEEKS,
   SETTING_KEYS,
+  SUBSCRIPTION_ALERT_ISSUE_TYPES,
 } from '@voicex/shared';
 import type {
   CatalogProduct,
@@ -661,7 +663,13 @@ export async function setSubscriptionCard(subscriptionId: string, paymentMethodI
  *   - the single ~24h pre-run check validates card/address and can alert, and
  *   - the midnight-ET lock on the actual cycle day still locks it normally.
  * The seeded run keeps `cycle_date === pause_resume_date`, so no extra cycle is
- * processed early. Idempotent and safe to run on every cron tick.
+ * processed early.
+ *
+ * A delivery is only flipped to `active` if its resume run can actually be
+ * seeded (i.e. it is processable: has items, card, and address). If not, it is
+ * left `temp_paused` with `pause_resume_date` intact and retried on the next
+ * tick, so we never strand a runless "active" delivery or lose the pinned resume
+ * cycle to computeNextProcessingDate. Idempotent and safe to run on every tick.
  */
 export async function resumeDueDeliveries(now: Date = new Date()): Promise<{ resumed: number }> {
   const today = etToday(now);
@@ -684,6 +692,47 @@ export async function resumeDueDeliveries(now: Date = new Date()): Promise<{ res
     if (!subscription) continue;
 
     const resumeCycle = delivery.pause_resume_date;
+
+    // A delivery must be processable (active + items + card + address) for a run
+    // to be seeded. We tentatively flip to active to evaluate processability, but
+    // if we can't actually seed the resume run we roll the delivery back to
+    // temp_paused with its pause_resume_date intact. That keeps the exact resume
+    // cycle pinned for the next tick instead of activating a runless delivery and
+    // letting computeNextProcessingDate silently skip the resume cycle once the
+    // user finally adds a card/address.
+    const activeCandidate: DeliveryRow = { ...delivery, status: 'active' };
+    const seededCycle =
+      resumeCycle && resumeCycle >= today
+        ? await seedRunForCycle(activeCandidate, subscription, resumeCycle)
+        : await ensureUpcomingRun(activeCandidate, subscription);
+
+    if (!seededCycle) {
+      // Not processable yet (e.g. missing card/address/items). Leave it
+      // temp_paused so the pause_resume_date survives and we auto-resume on a
+      // later tick once it's fixed. Because no run exists, the normal pre-run
+      // check can't surface this, so raise the Delivery Issue alert here (deduped
+      // per delivery+cycle) so an admin can resolve it before the cycle date.
+      const check = await checkDeliveryProcessable(activeCandidate, subscription);
+      const issue = !check.hasCard
+        ? { type: SUBSCRIPTION_ALERT_ISSUE_TYPES.NO_PAYMENT_METHOD, message: 'No subscription card on file' }
+        : !check.hasAddress
+          ? { type: SUBSCRIPTION_ALERT_ISSUE_TYPES.NO_ADDRESS, message: 'No subscription address on file' }
+          : !check.hasItems
+            ? { type: SUBSCRIPTION_ALERT_ISSUE_TYPES.PRODUCTS_UNAVAILABLE, message: 'Delivery package is empty' }
+            : null;
+      if (issue && resumeCycle) {
+        await createDeliveryIssueAlert({
+          userId: subscription.user_id,
+          deliveryId: delivery.id,
+          weekNumber: delivery.week_number,
+          cycleDate: resumeCycle,
+          issueType: issue.type,
+          adminNote: `${issue.message} (delivery due to resume on ${resumeCycle})`,
+        });
+      }
+      continue;
+    }
+
     await supabaseAdmin
       .from('subscription_deliveries')
       .update({
@@ -695,19 +744,12 @@ export async function resumeDueDeliveries(now: Date = new Date()): Promise<{ res
       })
       .eq('id', delivery.id);
 
-    // Re-seed the run at the exact resume cycle date so the resume cycle is
-    // neither skipped nor pulled early. If the stored resume date is somehow in
-    // the past (e.g. crons missed for days), fall back to the next processing
-    // date so we don't seed a stale, already-passed cycle.
     const fresh = await getDelivery(delivery.id);
-    if (fresh) {
-      if (resumeCycle && resumeCycle >= today) {
-        await seedRunForCycle(fresh, subscription, resumeCycle);
-      } else {
-        await ensureUpcomingRun(fresh, subscription);
-      }
-      await recomputeNextCycleDate(fresh);
-    }
+    if (fresh) await recomputeNextCycleDate(fresh);
+
+    // If a prior tick raised a "can't resume yet" alert for this cycle, the run
+    // now exists and the normal pre-run/lock checks own it — clear the stale one.
+    if (resumeCycle) await resolveDeliveryIssueAlert(delivery.id, resumeCycle);
 
     await logSubscriptionEvent({
       subscriptionId: subscription.id,
