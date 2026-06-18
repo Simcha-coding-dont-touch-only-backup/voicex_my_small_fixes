@@ -106,9 +106,25 @@ cronRouter.post('/catalog/price-sync', async (_req: Request, res: Response) => {
 
     const lastFull = await getLastFullSyncStartedAt();
     if (lastFull) {
-      const elapsedHours = (Date.now() - lastFull.getTime()) / (60 * 60 * 1000);
-      // Small tolerance so a daily 4AM fire still runs a 24h interval.
-      if (elapsedHours < settings.intervalHours - 0.5) {
+      const now = new Date();
+      const elapsedHours = (now.getTime() - lastFull.getTime()) / (60 * 60 * 1000);
+
+      // For a daily cadence we gate by calendar day (UTC) rather than raw
+      // elapsed hours. The cron fires twice daily (08:00 + 09:00 UTC for DST),
+      // and each run's `started_at` drifts a little later than the previous
+      // day's due to processing latency. A raw `< interval` check would then
+      // skip a day whenever drift pushes elapsed just under 24h, while a fixed
+      // hour tolerance lets syncs run meaningfully early. Day-based gating skips
+      // the duplicate same-day fire but always runs once per day without ever
+      // firing before the interval has truly elapsed.
+      const isDaily = settings.intervalHours >= 23 && settings.intervalHours <= 25;
+      const alreadySyncedToday =
+        lastFull.getUTCFullYear() === now.getUTCFullYear() &&
+        lastFull.getUTCMonth() === now.getUTCMonth() &&
+        lastFull.getUTCDate() === now.getUTCDate();
+
+      const shouldSkip = isDaily ? alreadySyncedToday : elapsedHours < settings.intervalHours;
+      if (shouldSkip) {
         res.json({ ok: true, skipped: 'interval_not_elapsed', elapsedHours });
         return;
       }

@@ -200,7 +200,10 @@ export async function syncProductPriceFromAmazon(
   base.newAmazonCents = lookup.price_cents;
 
   const newCents = lookup.price_cents;
-  if (newCents != null && newCents !== product.amazon_price_cents) {
+  // A price change includes the transition to/from null: a product that loses
+  // its Amazon buybox price (newCents === null) is going unavailable, which is
+  // an auditable state change that must be logged just like a numeric change.
+  if (newCents !== product.amazon_price_cents) {
     const { error: updErr } = await supabaseAdmin
       .from('catalog_products')
       .update({ amazon_price_cents: newCents, updated_at: new Date().toISOString() })
@@ -210,11 +213,13 @@ export async function syncProductPriceFromAmazon(
     }
     base.priceChanged = true;
     base.direction =
-      product.amazon_price_cents == null
-        ? 'up'
-        : newCents > product.amazon_price_cents
+      newCents == null
+        ? 'down'
+        : product.amazon_price_cents == null
           ? 'up'
-          : 'down';
+          : newCents > product.amazon_price_cents
+            ? 'up'
+            : 'down';
     await insertPriceHistory(productId, product.amazon_price_cents, newCents, actor);
 
     // Re-evaluate alerts + auto-freeze using existing logic. Any resulting
@@ -311,6 +316,25 @@ export async function backfillSyncRunOrder(runId: string, orderId: number): Prom
   if (error) console.error('[product-sync] failed to backfill sync run order:', error.message);
 }
 
+/**
+ * Finalize every full-sync row left in a non-terminal state (`running` or
+ * `paused`) as `failed`. In-memory job state tracks only a single run, so a
+ * process restart while a row is still `running`/`paused` strands that row
+ * forever. This DB-level sweep reconciles all such orphans, regardless of how
+ * many accumulated. Pass `exceptRunId` to skip a row that is still actively
+ * owned by the current in-memory job.
+ */
+export async function reconcileOrphanedSyncRuns(exceptRunId?: string | null): Promise<void> {
+  let query = supabaseAdmin
+    .from('product_sync_runs')
+    .update({ status: 'failed', finished_at: new Date().toISOString() })
+    .in('trigger', ['auto', 'manual_full'])
+    .in('status', ['running', 'paused']);
+  if (exceptRunId) query = query.neq('id', exceptRunId);
+  const { error } = await query;
+  if (error) console.error('[product-sync] failed to reconcile orphaned sync runs:', error.message);
+}
+
 // ---------------------------------------------------------------------------
 // Full sync job (in-memory, server-side, survives client navigation)
 // ---------------------------------------------------------------------------
@@ -393,21 +417,26 @@ export interface RunFullSyncOptions {
  * `product_sync_runs` row. Honors the in-memory pause flag between products.
  */
 export async function runFullSync(opts: RunFullSyncOptions): Promise<{ runId: string | null; processed: number; changed: number; paused: boolean }> {
+  // A 'running' job owns the in-memory state and is actively iterating, so a new
+  // sync must not start. A 'paused' job is restartable ("Sync Now" begins a
+  // fresh run); its stale `product_sync_runs` row is finalized by the
+  // reconciliation sweep below before a fresh run starts.
   if (jobState.status === 'running') {
     return { runId: jobState.runId, processed: jobState.processed, changed: jobState.changed, paused: false };
   }
 
-  // A previous job was paused but never resumed. We don't resume in place, so
-  // finalize the stale `product_sync_runs` row (it would otherwise stay
-  // 'paused' forever) before clobbering the in-memory state with a fresh run.
-  if (jobState.status === 'paused' && jobState.runId) {
-    await finalizeSyncRun(jobState.runId, {
-      total: jobState.total,
-      processed: jobState.processed,
-      changed: jobState.changed,
-      status: 'failed',
-    });
-  }
+  // Claim the slot synchronously (before any await) so two concurrent callers
+  // can't both pass the guard above during the async setup below.
+  jobState.status = 'running';
+  jobState.pauseRequested = false;
+  jobState.lastError = null;
+
+  // A previous job (this process or an earlier one that has since restarted)
+  // may have left a `product_sync_runs` row stuck in 'running'/'paused'. We
+  // don't resume in place, so finalize every such orphan as 'failed' before
+  // starting fresh. This sweeps all stranded rows at the DB level rather than
+  // only the single run tracked by in-memory state, which is lost on restart.
+  await reconcileOrphanedSyncRuns();
 
   const allProducts = await loadActiveProductsForSync();
   const products = opts.skipRecentlyUpdated
@@ -416,7 +445,6 @@ export async function runFullSync(opts: RunFullSyncOptions): Promise<{ runId: st
 
   const runId = await createSyncRun({ trigger: opts.trigger, actor: opts.actor, total: products.length });
 
-  jobState.status = 'running';
   jobState.total = products.length;
   jobState.processed = 0;
   jobState.changed = 0;
@@ -462,11 +490,15 @@ export async function runFullSync(opts: RunFullSyncOptions): Promise<{ runId: st
   const processed = jobState.processed;
   const changed = jobState.changed;
 
-  jobState.status = paused ? 'paused' : 'idle';
+  // Only stay 'paused' when there's a backing run row to resume/finalize. If
+  // `createSyncRun` failed (runId === null), a pause has nothing to persist, so
+  // settle to 'idle' instead of stranding the in-memory state at 'paused'.
+  const persistedPause = paused && runId !== null;
+  jobState.status = persistedPause ? 'paused' : 'idle';
   jobState.currentProductId = null;
   jobState.currentProductName = null;
   jobState.pauseRequested = false;
-  if (!paused) {
+  if (!persistedPause) {
     jobState.runId = null;
   }
 

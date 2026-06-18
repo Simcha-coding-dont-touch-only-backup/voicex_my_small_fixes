@@ -10,6 +10,18 @@ function formatPrice(value: string | null): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function priceChangeColor(oldValue: string | null, newValue: string | null): string {
+  if (oldValue == null || oldValue === '' || newValue == null || newValue === '') {
+    return 'text-gray-700';
+  }
+  const oldNum = Number(oldValue);
+  const newNum = Number(newValue);
+  if (!Number.isFinite(oldNum) || !Number.isFinite(newNum) || oldNum === newNum) {
+    return 'text-gray-700';
+  }
+  return newNum < oldNum ? 'text-green-600' : 'text-red-600';
+}
+
 function actorLabel(entry: ProductHistoryEntry): string {
   if (entry.actor_kind === 'system') return 'System';
   if (entry.actor_kind === 'checkout') return 'Checkout';
@@ -101,7 +113,7 @@ export function ProductHistoryModal({
                       {e.change_type === 'price' ? (
                         <span>
                           {formatPrice(e.old_value)} <span className="text-gray-400">&rarr;</span>{' '}
-                          <span className={Number(e.new_value) < Number(e.old_value) ? 'text-green-600' : 'text-red-600'}>
+                          <span className={priceChangeColor(e.old_value, e.new_value)}>
                             {formatPrice(e.new_value)}
                           </span>
                         </span>

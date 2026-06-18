@@ -792,6 +792,17 @@ catalogRouter.patch('/products/:id', async (req, res) => {
         actor,
       );
     }
+    if (
+      Object.prototype.hasOwnProperty.call(updates, 'custom_price_cents') &&
+      (updates.custom_price_cents ?? null) !== (beforeRow.custom_price_cents ?? null)
+    ) {
+      await insertPriceHistory(
+        req.params.id,
+        beforeRow.custom_price_cents ?? null,
+        (updates.custom_price_cents as number | null) ?? null,
+        actor,
+      );
+    }
     if (updates.status !== undefined && updates.status !== beforeRow.status) {
       await insertStatusHistory(req.params.id, beforeRow.status, updates.status as string, actor);
     }
