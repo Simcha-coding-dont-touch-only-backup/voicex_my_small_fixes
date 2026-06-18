@@ -39,19 +39,15 @@ export function buildGather(options: {
   const hasExplicitTerminator = options.finishOnKey !== undefined && options.finishOnKey !== '';
   const hasFixedDigits = options.numDigits !== undefined && options.numDigits > 0;
 
-  // `*` is always an additional terminator so the caller can press it at any
-  // time to bail out of the current entry. The universal back handler in
-  // gather-result.ts then pops the menu stack and re-dispatches the previous
-  // node. Order matters: the caller's explicit finishOnKey (if any) comes
-  // first so it remains the "primary" terminator semantically. We preserve
-  // the original "no terminator specified" intent (undefined) by appending
-  // `*` to an empty base rather than substituting `#`.
-  const baseTerminator = hasExplicitTerminator
-    ? options.finishOnKey
-    : (hasFixedDigits ? '' : undefined);
-  const terminator = baseTerminator?.includes('*')
-    ? baseTerminator
-    : `${baseTerminator ?? ''}*`;
+  // `*` must be a *collectable digit*, NOT a terminator. When `*` is configured
+  // as a terminator and the caller presses it on an empty buffer, Teltech has
+  // nothing to submit, so it silently re-prompts the same gather and never
+  // POSTs to action_url — which means the universal back handler in
+  // gather-result.ts never runs (the caller just hears the current menu again).
+  // By keeping the terminator to the caller's explicit finishOnKey only (or
+  // none) and allowing `*` through the regex, a lone `*` satisfies min_digits
+  // and is delivered as digits:"*", letting the back handler pop the stack.
+  const terminator = hasExplicitTerminator ? options.finishOnKey : undefined;
 
   const gather: TeltechGatherAction = {
     action: 'gather',
