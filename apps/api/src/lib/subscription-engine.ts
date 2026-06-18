@@ -18,11 +18,14 @@ import {
   recomputeNextCycleDate,
   getDelivery,
   getSubscriptionByUser,
+  addDaysToYmd,
+  PRERUN_LEAD_DAYS,
 } from './subscriptions.js';
 import type { DeliveryRow, SubscriptionRow } from './subscriptions.js';
 import {
   createDeliveryIssueAlert,
   createFailedDeliveryAlert,
+  resolveDeliveryIssueAlert,
 } from './subscription-alerts.js';
 import { config } from '../config.js';
 
@@ -124,20 +127,21 @@ async function snapshotPackage(
 // ============================================================
 
 /**
- * Evaluate pending/issue runs whose cycle_date is within the next ~2 days.
+ * Single pre-run check, ~24h before the cycle: evaluates pending/issue runs
+ * whose cycle_date is exactly PRERUN_LEAD_DAYS out (the day before processing),
+ * so each run is checked exactly once and admins get one issue alert per cycle.
  * Card-expiry, missing card/address, and disabled-product checks are
  * authoritative; stock is best-effort (skipped while Manual). Sets status=issue
  * (+ Delivery Issue alert) or restores to pending when an issue clears.
  */
 export async function runPreRunCheck(now: Date = new Date()): Promise<{ checked: number; issues: number }> {
   const today = etToday(now);
-  const horizon = addDays(today, 2);
+  const target = addDaysToYmd(today, PRERUN_LEAD_DAYS);
   const { data: runs } = await supabaseAdmin
     .from('subscription_delivery_runs')
     .select('*')
     .in('status', ['pending', 'issue'])
-    .gte('cycle_date', today)
-    .lte('cycle_date', horizon);
+    .eq('cycle_date', target);
 
   let checked = 0;
   let issues = 0;
@@ -290,6 +294,11 @@ async function lockSingleRun(run: RunRow, now: Date): Promise<'locked' | 'failed
     .from('subscription_delivery_runs')
     .update({ status: 'locked', locked_at: new Date().toISOString(), subtotal_cents: snap.includedSubtotal })
     .eq('id', run.id);
+  // The run locked cleanly. If the pre-run check had flagged an issue that the
+  // user has since fixed, resolve that now-stale Delivery Issue alert.
+  if (run.status === 'issue') {
+    await resolveDeliveryIssueAlert(run.delivery_id, run.cycle_date);
+  }
   await logSubscriptionEvent({
     subscriptionId: run.subscription_id,
     deliveryId: run.delivery_id,
@@ -692,9 +701,3 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function addDays(dateStr: string, days: number): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
-}

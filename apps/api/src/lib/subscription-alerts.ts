@@ -85,6 +85,27 @@ export async function createDeliveryIssueAlert(input: SubscriptionAlertInput): P
   return data!.id as string;
 }
 
+/**
+ * Resolve any open (unresolved) Delivery Issue alert for a specific delivery +
+ * cycle. Used by the lock step to clear a stale issue alert when the underlying
+ * problem (expired card, missing address, empty package) has been fixed before
+ * processing, so admins don't see an alert for a delivery that locked cleanly.
+ * Scoped to the exact delivery + cycle so it never touches other cycles/weeks.
+ */
+export async function resolveDeliveryIssueAlert(
+  deliveryId: string,
+  cycleDate: string,
+): Promise<void> {
+  await supabaseAdmin
+    .from('admin_alerts')
+    .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+    .eq('entity_type', SUBSCRIPTION_DELIVERY_ENTITY)
+    .eq('entity_id', deliveryId)
+    .eq('alert_type', ADMIN_ALERT_TYPES.SUBSCRIPTION_DELIVERY_ISSUE)
+    .neq('status', 'resolved')
+    .contains('payload', { cycle_date: cycleDate });
+}
+
 /** Create a Failed Delivery alert (also surfaced in the IVR inbox until heard). */
 export async function createFailedDeliveryAlert(input: SubscriptionAlertInput): Promise<string> {
   const issueLabel = subscriptionAlertIssueLabel(input.issueType);

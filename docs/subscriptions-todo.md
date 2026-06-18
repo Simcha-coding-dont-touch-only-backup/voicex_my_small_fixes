@@ -19,7 +19,7 @@ Cron jobs (Supabase pg_cron): subscriptions_prerun (daily), subscriptions_lock (
 Alternative (only if you leave Vercel): deploy the API as a long-running Express server and the in-process worker drains automatically; the drain cron is then redundant but harmless (idempotent).
 
 
-3. One code risk to verify (potentially blocking — affects ALL logins)
+✅  3. One code risk to verify (potentially blocking — affects ALL logins)
 Every PIN/registration success now routes through subscriptions_alerts_announce, which (when there are no alerts) returns buildSay('', ... main_menu) — i.e. an empty TTS say followed by a redirect. buildSay always emits a say action even with empty text, and there's no existing precedent in this codebase for an empty say. If TelTech rejects/garbles an empty say, login would break for everyone. This needs a live-call check, and I'd recommend a one-line safe fix (make buildSay/a new buildRedirect omit the say action when the message is empty). I can do that immediately — it's the highest-risk item.
 
 4. End-to-end testing (nothing has been runtime-tested, only type-checked)

@@ -76,6 +76,23 @@ export function computeNextProcessingDate(week: number, now: Date = new Date()):
   return ymd(year, month, day);
 }
 
+/** Add N days to a YYYY-MM-DD date (calendar arithmetic, UTC-based). */
+export function addDaysToYmd(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return ymd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+}
+
+/**
+ * Lead time (in days) for the single pre-run check: a run is validated exactly
+ * this many days before its cycle date — i.e. the ~24h heads-up. Each run is
+ * therefore pre-checked exactly once. This same lead time governs how early a
+ * resuming delivery must be reactivated so its first cycle's run already exists
+ * (and is `active`) on the day the pre-run check runs.
+ */
+export const PRERUN_LEAD_DAYS = 1;
+
 /** Add N months to a cycle date, keeping the week's fixed processing day. */
 export function addMonthsToCycleDate(cycleDate: string, months: number, week: number): string {
   const [y, m] = cycleDate.split('-').map(Number);
@@ -513,6 +530,44 @@ export async function ensureUpcomingRun(
   return cycleDate;
 }
 
+/**
+ * Seed a single pending run for a delivery at an explicit cycle date
+ * (idempotent on delivery_id + cycle_date). Only seeds if the delivery is
+ * active and processable. Returns the cycle date used, or null if not eligible.
+ */
+export async function seedRunForCycle(
+  delivery: DeliveryRow,
+  subscription: SubscriptionRow,
+  cycleDate: string,
+): Promise<string | null> {
+  if (delivery.status !== 'active') return null;
+  const check = await checkDeliveryProcessable(delivery, subscription);
+  if (!check.processable) return null;
+
+  const { data: existing } = await supabaseAdmin
+    .from('subscription_delivery_runs')
+    .select('id')
+    .eq('delivery_id', delivery.id)
+    .eq('cycle_date', cycleDate)
+    .maybeSingle();
+  if (existing) return cycleDate;
+
+  await supabaseAdmin.from('subscription_delivery_runs').insert({
+    delivery_id: delivery.id,
+    subscription_id: subscription.id,
+    user_id: subscription.user_id,
+    week_number: delivery.week_number,
+    cycle_date: cycleDate,
+    status: 'pending',
+    scheduled_at: cycleDateToEtMidnightIso(cycleDate),
+  });
+  await supabaseAdmin
+    .from('subscription_deliveries')
+    .update({ next_cycle_date: cycleDate })
+    .eq('id', delivery.id);
+  return cycleDate;
+}
+
 /** Approximate the ET-midnight instant of a cycle date as an ISO timestamp. */
 export function cycleDateToEtMidnightIso(cycleDate: string): string {
   // ET is UTC-5 (EST) or UTC-4 (EDT). Use a fixed -05:00 offset for the estimate;
@@ -594,6 +649,76 @@ export async function setSubscriptionAddress(subscriptionId: string, addressId: 
 
 export async function setSubscriptionCard(subscriptionId: string, paymentMethodId: string): Promise<void> {
   await supabaseAdmin.from('subscriptions').update({ payment_method_id: paymentMethodId }).eq('id', subscriptionId);
+}
+
+/**
+ * Auto-resume temporarily paused deliveries whose pause window is about to end.
+ *
+ * We reactivate a delivery once its `pause_resume_date` is within PRERUN_LEAD_DAYS
+ * of today (ET), i.e. by the day the single pre-run check runs for that cycle.
+ * Resuming exactly this early (and no earlier) means the resume cycle's run is
+ * already seeded and `active` when the pre-run check fires, so:
+ *   - the single ~24h pre-run check validates card/address and can alert, and
+ *   - the midnight-ET lock on the actual cycle day still locks it normally.
+ * The seeded run keeps `cycle_date === pause_resume_date`, so no extra cycle is
+ * processed early. Idempotent and safe to run on every cron tick.
+ */
+export async function resumeDueDeliveries(now: Date = new Date()): Promise<{ resumed: number }> {
+  const today = etToday(now);
+  const horizon = addDaysToYmd(today, PRERUN_LEAD_DAYS);
+  const { data: due } = await supabaseAdmin
+    .from('subscription_deliveries')
+    .select('*')
+    .eq('status', 'temp_paused')
+    .not('pause_resume_date', 'is', null)
+    .lte('pause_resume_date', horizon);
+
+  let resumed = 0;
+  for (const delivery of (due as DeliveryRow[]) || []) {
+    const sub = await supabaseAdmin
+      .from('subscriptions')
+      .select('*')
+      .eq('id', delivery.subscription_id)
+      .maybeSingle();
+    const subscription = sub.data as SubscriptionRow | null;
+    if (!subscription) continue;
+
+    const resumeCycle = delivery.pause_resume_date;
+    await supabaseAdmin
+      .from('subscription_deliveries')
+      .update({
+        status: 'active',
+        pause_type: null,
+        paused_cycles: null,
+        pause_resume_date: null,
+        paused_at: null,
+      })
+      .eq('id', delivery.id);
+
+    // Re-seed the run at the exact resume cycle date so the resume cycle is
+    // neither skipped nor pulled early. If the stored resume date is somehow in
+    // the past (e.g. crons missed for days), fall back to the next processing
+    // date so we don't seed a stale, already-passed cycle.
+    const fresh = await getDelivery(delivery.id);
+    if (fresh) {
+      if (resumeCycle && resumeCycle >= today) {
+        await seedRunForCycle(fresh, subscription, resumeCycle);
+      } else {
+        await ensureUpcomingRun(fresh, subscription);
+      }
+      await recomputeNextCycleDate(fresh);
+    }
+
+    await logSubscriptionEvent({
+      subscriptionId: subscription.id,
+      deliveryId: delivery.id,
+      eventType: 'delivery_reactivated',
+      actorType: 'system',
+      details: { week: delivery.week_number, reason: 'pause_window_elapsed', pause_resume_date: resumeCycle },
+    });
+    resumed += 1;
+  }
+  return { resumed };
 }
 
 /** Ensure upcoming runs for every eligible delivery of every subscription. */

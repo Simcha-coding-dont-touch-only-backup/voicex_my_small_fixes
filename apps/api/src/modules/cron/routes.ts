@@ -6,7 +6,7 @@ import {
   lockCycle,
   drainDueRunsBatch,
 } from '../../lib/subscription-engine.js';
-import { ensureAllUpcomingRuns } from '../../lib/subscriptions.js';
+import { ensureAllUpcomingRuns, resumeDueDeliveries } from '../../lib/subscriptions.js';
 
 export const cronRouter = Router();
 
@@ -38,9 +38,10 @@ cronRouter.use(requireCronSecret);
  */
 cronRouter.post('/subscriptions/prerun', async (_req: Request, res: Response) => {
   try {
+    const resumed = await resumeDueDeliveries();
     const ensured = await ensureAllUpcomingRuns();
     const result = await runPreRunCheck();
-    res.json({ ok: true, ensured, ...result });
+    res.json({ ok: true, resumed, ensured, ...result });
   } catch (err) {
     console.error('[cron] prerun error:', err);
     res.status(500).json({ error: 'prerun failed' });
@@ -56,10 +57,11 @@ cronRouter.post('/subscriptions/prerun', async (_req: Request, res: Response) =>
  */
 cronRouter.post('/subscriptions/lock', async (_req: Request, res: Response) => {
   try {
+    const resumed = await resumeDueDeliveries();
     const ensured = await ensureAllUpcomingRuns();
     const result = await lockCycle();
     const drained = await drainDueRunsBatch();
-    res.json({ ok: true, ensured, ...result, drained });
+    res.json({ ok: true, resumed, ensured, ...result, drained });
   } catch (err) {
     console.error('[cron] lock error:', err);
     res.status(500).json({ error: 'lock failed' });
@@ -85,8 +87,9 @@ cronRouter.post('/subscriptions/drain', async (_req: Request, res: Response) => 
 /** Manual trigger to ensure upcoming runs exist (safety net / first-run seed). */
 cronRouter.post('/subscriptions/ensure', async (_req: Request, res: Response) => {
   try {
+    const resumed = await resumeDueDeliveries();
     const ensured = await ensureAllUpcomingRuns();
-    res.json({ ok: true, ...ensured });
+    res.json({ ok: true, resumed, ...ensured });
   } catch (err) {
     console.error('[cron] ensure error:', err);
     res.status(500).json({ error: 'ensure failed' });
