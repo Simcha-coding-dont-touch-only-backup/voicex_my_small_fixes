@@ -11,6 +11,19 @@ import {
 } from '../../lib/product-images.js';
 import { getDefaultMarkupPercent, syncProductCatalogAlerts } from '../../lib/product-price-alerts.js';
 import { fetchAllRows } from '../../lib/fetch-all-rows.js';
+import {
+  syncProductPriceFromAmazon,
+  createSyncRun,
+  addSyncRunItem,
+  finalizeSyncRun,
+  runFullSync,
+  requestSyncPause,
+  getSyncJobState,
+  adminActor,
+  insertPriceHistory,
+  insertStatusHistory,
+  type ProductSyncResult,
+} from '../../lib/product-sync.js';
 
 function decorateProductWithThumbnail<T extends { thumbnail_path?: string | null }>(p: T): T & { thumbnail_url: string | null } {
   return { ...p, thumbnail_url: getThumbnailPublicUrl(p.thumbnail_path ?? null) };
@@ -685,6 +698,7 @@ catalogRouter.patch('/products/:id', async (req, res) => {
     ) ||
       status !== undefined);
 
+  let beforeRow: any = null;
   if (needsActivationCheck || needsAlertSync) {
     const { data: current, error: loadErr } = await supabaseAdmin
       .from('catalog_products')
@@ -697,6 +711,7 @@ catalogRouter.patch('/products/:id', async (req, res) => {
       res.status(404).json({ success: false, error: 'Product not found' });
       return;
     }
+    beforeRow = current;
 
     const merged: CatalogProduct = {
       ...(current as CatalogProduct),
@@ -763,6 +778,25 @@ catalogRouter.patch('/products/:id', async (req, res) => {
     changes: auditChanges,
   });
 
+  // Track admin-initiated price + status changes in product_history.
+  if (beforeRow) {
+    const actor = adminActor((req as any).adminUser);
+    if (
+      Object.prototype.hasOwnProperty.call(updates, 'amazon_price_cents') &&
+      (updates.amazon_price_cents ?? null) !== (beforeRow.amazon_price_cents ?? null)
+    ) {
+      await insertPriceHistory(
+        req.params.id,
+        beforeRow.amazon_price_cents ?? null,
+        (updates.amazon_price_cents as number | null) ?? null,
+        actor,
+      );
+    }
+    if (updates.status !== undefined && updates.status !== beforeRow.status) {
+      await insertStatusHistory(req.params.id, beforeRow.status, updates.status as string, actor);
+    }
+  }
+
   if (needsAlertSync) {
     await syncProductCatalogAlerts(req.params.id);
     const refreshed = await reloadCatalogProduct(req.params.id);
@@ -770,6 +804,89 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   }
 
   res.json({ success: true, data: data ? decorateProductWithThumbnail(data) : data });
+});
+
+function parseProductIds(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const ids = raw.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  return ids.length > 0 ? ids : null;
+}
+
+catalogRouter.delete('/products', async (req, res) => {
+  const adminUser = (req as any).adminUser;
+  const ids = parseProductIds(req.body?.ids);
+  if (!ids) {
+    res.status(400).json({ success: false, error: 'ids must be a non-empty string array' });
+    return;
+  }
+
+  if (adminUser?.role === 'super_admin') {
+    const { data: existing, error: existErr } = await supabaseAdmin
+      .from('catalog_products')
+      .select('id, amazon_asin')
+      .in('id', ids);
+
+    if (existErr) {
+      res.status(500).json({ success: false, error: existErr.message });
+      return;
+    }
+
+    const validIds = (existing || []).map((r: { id: string }) => r.id);
+    if (validIds.length === 0) {
+      res.json({ success: true, deleted: 0 });
+      return;
+    }
+
+    await supabaseAdmin.from('catalog_product_categories').delete().in('product_id', validIds);
+
+    const { error } = await supabaseAdmin
+      .from('catalog_products')
+      .delete()
+      .in('id', validIds);
+
+    if (error) {
+      res.status(500).json({ success: false, error: error.message });
+      return;
+    }
+
+    const asins = (existing || [])
+      .map((r: { amazon_asin?: string | null }) => r.amazon_asin)
+      .filter((asin): asin is string => Boolean(asin));
+    for (const asin of asins) {
+      await deleteThumbnailsForAsin(asin);
+    }
+
+    await supabaseAdmin.from('admin_audit_logs').insert({
+      admin_user_id: adminUser.id,
+      action: 'hard_delete_product',
+      entity_type: 'catalog_product',
+      entity_id: null,
+      changes: { ids: validIds },
+    });
+
+    res.json({ success: true, deleted: validIds.length });
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('catalog_products')
+    .update({ deleted_at: new Date().toISOString(), deleted_by: adminUser?.id ?? null })
+    .in('id', ids);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: adminUser?.id,
+    action: 'soft_delete_product',
+    entity_type: 'catalog_product',
+    entity_id: null,
+    changes: { ids },
+  });
+
+  res.json({ success: true, deleted: ids.length });
 });
 
 catalogRouter.delete('/products/:id', async (req, res) => {
@@ -1132,4 +1249,120 @@ catalogRouter.post('/products/import-row', async (req, res) => {
     product_id: product.id,
     voicex_id: product.voicex_id,
   });
+});
+
+// ---------------------------------------------------------------------------
+// Rainforest price sync: single, bulk, full job, history
+// ---------------------------------------------------------------------------
+
+function syncResultSummary(result: ProductSyncResult) {
+  return {
+    product_id: result.productId,
+    price_changed: result.priceChanged,
+    old_amazon_price_cents: result.oldAmazonCents,
+    new_amazon_price_cents: result.newAmazonCents,
+    direction: result.direction,
+    availability: result.availability,
+    became_unavailable: result.becameUnavailable,
+    old_status: result.oldStatus,
+    new_status: result.newStatus,
+    skipped: result.skipped,
+    error: result.error,
+  };
+}
+
+// Single-product manual sync.
+catalogRouter.post('/products/:id/sync', async (req, res) => {
+  const actor = adminActor((req as any).adminUser);
+  const runId = await createSyncRun({ trigger: 'manual_single', actor, total: 1 });
+  const result = await syncProductPriceFromAmazon(req.params.id, actor);
+  if (runId) {
+    await addSyncRunItem(runId, result);
+    await finalizeSyncRun(runId, {
+      total: 1,
+      processed: 1,
+      changed: result.priceChanged || result.becameUnavailable ? 1 : 0,
+    });
+  }
+
+  const refreshed = await reloadCatalogProduct(req.params.id);
+  res.json({
+    success: true,
+    data: refreshed ? decorateProductWithThumbnail(refreshed) : null,
+    result: syncResultSummary(result),
+  });
+});
+
+// Bulk manual sync for selected products.
+catalogRouter.post('/products/sync', async (req, res) => {
+  const ids = parseProductIds(req.body?.ids);
+  if (!ids) {
+    res.status(400).json({ success: false, error: 'ids must be a non-empty string array' });
+    return;
+  }
+
+  const actor = adminActor((req as any).adminUser);
+  const runId = await createSyncRun({ trigger: 'manual_bulk', actor, total: ids.length });
+
+  const results: ProductSyncResult[] = [];
+  let changed = 0;
+  for (const id of ids) {
+    const result = await syncProductPriceFromAmazon(id, actor);
+    results.push(result);
+    if (runId) await addSyncRunItem(runId, result);
+    if (result.priceChanged || result.becameUnavailable) changed += 1;
+  }
+
+  if (runId) {
+    await finalizeSyncRun(runId, { total: ids.length, processed: ids.length, changed });
+  }
+
+  res.json({
+    success: true,
+    synced: ids.length,
+    changed,
+    results: results.map(syncResultSummary),
+  });
+});
+
+// Start a full sync over all active products (in-memory job, survives navigation).
+catalogRouter.post('/sync/start', async (req, res) => {
+  const state = getSyncJobState();
+  if (state.status === 'running') {
+    res.json({ success: true, data: state, message: 'A sync is already running' });
+    return;
+  }
+  const actor = adminActor((req as any).adminUser);
+  // Fire-and-forget: the loop runs server-side and updates in-memory state.
+  void runFullSync({ trigger: 'manual_full', actor, skipRecentlyUpdated: false }).catch((err) => {
+    console.error('[catalog] full sync failed:', err);
+  });
+  res.json({ success: true, data: getSyncJobState() });
+});
+
+// Request the running sync to pause after the current product completes.
+catalogRouter.post('/sync/pause', async (_req, res) => {
+  requestSyncPause();
+  res.json({ success: true, data: getSyncJobState() });
+});
+
+// Poll the current sync job status.
+catalogRouter.get('/sync/status', async (_req, res) => {
+  res.json({ success: true, data: getSyncJobState() });
+});
+
+// Change history for a single product (price + status changes).
+catalogRouter.get('/products/:id/history', async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from('product_history')
+    .select('*')
+    .eq('product_id', req.params.id)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+  res.json({ success: true, data: data || [] });
 });

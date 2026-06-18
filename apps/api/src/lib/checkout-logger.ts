@@ -36,6 +36,7 @@ export type CheckoutEventType =
   | 'order_failed'                  // order.status set to failed
   // Manual fulfillment
   | 'manual_pricing_calculated'           // manual tax/shipping calculated before auth hold
+  | 'checkout_revalidation_changes'       // Rainforest checkout re-check found price/availability changes
   | 'manual_fulfillment_queued'          // order is waiting for admin Amazon placement
   | 'manual_fulfillment_marked_ordered'  // admin supplied external order id and captured
   | 'manual_fulfillment_needs_review'    // admin flagged order without capture/void

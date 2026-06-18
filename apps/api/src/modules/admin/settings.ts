@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { SETTING_KEYS, US_STATE_CODES } from '@voicex/shared';
+import { SETTING_KEYS, US_STATE_CODES, RAINFOREST_SYNC_INTERVAL_OPTIONS } from '@voicex/shared';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { resyncAllProductVoicexPriceAboveLocalAlerts } from '../../lib/product-price-alerts.js';
 
@@ -14,6 +14,13 @@ const MONEY_SETTING_KEYS = new Set<string>([
   SETTING_KEYS.MANUAL_FREE_SHIPPING_CUTOFF,
   SETTING_KEYS.MANUAL_SHIPPING_FEE,
 ]);
+
+const BOOLEAN_SETTING_KEYS = new Set<string>([
+  SETTING_KEYS.RAINFOREST_AUTO_SYNC_ENABLED,
+  SETTING_KEYS.RAINFOREST_CHECKOUT_REVALIDATION_ENABLED,
+]);
+
+const VALID_SYNC_INTERVALS = new Set<string>(RAINFOREST_SYNC_INTERVAL_OPTIONS.map(String));
 
 const VALID_STATE_CODES = new Set<string>(US_STATE_CODES);
 
@@ -83,6 +90,22 @@ function normalizeSettingValue(key: string, value: unknown): string {
 
   if (MONEY_SETTING_KEYS.has(key)) {
     return normalizeDecimalSetting(value, key, true);
+  }
+
+  if (BOOLEAN_SETTING_KEYS.has(key)) {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (raw !== 'true' && raw !== 'false') {
+      throw new Error('Value must be true or false.');
+    }
+    return raw;
+  }
+
+  if (key === SETTING_KEYS.RAINFOREST_SYNC_INTERVAL_HOURS) {
+    const raw = String(value ?? '').trim();
+    if (!VALID_SYNC_INTERVALS.has(raw)) {
+      throw new Error(`Sync interval must be one of: ${[...VALID_SYNC_INTERVALS].join(', ')} hours.`);
+    }
+    return raw;
   }
 
   return String(value ?? '');

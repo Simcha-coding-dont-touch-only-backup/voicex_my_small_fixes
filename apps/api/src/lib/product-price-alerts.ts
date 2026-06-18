@@ -185,6 +185,27 @@ async function insertSystemAudit(
   }
 }
 
+/** Records a system-attributed status change in product_history. */
+async function insertSystemStatusHistory(
+  productId: string,
+  oldStatus: string,
+  newStatus: string,
+): Promise<void> {
+  if (oldStatus === newStatus) return;
+  const { error } = await supabaseAdmin.from('product_history').insert({
+    product_id: productId,
+    change_type: 'status',
+    old_value: oldStatus,
+    new_value: newStatus,
+    actor_kind: 'system',
+    actor_label: 'System',
+    actor_admin_user_id: null,
+  });
+  if (error) {
+    console.error('[product-price-alerts] Failed to write status history:', error.message);
+  }
+}
+
 async function applyAutoFreezeState(
   productId: string,
   product: ProductRow,
@@ -216,6 +237,7 @@ async function applyAutoFreezeState(
       new_status: 'frozen',
       product_id: productId,
     });
+    await insertSystemStatusHistory(productId, product.status, 'frozen');
     return;
   }
 
@@ -240,6 +262,7 @@ async function applyAutoFreezeState(
     new_status: 'active',
     product_id: productId,
   });
+  await insertSystemStatusHistory(productId, 'frozen', 'active');
 }
 
 async function syncPriceAboveLocalAlert(

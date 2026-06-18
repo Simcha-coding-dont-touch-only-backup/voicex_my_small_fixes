@@ -7,6 +7,12 @@ import {
   drainDueRunsBatch,
 } from '../../lib/subscription-engine.js';
 import { ensureAllUpcomingRuns, resumeDueDeliveries } from '../../lib/subscriptions.js';
+import {
+  getRainforestSyncSettings,
+  getLastFullSyncStartedAt,
+  runFullSync,
+  SYSTEM_ACTOR,
+} from '../../lib/product-sync.js';
 
 export const cronRouter = Router();
 
@@ -81,6 +87,42 @@ cronRouter.post('/subscriptions/drain', async (_req: Request, res: Response) => 
   } catch (err) {
     console.error('[cron] drain error:', err);
     res.status(500).json({ error: 'drain failed' });
+  }
+});
+
+/**
+ * Scheduled Rainforest catalog price sync. Fired daily near 4AM ET (dual UTC
+ * hours for DST). No-op when auto-sync is disabled or the configured interval
+ * has not yet elapsed since the last full sync. Syncs active products only and
+ * skips products updated within the last 12 hours to save Rainforest credits.
+ */
+cronRouter.post('/catalog/price-sync', async (_req: Request, res: Response) => {
+  try {
+    const settings = await getRainforestSyncSettings();
+    if (!settings.autoSyncEnabled) {
+      res.json({ ok: true, skipped: 'auto_sync_disabled' });
+      return;
+    }
+
+    const lastFull = await getLastFullSyncStartedAt();
+    if (lastFull) {
+      const elapsedHours = (Date.now() - lastFull.getTime()) / (60 * 60 * 1000);
+      // Small tolerance so a daily 4AM fire still runs a 24h interval.
+      if (elapsedHours < settings.intervalHours - 0.5) {
+        res.json({ ok: true, skipped: 'interval_not_elapsed', elapsedHours });
+        return;
+      }
+    }
+
+    const result = await runFullSync({
+      trigger: 'auto',
+      actor: SYSTEM_ACTOR,
+      skipRecentlyUpdated: true,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[cron] catalog price-sync error:', err);
+    res.status(500).json({ error: 'catalog price-sync failed' });
   }
 });
 

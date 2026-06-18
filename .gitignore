@@ -12,3 +12,4 @@ coverage/
 .supabase/
 supabase/.temp/
 .details.md
+.hours.md

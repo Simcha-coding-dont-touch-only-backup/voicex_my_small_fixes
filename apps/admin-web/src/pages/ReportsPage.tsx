@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiDownload } from '../lib/api';
 import { Download, FileSpreadsheet } from 'lucide-react';
+import { productSyncTriggerLabel, type ProductSyncTrigger } from '@voicex/shared';
 
 type ReportType =
   | 'purchases'
@@ -9,11 +10,13 @@ type ReportType =
   | 'subscription-revenue'
   | 'subscription-paused'
   | 'subscription-failed'
-  | 'subscription-products';
+  | 'subscription-products'
+  | 'product-sync';
 
 const REPORT_TABS: { id: ReportType; label: string }[] = [
   { id: 'purchases', label: 'Purchases' },
   { id: 'returned-items', label: 'Returned Items' },
+  { id: 'product-sync', label: 'Product Sync' },
   { id: 'subscription-revenue', label: 'Monthly Subscription Revenue' },
   { id: 'subscription-paused', label: 'Paused Subscriptions' },
   { id: 'subscription-failed', label: 'Failed Subscriptions' },
@@ -34,6 +37,7 @@ export function ReportsPage() {
   const [totals, setTotals] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [subscribers, setSubscribers] = useState<{ product: string; detail: any[] } | null>(null);
+  const [syncTrigger, setSyncTrigger] = useState<'all' | ProductSyncTrigger>('all');
 
   const switchReport = (type: ReportType) => {
     if (type === reportType) return;
@@ -46,6 +50,7 @@ export function ReportsPage() {
     const params = new URLSearchParams();
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
+    if (reportType === 'product-sync' && syncTrigger !== 'all') params.set('trigger', syncTrigger);
     return params;
   };
 
@@ -97,6 +102,23 @@ export function ReportsPage() {
             <label className="mb-1 block text-sm text-gray-600">To</label>
             <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded border px-3 py-2 text-sm" />
           </div>
+          {reportType === 'product-sync' && (
+            <div>
+              <label className="mb-1 block text-sm text-gray-600">Source</label>
+              <select
+                value={syncTrigger}
+                onChange={(e) => setSyncTrigger(e.target.value as 'all' | ProductSyncTrigger)}
+                className="rounded border px-3 py-2 text-sm"
+              >
+                <option value="all">All</option>
+                <option value="auto">Auto</option>
+                <option value="manual_full">Manual Full</option>
+                <option value="manual_single">Manual Single</option>
+                <option value="manual_bulk">Manual Bulk</option>
+                <option value="checkout">Checkout</option>
+              </select>
+            </div>
+          )}
           <button onClick={handleLoad} disabled={loading} className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50">
             {loading ? 'Loading...' : 'View Report'}
           </button>
@@ -119,6 +141,8 @@ export function ReportsPage() {
             <PurchasesTable data={data} />
           ) : reportType === 'returned-items' ? (
             <ReturnedItemsTable data={data} />
+          ) : reportType === 'product-sync' ? (
+            <ProductSyncTable data={data} />
           ) : reportType === 'subscription-revenue' ? (
             <RevenueTable data={data} totals={totals} />
           ) : reportType === 'subscription-paused' ? (
@@ -296,6 +320,106 @@ function FailedTable({ data, totals }: { data: any[]; totals: any }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+function triggerBadgeClass(trigger: ProductSyncTrigger): string {
+  switch (trigger) {
+    case 'auto':
+      return 'bg-purple-100 text-purple-700';
+    case 'checkout':
+      return 'bg-blue-100 text-blue-700';
+    default:
+      return 'bg-gray-100 text-gray-600';
+  }
+}
+
+function sourceLabel(run: any): string {
+  if (run.actor_kind === 'system') return 'System';
+  if (run.actor_kind === 'checkout') return 'Checkout';
+  return run.actor_label || 'Admin';
+}
+
+function ProductSyncTable({ data }: { data: any[] }) {
+  return (
+    <div className="divide-y">
+      {data.map((run: any) => (
+        <div key={run.id} className="px-6 py-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="text-sm font-medium text-gray-800">{new Date(run.started_at).toLocaleString()}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${triggerBadgeClass(run.trigger)}`}>
+              {productSyncTriggerLabel(run.trigger)}
+            </span>
+            <span className="text-xs text-gray-500">by {sourceLabel(run)}</span>
+            {run.trigger === 'checkout' && (
+              <span className="text-xs text-gray-500">
+                {run.customer_name || 'Customer'}
+                {run.customer_phone ? ` · ${run.customer_phone}` : ''}
+                {run.order_id ? (
+                  <>
+                    {' · '}
+                    <Link className="text-indigo-600 hover:underline" to={`/admin/orders/${run.order_id}`}>
+                      #{run.order_id}
+                    </Link>
+                  </>
+                ) : ''}
+              </span>
+            )}
+            <span className="ml-auto text-xs text-gray-400">
+              {run.changed_count} changed / {run.processed_count} checked
+            </span>
+          </div>
+
+          {run.items && run.items.length > 0 ? (
+            <table className="mt-3 w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-gray-500">
+                  <th className="py-2 pr-4 font-medium">Product</th>
+                  <th className="py-2 pr-4 font-medium">VoiceX ID</th>
+                  <th className="py-2 pr-4 font-medium">Was</th>
+                  <th className="py-2 pr-4 font-medium">Now</th>
+                  <th className="py-2 font-medium">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {run.items.map((it: any, i: number) => {
+                  const down = it.direction === 'down';
+                  const up = it.direction === 'up';
+                  const colorClass = it.became_unavailable
+                    ? 'text-gray-500'
+                    : down
+                      ? 'text-green-600'
+                      : up
+                        ? 'text-red-600'
+                        : 'text-gray-700';
+                  return (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className={`py-2 pr-4 ${colorClass}`}>{it.product_name}</td>
+                      <td className="py-2 pr-4 font-mono text-xs text-gray-500">{it.voicex_id || '—'}</td>
+                      <td className="py-2 pr-4 text-gray-600">{money(it.old_amazon_price_cents)}</td>
+                      <td className={`py-2 pr-4 ${colorClass}`}>
+                        {it.became_unavailable ? '—' : money(it.new_amazon_price_cents)}
+                      </td>
+                      <td className={`py-2 ${colorClass}`}>
+                        {it.became_unavailable
+                          ? 'No longer available'
+                          : down
+                            ? `Down ${money((it.old_amazon_price_cents || 0) - (it.new_amazon_price_cents || 0))}`
+                            : up
+                              ? `Up ${money((it.new_amazon_price_cents || 0) - (it.old_amazon_price_cents || 0))}`
+                              : 'No change'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <p className="mt-2 text-xs text-gray-400">No changes in this run.</p>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

@@ -332,3 +332,73 @@ reportsRouter.get('/returned-items/export', async (req, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename=returned-items-report.xlsx');
   res.send(buffer);
 });
+
+// Product Sync: all sync runs (auto / manual / checkout) with their changed
+// items, decorated with product names and (for checkout runs) customer/order.
+reportsRouter.get('/product-sync', async (req, res) => {
+  const { date_from, date_to, trigger } = req.query as Record<string, string>;
+
+  let query = supabaseAdmin
+    .from('product_sync_runs')
+    .select('*, product_sync_run_items(*)');
+  if (trigger && trigger !== 'all') query = query.eq('trigger', trigger);
+  query = rangeFilter(query, 'started_at', date_from, date_to).order('started_at', { ascending: false });
+
+  const { data, error } = await fetchAllRows<any>(() => query);
+  if (error) { res.status(500).json({ success: false, error: error.message }); return; }
+
+  const runs = data || [];
+
+  // Resolve product names for all changed items.
+  const productIds = Array.from(
+    new Set(runs.flatMap((r: any) => (r.product_sync_run_items || []).map((i: any) => i.product_id))),
+  );
+  const productMap = new Map<string, { voicex_id: string; name: string }>();
+  if (productIds.length > 0) {
+    const { data: products } = await supabaseAdmin
+      .from('catalog_products')
+      .select('id, voicex_id, voice_name, amazon_name')
+      .in('id', productIds);
+    for (const p of products || []) {
+      productMap.set(p.id, { voicex_id: p.voicex_id, name: p.voice_name || p.amazon_name || p.voicex_id });
+    }
+  }
+
+  const users = await decorateUsers(runs.map((r: any) => r.user_id).filter(Boolean));
+
+  const rows = runs.map((r: any) => {
+    const u = r.user_id ? users.get(r.user_id) : undefined;
+    const items = (r.product_sync_run_items || []).map((i: any) => {
+      const prod = productMap.get(i.product_id);
+      return {
+        product_id: i.product_id,
+        voicex_id: prod?.voicex_id || null,
+        product_name: prod?.name || 'Unknown product',
+        old_amazon_price_cents: i.old_amazon_price_cents,
+        new_amazon_price_cents: i.new_amazon_price_cents,
+        direction: i.direction,
+        became_unavailable: i.became_unavailable,
+      };
+    });
+    return {
+      id: r.id,
+      trigger: r.trigger,
+      status: r.status,
+      actor_kind: r.actor_kind,
+      actor_label: r.actor_label,
+      total_count: r.total_count,
+      processed_count: r.processed_count,
+      changed_count: r.changed_count,
+      started_at: r.started_at,
+      finished_at: r.finished_at,
+      order_id: r.order_id,
+      caller_phone: r.caller_phone,
+      customer_name: u?.name || null,
+      customer_email: u?.email || null,
+      customer_phone: u?.phone || r.caller_phone || null,
+      items,
+    };
+  });
+
+  res.json({ success: true, data: rows });
+});

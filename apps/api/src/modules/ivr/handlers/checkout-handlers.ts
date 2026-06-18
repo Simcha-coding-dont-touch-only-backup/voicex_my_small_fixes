@@ -10,6 +10,11 @@ import { getProductDisplayName, getCartItemSavingsCents, formatOrderIdForSpeech 
 import type { FulfillmentProvider } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 import { logCheckoutEvent } from '../../../lib/checkout-logger.js';
+import {
+  getRainforestSyncSettings,
+  revalidateCartAtCheckout,
+  backfillSyncRunOrder,
+} from '../../../lib/product-sync.js';
 
 const MAX_STOCK_RETRIES_PER_ITEM = 3;
 const MAX_UNAVAILABLE_RECOVERY_CYCLES = 3;
@@ -1259,7 +1264,75 @@ registerHandler('final_confirm', async (ctx) => {
 
     const fulfillmentProvider = await getActiveFulfillmentProvider();
     if (fulfillmentProvider === 'manual') {
-      const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+      let activeItems = cartItems;
+      let revalidationPrefix = '';
+      let revalidationRunId: string | null = null;
+
+      const rainforestSettings = await getRainforestSyncSettings();
+      if (rainforestSettings.checkoutRevalidationEnabled) {
+        const session = await ivrRuntime.getSession(ctx.callSid);
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('is_whitelisted')
+          .eq('id', userId)
+          .maybeSingle();
+
+        const revalidation = await revalidateCartAtCheckout(cartItems as any, {
+          userId,
+          callerPhone: session?.phone_number || null,
+          isWhitelisted: user?.is_whitelisted || false,
+        });
+
+        if (revalidation.hasChanges) {
+          revalidationRunId = revalidation.runId;
+          const parts: string[] = [];
+          if (revalidation.unavailable.length > 0) {
+            const names = revalidation.unavailable.map((u) => u.productName).join(', ');
+            parts.push(
+              `We are sorry to inform you that the following ${revalidation.unavailable.length === 1 ? 'product is' : 'products are'} no longer available and ${revalidation.unavailable.length === 1 ? 'has' : 'have'} been removed from your order: ${names}.`,
+            );
+          }
+          if (revalidation.priceChanges.length > 0) {
+            const changeParts = revalidation.priceChanges.map((c) => {
+              const diff = Math.abs(c.newUnitPriceCents - c.oldUnitPriceCents);
+              return `${c.productName} ${c.direction === 'up' ? 'went up' : 'went down'} by ${formatCurrency(diff)} to ${formatCurrency(c.newUnitPriceCents)}`;
+            });
+            parts.push(`The price of the following changed: ${changeParts.join('; ')}.`);
+          }
+          revalidationPrefix = `${parts.join(' ')} `;
+
+          await logCheckoutEvent({
+            callSid: ctx.callSid,
+            userId,
+            eventType: 'checkout_revalidation_changes',
+            details: {
+              unavailable: revalidation.unavailable.map((u) => u.productName),
+              price_changes: revalidation.priceChanges.map((c) => ({
+                product: c.productName,
+                old_cents: c.oldUnitPriceCents,
+                new_cents: c.newUnitPriceCents,
+                direction: c.direction,
+              })),
+              sync_run_id: revalidation.runId,
+            },
+          });
+
+          activeItems = revalidation.remainingItems as any;
+        }
+
+        if (activeItems.length === 0) {
+          return {
+            type: 'actions',
+            response: buildSay(
+              `${revalidationPrefix}Your cart no longer has any available items. Returning to the main menu.`,
+              '/api/ivr/voice/gather',
+              { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' },
+            ),
+          };
+        }
+      }
+
+      const subtotal = activeItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
       const pricing = await calculateManualPricing(subtotal, address.state);
       const shippingStr = pricing.shippingCents > 0
         ? `Shipping is ${formatCurrency(pricing.shippingCents)}. `
@@ -1282,10 +1355,12 @@ registerHandler('final_confirm', async (ctx) => {
         },
       });
 
+      const totalsPrompt = `${revalidationPrefix}Your order total is ${formatCurrency(pricing.totalCents)}. ${shippingStr}Tax is ${formatCurrency(pricing.taxCents)}. Press 1 to confirm and pay, or press 2 to cancel.`;
+
       return {
         type: 'actions',
         response: buildGather({
-          prompt: `Your order total is ${formatCurrency(pricing.totalCents)}. ${shippingStr}Tax is ${formatCurrency(pricing.taxCents)}. Press 1 to confirm and pay, or press 2 to cancel.`,
+          prompt: totalsPrompt,
           actionPath: '/api/ivr/voice/gather',
           numDigits: 1,
           timeout: 15,
@@ -1297,6 +1372,7 @@ registerHandler('final_confirm', async (ctx) => {
             shipping_cents: String(pricing.shippingCents),
             tax_cents: String(pricing.taxCents),
             surcharge_cents: '0',
+            ...(revalidationRunId ? { revalidation_run_id: revalidationRunId } : {}),
           },
         }),
       };
@@ -2105,6 +2181,13 @@ registerHandler('checkout_pay', async (ctx) => {
       .single();
 
     if (!order) throw new Error('Failed to create order');
+
+    // Link the checkout revalidation sync run (if any) to the new order so it
+    // shows the order number in the Product Sync report.
+    const revalidationRunId = ctx.sessionData.revalidation_run_id;
+    if (revalidationRunId) {
+      await backfillSyncRunOrder(revalidationRunId, Number(order.id));
+    }
 
     const orderItems = cartItems.map((ci) => ({
       order_id: String(order.id), product_id: ci.product_id, voicex_id: ci.voicex_id,

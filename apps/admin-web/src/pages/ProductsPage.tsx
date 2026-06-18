@@ -1,16 +1,17 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { CustomPriceReadonlyDisplay, customPriceInputPlaceholder } from '../lib/product-price';
-import { Search, Plus, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Printer, Upload, Eye, Tags, ToggleLeft, ArrowRight } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, Trash, X, Loader2, ExternalLink, AlertTriangle, Printer, Upload, Eye, Tags, ToggleLeft, ArrowRight, RefreshCw, History } from 'lucide-react';
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect';
 import { FilterSingleSelect } from '../components/FilterSingleSelect';
 import { CategoryQuickCreateModal } from '../components/CategoryQuickCreateModal';
 import { ImportProductsFlow } from '../components/ImportProductsFlow';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import { ProductDetailView } from '../components/ProductDetailView';
+import { ProductHistoryModal } from '../components/ProductHistoryModal';
 import { CatalogProductStatusBadge } from '../components/CatalogProductStatusBadge';
 import { buildProductsListPdfBlob } from '../lib/products-list-pdf';
 import {
@@ -23,7 +24,7 @@ import {
   type CatalogProductFrozenSource,
   type CatalogProductStatus,
 } from '@voicex/shared';
-import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
+import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery, useRowSelection, SelectAllCheckbox, RowCheckbox, BulkActionBar } from '../components/admin-table';
 
 interface AsinLookupData {
   asin: string;
@@ -629,6 +630,7 @@ export function ProductsPage() {
   const [viewError, setViewError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [quickCategoryTarget, setQuickCategoryTarget] = useState<QuickCategoryTarget>(null);
@@ -653,6 +655,10 @@ export function ProductsPage() {
   const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>([]);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [bulkSyncing, setBulkSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [historyProduct, setHistoryProduct] = useState<{ id: string; name: string } | null>(null);
 
   const table = useAdminTableQuery<any>({
     defaultSort: { field: 'created_at', dir: 'desc' },
@@ -676,9 +682,14 @@ export function ProductsPage() {
   });
   const products = table.rows;
   const { total, page, perPage, sortBy, sortDir, paginationMode } = table;
+  const rowSelection = useRowSelection();
+  const { selected, selectedCount, toggleOne, toggleAll, clear: clearSelection, isSelected, getSelectionState } = rowSelection;
+  const productIds = useMemo(() => products.map((p) => p.id), [products]);
+  const { allSelected, someSelected } = getSelectionState(productIds);
 
   const refreshAfterMutation = () => {
     window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
+    clearSelection();
     table.refresh();
   };
   useEffect(() => {
@@ -691,6 +702,10 @@ export function ProductsPage() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    clearSelection();
+  }, [search, filterCategoryIds, filterStatus, page, perPage, sortBy, sortDir, paginationMode, clearSelection]);
 
   const handleLookup = async () => {
     const trimmed = asinInput.trim().toUpperCase();
@@ -1068,6 +1083,113 @@ export function ProductsPage() {
     setDeleteConfirm(null);
     setDeleteError(null);
   };
+
+  const closeBulkDeleteConfirm = () => {
+    setBulkDeleteConfirm(false);
+    setDeleteError(null);
+  };
+
+  const confirmBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiDelete('/catalog/products', { ids });
+      const deletedIds = new Set(ids);
+      if (editingId && deletedIds.has(editingId)) cancelEdit();
+      if (viewingId && deletedIds.has(viewingId)) cancelView();
+      table.setRows((prev) => prev.filter((p) => !deletedIds.has(p.id)));
+      table.setTotal((prev) => prev - ids.length);
+      clearSelection();
+      setBulkDeleteConfirm(false);
+      window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete products');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const applySyncedProduct = (updated: any) => {
+    if (!updated) return;
+    table.setRows((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
+    if (viewingId === updated.id) setViewProduct((prev: any) => (prev ? { ...prev, ...updated } : prev));
+  };
+
+  const handleSyncProduct = async (p: any) => {
+    setSyncFeedback(null);
+    setSyncingIds((prev) => new Set(prev).add(p.id));
+    try {
+      const res = await apiPost<{ data: any; result: any }>(`/catalog/products/${p.id}/sync`, {});
+      applySyncedProduct(res.data);
+      const r = res.result;
+      const name = p.voice_name || p.amazon_name || p.voicex_id;
+      if (r?.error) {
+        setSyncFeedback(`${name}: ${r.error}`);
+      } else if (r?.price_changed) {
+        const priceStr =
+          r.new_amazon_price_cents != null ? `$${(r.new_amazon_price_cents / 100).toFixed(2)}` : 'N/A';
+        setSyncFeedback(
+          `${name}: Amazon price ${r.direction === 'down' ? 'dropped' : 'rose'} to ${priceStr}.`,
+        );
+      } else {
+        setSyncFeedback(`${name}: no price change.`);
+      }
+      window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
+    } catch (err: any) {
+      setSyncFeedback(err?.message || 'Failed to sync product');
+    } finally {
+      setSyncingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(p.id);
+        return next;
+      });
+    }
+  };
+
+  const handleBulkSync = async (): Promise<void> => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setBulkSyncing(true);
+    setSyncFeedback(null);
+    try {
+      const res = await apiPost<{ synced: number; changed: number }>('/catalog/products/sync', { ids });
+      setSyncFeedback(`Synced ${res.synced} product${res.synced === 1 ? '' : 's'}, ${res.changed} changed.`);
+      table.refresh();
+      clearSelection();
+      window.dispatchEvent(new CustomEvent('voicex:alerts-count-refresh'));
+    } catch (err: any) {
+      setSyncFeedback(err?.message || 'Failed to sync products');
+    } finally {
+      setBulkSyncing(false);
+    }
+  };
+
+  const bulkDeleteActions = useMemo(
+    () => [
+      {
+        id: 'sync',
+        label: (count: number) => `Sync ${count} Product${count === 1 ? '' : 's'}`,
+        icon: <RefreshCw size={16} className={bulkSyncing ? 'animate-spin' : ''} />,
+        variant: 'default' as const,
+        disabled: bulkSyncing,
+        onRun: (): void => {
+          void handleBulkSync();
+        },
+      },
+      {
+        id: 'delete',
+        label: (count: number) => `Delete ${count} Product${count === 1 ? '' : 's'}`,
+        icon: <Trash2 size={16} />,
+        variant: 'danger' as const,
+        disabled: deleting,
+        onRun: () => setBulkDeleteConfirm(true),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deleting, bulkSyncing, selected],
+  );
 
   const handleExportPdf = async () => {
     const capSearch = search;
@@ -1494,10 +1616,30 @@ export function ProductsPage() {
         />
       </div>
 
+      <BulkActionBar selectedCount={selectedCount} actions={bulkDeleteActions} />
+
+      {syncFeedback && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+          <span>{syncFeedback}</span>
+          <button type="button" onClick={() => setSyncFeedback(null)} className="text-emerald-500 hover:text-emerald-700">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
+              <th className={`${PRODUCTS_TABLE_HEADER} w-10`}>
+                <SelectAllCheckbox
+                  checked={allSelected}
+                  indeterminate={someSelected}
+                  disabled={products.length === 0}
+                  onChange={() => toggleAll(productIds)}
+                  ariaLabel="Select all products on this page"
+                />
+              </th>
               <th className={`${PRODUCTS_TABLE_HEADER} w-16`}>Image</th>
               <SortHeader label="VoiceX ID" field="voicex_id" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
               <SortHeader label="Name" field="name_sort_key" sortBy={sortBy} sortDir={sortDir} onSort={table.handleSort} thClassName={PRODUCTS_TABLE_HEADER} />
@@ -1515,6 +1657,13 @@ export function ProductsPage() {
             {products.map((p) => (
               <Fragment key={p.id}>
                 <tr className={`border-b hover:bg-gray-50 ${editingId === p.id || viewingId === p.id ? 'bg-indigo-50' : ''}`}>
+                  <td className={PRODUCTS_TABLE_CELL}>
+                    <RowCheckbox
+                      checked={isSelected(p.id)}
+                      onChange={() => toggleOne(p.id)}
+                      ariaLabel={`Select ${p.voice_name || p.amazon_name || p.voicex_id}`}
+                    />
+                  </td>
                   <td className={PRODUCTS_TABLE_CELL}>
                     <ProductThumbnail
                       thumbnailUrl={p.thumbnail_url}
@@ -1610,6 +1759,21 @@ export function ProductsPage() {
                           <Pencil size={16} />
                         </button>
                       )}
+                      <button
+                        onClick={() => void handleSyncProduct(p)}
+                        disabled={syncingIds.has(p.id)}
+                        title="Sync Amazon price"
+                        className="rounded p-1 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50"
+                      >
+                        <RefreshCw size={16} className={syncingIds.has(p.id) ? 'animate-spin' : ''} />
+                      </button>
+                      <button
+                        onClick={() => setHistoryProduct({ id: p.id, name: p.voice_name || p.amazon_name || p.voicex_id })}
+                        title="View change history"
+                        className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600"
+                      >
+                        <History size={16} />
+                      </button>
                       <button onClick={() => setDeleteConfirm({ id: p.id, name: p.voice_name || p.amazon_name || p.voicex_id })} title="Delete product"
                         className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600">
                         <Trash2 size={16} />
@@ -1619,7 +1783,7 @@ export function ProductsPage() {
                 </tr>
                 {viewingId === p.id && (
                   <tr className="border-b bg-indigo-50/50">
-                    <td colSpan={11} className="px-6 py-4">
+                    <td colSpan={12} className="px-6 py-4">
                       <div className="rounded-lg border border-indigo-200 bg-white p-5">
                         <div className="mb-4 flex items-center justify-between">
                           <h4 className="text-sm font-semibold text-gray-700">Product Details</h4>
@@ -1680,7 +1844,7 @@ export function ProductsPage() {
                 )}
                 {editingId === p.id && (
                   <tr className="border-b bg-indigo-50/50">
-                    <td colSpan={11} className="px-6 py-4">
+                    <td colSpan={12} className="px-6 py-4">
                       <div className="rounded-lg border border-indigo-200 bg-white p-5">
                         <h4 className="mb-4 text-sm font-semibold text-gray-700">Edit Product</h4>
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1923,6 +2087,69 @@ export function ProductsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {bulkDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <AlertTriangle size={20} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Delete {selectedCount} Product{selectedCount === 1 ? '' : 's'}?
+              </h3>
+            </div>
+            <p className="mb-6 text-sm text-gray-600">
+              {isSuper ? (
+                <>
+                  This will <span className="font-medium text-red-700">permanently delete</span>{' '}
+                  <span className="font-medium text-gray-900">
+                    {selectedCount} product{selectedCount === 1 ? '' : 's'}
+                  </span>
+                  . This action cannot be undone.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete{' '}
+                  <span className="font-medium text-gray-900">
+                    {selectedCount} product{selectedCount === 1 ? '' : 's'}
+                  </span>
+                  ? This action cannot be undone.
+                </>
+              )}
+            </p>
+            {deleteError && (
+              <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {deleteError}
+              </div>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={closeBulkDeleteConfirm}
+                disabled={deleting}
+                className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void confirmBulkDelete()}
+                disabled={deleting}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : `Delete ${selectedCount} Product${selectedCount === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {historyProduct && (
+        <ProductHistoryModal
+          productId={historyProduct.id}
+          productName={historyProduct.name}
+          onClose={() => setHistoryProduct(null)}
+        />
       )}
     </div>
   );

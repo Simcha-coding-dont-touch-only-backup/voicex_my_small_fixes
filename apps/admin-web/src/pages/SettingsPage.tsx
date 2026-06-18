@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { apiGet, apiPatch } from '../lib/api';
-import { Save } from 'lucide-react';
-import { SETTING_KEYS, US_STATES } from '@voicex/shared';
+import { useEffect, useRef, useState } from 'react';
+import { apiGet, apiPatch, apiPost } from '../lib/api';
+import { Save, RefreshCw, Pause } from 'lucide-react';
+import { SETTING_KEYS, US_STATES, RAINFOREST_SYNC_INTERVAL_OPTIONS, type SyncJobState } from '@voicex/shared';
 
 interface AppSetting {
   id: string;
@@ -20,7 +20,20 @@ const LABELS: Record<string, string> = {
   [SETTING_KEYS.MANUAL_DEFAULT_TAX_PERCENT]: 'Manual Default Tax',
   [SETTING_KEYS.MANUAL_FREE_SHIPPING_CUTOFF]: 'Manual Free Shipping Cut Off',
   [SETTING_KEYS.MANUAL_SHIPPING_FEE]: 'Manual Shipping Fee',
+  [SETTING_KEYS.RAINFOREST_AUTO_SYNC_ENABLED]: 'RainForest Auto Price Sync',
+  [SETTING_KEYS.RAINFOREST_SYNC_INTERVAL_HOURS]: 'Sync Interval',
+  [SETTING_KEYS.RAINFOREST_CHECKOUT_REVALIDATION_ENABLED]: 'RainForest Checkout Revalidation',
 };
+
+const RAINFOREST_SETTING_KEYS: string[] = [
+  SETTING_KEYS.RAINFOREST_AUTO_SYNC_ENABLED,
+  SETTING_KEYS.RAINFOREST_SYNC_INTERVAL_HOURS,
+  SETTING_KEYS.RAINFOREST_CHECKOUT_REVALIDATION_ENABLED,
+];
+
+function intervalLabel(hours: number): string {
+  return hours === 1 ? '1 hour' : `${hours} hours`;
+}
 
 const MANUAL_STATE_TAX_KEY = SETTING_KEYS.MANUAL_STATE_TAX_RATES;
 
@@ -62,6 +75,9 @@ export function SettingsPage() {
   const [showStateTax, setShowStateTax] = useState(false);
   const [saving, setSaving] = useState('');
   const [error, setError] = useState('');
+  const [syncJob, setSyncJob] = useState<SyncJobState | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadSettings = async () => {
     const res = await apiGet<any>('/settings');
@@ -74,9 +90,63 @@ export function SettingsPage() {
     setStateTaxEdits(parseStateTaxRates(stateTaxValue));
   };
 
+  const refreshSyncStatus = async () => {
+    try {
+      const res = await apiGet<{ data: SyncJobState }>('/catalog/sync/status');
+      setSyncJob(res.data);
+      return res.data;
+    } catch {
+      return null;
+    }
+  };
+
   useEffect(() => {
     loadSettings().catch((err) => setError(err?.message || 'Failed to load settings'));
+    refreshSyncStatus();
   }, []);
+
+  // Poll while a sync is running/paused so the status bar stays live and
+  // continues even if the admin navigates back to this page.
+  useEffect(() => {
+    const running = syncJob?.status === 'running';
+    if (running && !pollRef.current) {
+      pollRef.current = setInterval(refreshSyncStatus, 2000);
+    } else if (!running && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [syncJob?.status]);
+
+  const handleSyncNow = async () => {
+    setSyncBusy(true);
+    setError('');
+    try {
+      const res = await apiPost<{ data: SyncJobState }>('/catalog/sync/start', {});
+      setSyncJob(res.data);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to start sync');
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+
+  const handlePauseSync = async () => {
+    setSyncBusy(true);
+    try {
+      const res = await apiPost<{ data: SyncJobState }>('/catalog/sync/pause', {});
+      setSyncJob(res.data);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to pause sync');
+    } finally {
+      setSyncBusy(false);
+    }
+  };
 
   const handleSave = async (key: string) => {
     setSaving(key);
@@ -128,6 +198,38 @@ export function SettingsPage() {
       );
     }
 
+    if (
+      s.key === SETTING_KEYS.RAINFOREST_AUTO_SYNC_ENABLED ||
+      s.key === SETTING_KEYS.RAINFOREST_CHECKOUT_REVALIDATION_ENABLED
+    ) {
+      return (
+        <select
+          value={value === 'true' ? 'true' : 'false'}
+          onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}
+          className="w-28 rounded border px-3 py-1.5 text-sm"
+        >
+          <option value="false">Off</option>
+          <option value="true">On</option>
+        </select>
+      );
+    }
+
+    if (s.key === SETTING_KEYS.RAINFOREST_SYNC_INTERVAL_HOURS) {
+      return (
+        <select
+          value={value}
+          onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}
+          className="w-32 rounded border px-3 py-1.5 text-sm"
+        >
+          {RAINFOREST_SYNC_INTERVAL_OPTIONS.map((h) => (
+            <option key={h} value={String(h)}>
+              {intervalLabel(h)}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
     if (s.key === SETTING_KEYS.MANUAL_DEFAULT_TAX_PERCENT || s.key === SETTING_KEYS.DEFAULT_MARKUP_PERCENT) {
       return (
         <div className="flex items-center rounded border bg-white">
@@ -170,7 +272,43 @@ export function SettingsPage() {
     : settings.find((s) => s.key === SETTING_KEYS.MANUAL_DEFAULT_TAX_PERCENT)?.value || '0';
   const serializedStateTaxEdits = serializeStateTaxRates(stateTaxEdits);
   const stateTaxesChanged = serializedStateTaxEdits !== stateTaxSavedValue;
-  const visibleSettings = settings.filter((s) => s.key !== MANUAL_STATE_TAX_KEY);
+  const visibleSettings = settings.filter(
+    (s) => s.key !== MANUAL_STATE_TAX_KEY && !RAINFOREST_SETTING_KEYS.includes(s.key),
+  );
+
+  const rainforestSettings = settings.filter((s) => RAINFOREST_SETTING_KEYS.includes(s.key));
+  const autoSyncSetting = rainforestSettings.find(
+    (s) => s.key === SETTING_KEYS.RAINFOREST_AUTO_SYNC_ENABLED,
+  );
+  const autoSyncOn =
+    (edits[SETTING_KEYS.RAINFOREST_AUTO_SYNC_ENABLED] ?? autoSyncSetting?.value) === 'true';
+
+  const renderRainforestRow = (s: AppSetting) => (
+    <div key={s.key} className="flex items-center justify-between gap-4 border-b px-6 py-4 last:border-0">
+      <div>
+        <p className="font-medium text-gray-800">{LABELS[s.key] || s.key}</p>
+        {s.description && <p className="text-xs text-gray-400">{s.description}</p>}
+      </div>
+      <div className="flex items-center gap-3">
+        {renderSettingInput(s)}
+        {edits[s.key] !== undefined && edits[s.key] !== s.value && (
+          <button
+            onClick={() => handleSave(s.key)}
+            disabled={saving === s.key}
+            className="flex items-center gap-1 rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            <Save size={14} />
+            {saving === s.key ? 'Saving...' : 'Save'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const syncRunning = syncJob?.status === 'running';
+  const syncPaused = syncJob?.status === 'paused';
+  const syncPct =
+    syncJob && syncJob.total > 0 ? Math.round((syncJob.processed / syncJob.total) * 100) : 0;
 
   return (
     <div>
@@ -264,6 +402,71 @@ export function SettingsPage() {
           <div className="px-6 py-10 text-center text-sm text-gray-400">No settings found.</div>
         )}
       </div>
+
+      {rainforestSettings.length > 0 && (
+        <div className="mt-8">
+          <h3 className="mb-3 text-lg font-semibold text-gray-800">RainForest Price Sync</h3>
+          <div className="rounded-xl bg-white shadow-sm">
+            {autoSyncSetting && renderRainforestRow(autoSyncSetting)}
+
+            {autoSyncOn &&
+              rainforestSettings
+                .filter((s) => s.key === SETTING_KEYS.RAINFOREST_SYNC_INTERVAL_HOURS)
+                .map(renderRainforestRow)}
+
+            {rainforestSettings
+              .filter((s) => s.key === SETTING_KEYS.RAINFOREST_CHECKOUT_REVALIDATION_ENABLED)
+              .map(renderRainforestRow)}
+
+            <div className="px-6 py-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleSyncNow}
+                  disabled={syncBusy || syncRunning}
+                  className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  <RefreshCw size={16} className={syncRunning ? 'animate-spin' : ''} />
+                  {syncRunning ? 'Syncing...' : 'Sync Now'}
+                </button>
+                {syncRunning && (
+                  <button
+                    type="button"
+                    onClick={handlePauseSync}
+                    disabled={syncBusy || (syncJob?.pauseRequested ?? false)}
+                    className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <Pause size={16} />
+                    {syncJob?.pauseRequested ? 'Pausing...' : 'Pause Sync'}
+                  </button>
+                )}
+              </div>
+
+              {syncJob && (syncRunning || syncPaused) && (
+                <div className="mt-4">
+                  <div className="mb-1 flex items-center justify-between text-xs text-gray-500">
+                    <span>
+                      {syncPaused ? 'Paused' : 'Syncing'} {syncJob.processed} / {syncJob.total}
+                      {syncJob.changed > 0 ? ` (${syncJob.changed} changed)` : ''}
+                      {syncJob.currentProductName ? ` — ${syncJob.currentProductName}` : ''}
+                    </span>
+                    <span>{syncPct}%</span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className={`h-full rounded-full transition-all ${syncPaused ? 'bg-amber-400' : 'bg-indigo-500'}`}
+                      style={{ width: `${syncPct}%` }}
+                    />
+                  </div>
+                  {syncJob.lastError && (
+                    <p className="mt-2 text-xs text-amber-600">Last issue: {syncJob.lastError}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

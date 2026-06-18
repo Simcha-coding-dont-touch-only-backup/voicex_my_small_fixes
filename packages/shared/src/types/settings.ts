@@ -17,7 +17,13 @@ export const SETTING_KEYS = {
   MANUAL_STATE_TAX_RATES: 'manual_state_tax_rates',
   MANUAL_FREE_SHIPPING_CUTOFF: 'manual_free_shipping_cutoff',
   MANUAL_SHIPPING_FEE: 'manual_shipping_fee',
+  RAINFOREST_AUTO_SYNC_ENABLED: 'rainforest_auto_sync_enabled',
+  RAINFOREST_SYNC_INTERVAL_HOURS: 'rainforest_sync_interval_hours',
+  RAINFOREST_CHECKOUT_REVALIDATION_ENABLED: 'rainforest_checkout_revalidation_enabled',
 } as const;
+
+export const RAINFOREST_SYNC_INTERVAL_OPTIONS = [1, 3, 10, 24, 48] as const;
+export type RainforestSyncIntervalHours = (typeof RAINFOREST_SYNC_INTERVAL_OPTIONS)[number];
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 
