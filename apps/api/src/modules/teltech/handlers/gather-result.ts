@@ -127,6 +127,19 @@ export async function handleGatherResult(req: Request, res: Response) {
   let nodeKey = req.query.node_key as string;
   const callSid = req.query.call_sid as string;
 
+  // #region agent log
+  void debugStarBack(callSid, 'gather-result:rawEntry', {
+    hypothesisId: 'F/G/H',
+    entryNodeKey: nodeKey,
+    bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : null,
+    body_digits: req.body?.digits,
+    body_terminator: req.body?.terminator,
+    body_dtmf: req.body?.dtmf,
+    rawBody: req.body && typeof req.body === 'object' ? JSON.stringify(req.body).slice(0, 500) : String(req.body),
+    queryKeys: req.query && typeof req.query === 'object' ? Object.keys(req.query) : null,
+  });
+  // #endregion
+
   if (!nodeKey || !callSid) {
     console.error('Missing node_key or call_sid in gather result');
     res.json(buildHangup('An error occurred. Please call back.'));
