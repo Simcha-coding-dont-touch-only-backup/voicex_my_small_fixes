@@ -157,22 +157,6 @@ class IvrRuntime {
     this.flowCache = null;
   }
 
-  async pushMenuStack(callSid: string, nodeKey: string): Promise<void> {
-    const session = await this.getSession(callSid);
-    if (!session) return;
-    const stateData = (session.state_data || {}) as Record<string, unknown>;
-    const stack = Array.isArray(stateData.menu_stack)
-      ? (stateData.menu_stack as string[])
-      : [];
-
-    if (stack[stack.length - 1] === nodeKey) return;
-
-    const next = [...stack, nodeKey].slice(-MENU_STACK_MAX);
-    await this.updateSession(callSid, {
-      state_data: { ...stateData, menu_stack: next },
-    });
-  }
-
   async popMenuStack(callSid: string): Promise<string | null> {
     const session = await this.getSession(callSid);
     if (!session) return null;
@@ -184,9 +168,13 @@ class IvrRuntime {
     if (stack.length === 0) return null;
 
     const prev = stack.pop() ?? null;
-    await this.updateSession(callSid, {
-      state_data: { ...stateData, menu_stack: stack },
-    });
+    // The caller is now parked at the popped menu, so keep `current_menu` in
+    // sync. This stops the subsequent re-render of that menu from treating it
+    // as a brand-new visit and re-pushing onto the stack.
+    const next: Record<string, unknown> = { ...stateData, menu_stack: stack };
+    if (prev === null) delete next.current_menu;
+    else next.current_menu = prev;
+    await this.updateSession(callSid, { state_data: next });
     return prev;
   }
 
@@ -194,20 +182,50 @@ class IvrRuntime {
     const session = await this.getSession(callSid);
     if (!session) return;
     const stateData = (session.state_data || {}) as Record<string, unknown>;
-    if (!Array.isArray(stateData.menu_stack) || stateData.menu_stack.length === 0) return;
-    await this.updateSession(callSid, {
-      state_data: { ...stateData, menu_stack: [] },
-    });
+    const hasStack = Array.isArray(stateData.menu_stack) && stateData.menu_stack.length > 0;
+    const hasCurrent = stateData.current_menu !== undefined;
+    if (!hasStack && !hasCurrent) return;
+    const next: Record<string, unknown> = { ...stateData, menu_stack: [] };
+    delete next.current_menu;
+    await this.updateSession(callSid, { state_data: next });
   }
 
-  async peekMenuStack(callSid: string): Promise<string | null> {
+  /**
+   * Record that the caller is now parked at `nodeKey` (a gather/collect menu).
+   * `current_menu` is the interactive menu the caller's next keypress routes to
+   * — distinct from the transient selection/announce nodes input passes through.
+   * If this is a move to a *different* menu than the one they were last parked
+   * at, the previous menu is pushed onto the back stack so `*` returns there.
+   * Done as a single read-modify-write so the stack and pointer stay in sync.
+   */
+  async recordMenuVisit(callSid: string, nodeKey: string): Promise<void> {
     const session = await this.getSession(callSid);
-    if (!session) return null;
+    if (!session) return;
     const stateData = (session.state_data || {}) as Record<string, unknown>;
+    const current = typeof stateData.current_menu === 'string' ? stateData.current_menu : null;
+
+    // Re-render of the same menu (invalid input, retries): nothing changed.
+    if (current === nodeKey) return;
+
     const stack = Array.isArray(stateData.menu_stack)
       ? (stateData.menu_stack as string[])
       : [];
-    return stack[stack.length - 1] ?? null;
+
+    let nextStack = stack;
+    const existingIdx = stack.lastIndexOf(nodeKey);
+    if (existingIdx !== -1) {
+      // The caller is back at a menu already on the stack (returned via an
+      // in-menu option rather than `*`). Unwind to it instead of growing the
+      // stack, so the next `*` goes one level further back, not in circles.
+      nextStack = stack.slice(0, existingIdx);
+    } else if (current && stack[stack.length - 1] !== current) {
+      // Moving forward into a brand-new menu: remember the one we're leaving.
+      nextStack = [...stack, current].slice(-MENU_STACK_MAX);
+    }
+
+    await this.updateSession(callSid, {
+      state_data: { ...stateData, menu_stack: nextStack, current_menu: nodeKey },
+    });
   }
 
   private async getCachedFlow(flowVersionId: string): Promise<CachedFlow | null> {

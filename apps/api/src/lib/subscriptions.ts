@@ -659,11 +659,16 @@ export async function setSubscriptionCard(subscriptionId: string, paymentMethodI
  * We reactivate a delivery once its `pause_resume_date` is within PRERUN_LEAD_DAYS
  * of today (ET), i.e. by the day the single pre-run check runs for that cycle.
  * Resuming exactly this early (and no earlier) means the resume cycle's run is
- * already seeded and `active` when the pre-run check fires, so:
+ * seeded and `active` while there is still room for the pre-run check, so:
  *   - the single ~24h pre-run check validates card/address and can alert, and
- *   - the midnight-ET lock on the actual cycle day still locks it normally.
- * The seeded run keeps `cycle_date === pause_resume_date`, so no extra cycle is
- * processed early.
+ *   - the midnight-ET lock on the actual cycle day then locks it normally.
+ *
+ * A run is only ever seeded at least PRERUN_LEAD_DAYS out (>= minSafeCycle). If
+ * the resume cycle is already too close (e.g. the delivery first becomes due on
+ * the lock tick at midnight of the resume day itself), seeding it now would let
+ * the lock process it the same tick with no pre-run validation. In that case we
+ * deliberately roll forward to the next processing date so the cycle is still
+ * validated 24h ahead — the one situation where a resume cycle is skipped.
  *
  * A delivery is only flipped to `active` if its resume run can actually be
  * seeded (i.e. it is processable: has items, card, and address). If not, it is
@@ -693,6 +698,15 @@ export async function resumeDueDeliveries(now: Date = new Date()): Promise<{ res
 
     const resumeCycle = delivery.pause_resume_date;
 
+    // The earliest cycle we may seed is PRERUN_LEAD_DAYS out: anything sooner
+    // (including today) would be locked before the single pre-run check could
+    // validate card/address — exactly what the pre-run exists to prevent. So we
+    // only seed the exact resume cycle if it still leaves room for the pre-run;
+    // otherwise we roll forward to the next processing date (which will get its
+    // pre-run normally). This is the only case where a resume cycle is skipped,
+    // and it's deliberate: we never process an unvalidated cycle.
+    const minSafeCycle = addDaysToYmd(today, PRERUN_LEAD_DAYS);
+
     // A delivery must be processable (active + items + card + address) for a run
     // to be seeded. We tentatively flip to active to evaluate processability, but
     // if we can't actually seed the resume run we roll the delivery back to
@@ -702,7 +716,7 @@ export async function resumeDueDeliveries(now: Date = new Date()): Promise<{ res
     // user finally adds a card/address.
     const activeCandidate: DeliveryRow = { ...delivery, status: 'active' };
     const seededCycle =
-      resumeCycle && resumeCycle >= today
+      resumeCycle && resumeCycle >= minSafeCycle
         ? await seedRunForCycle(activeCandidate, subscription, resumeCycle)
         : await ensureUpcomingRun(activeCandidate, subscription);
 

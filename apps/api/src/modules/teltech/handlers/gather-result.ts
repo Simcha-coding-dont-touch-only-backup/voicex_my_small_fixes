@@ -84,10 +84,17 @@ function extractNodeKeyFromActionUrl(url: string | undefined): string | null {
   }
 }
 
-function extractNextNodeKey(response: any): string | null {
+/**
+ * The node the caller is left *parked* at — i.e. the gather/collect whose
+ * action URL their next keypress will hit. Pure `redirect` hops (the
+ * `say` + `redirect` announce pattern) are intentionally ignored: they are
+ * transient pass-throughs, not menus the caller can act on, so they must not
+ * become `*`-back targets.
+ */
+function extractGatheredNodeKey(response: any): string | null {
   if (!response?.actions) return null;
   for (const action of response.actions) {
-    if (action.action === 'gather' || action.action === 'collect' || action.action === 'redirect') {
+    if (action.action === 'gather' || action.action === 'collect') {
       const url = action.action_url || action.url;
       const key = extractNodeKeyFromActionUrl(url);
       if (key) return key;
@@ -165,20 +172,22 @@ export async function handleGatherResult(req: Request, res: Response) {
       sessionData.node_key = nodeKey;
     }
 
-    const originNodeKey = nodeKey;
     await dispatchNode(req, res, nodeKey, callSid, flowVersionId, sessionData);
 
     const suppressPush = (req as any)._suppressStackPush === true;
 
+    // Track the menu the caller is now parked at (the gather/collect their next
+    // keypress routes to). `recordMenuVisit` pushes the menu they're leaving
+    // onto the back stack whenever they move to a genuinely new menu, so `*`
+    // returns to the previous menu the caller actually heard — not to a
+    // transient selection/announce node, and not to a re-render of the current
+    // menu. `*`-back itself (`didPop`) already updated the pointer in popMenuStack.
     if (!didPop && !suppressPush) {
-      const nextNodeKey = extractNextNodeKey(captured);
-      if (nextNodeKey && nextNodeKey !== originNodeKey) {
-        const originNode = await ivrRuntime.getNodeByKey(flowVersionId, originNodeKey);
-        if (originNode && !NON_INTERACTIVE_NODE_TYPES.has(originNode.node_type)) {
-          const top = await ivrRuntime.peekMenuStack(callSid);
-          if (top !== originNodeKey) {
-            await ivrRuntime.pushMenuStack(callSid, originNodeKey);
-          }
+      const parkedNodeKey = extractGatheredNodeKey(captured);
+      if (parkedNodeKey) {
+        const parkedNode = await ivrRuntime.getNodeByKey(flowVersionId, parkedNodeKey);
+        if (!parkedNode || !NON_INTERACTIVE_NODE_TYPES.has(parkedNode.node_type)) {
+          await ivrRuntime.recordMenuVisit(callSid, parkedNodeKey);
         }
       }
     }
