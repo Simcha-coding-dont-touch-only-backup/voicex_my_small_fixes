@@ -7,6 +7,21 @@ export const usersRouter = Router();
 
 const USERS_SORTABLE_COLUMNS = ['created_at', 'name', 'email', 'status', 'id', 'returns_count'];
 
+/**
+ * Validate an incoming custom markup percent. Returns the normalized value
+ * (a finite number >= 0, or `null` to clear it) or an error message.
+ */
+function parseCustomMarkupPercent(
+  raw: unknown,
+): { value: number | null } | { error: string } {
+  if (raw === null || raw === undefined || raw === '') return { value: null };
+  const num = typeof raw === 'number' ? raw : parseFloat(String(raw));
+  if (!Number.isFinite(num) || num < 0) {
+    return { error: 'Custom markup percent must be a number greater than or equal to 0' };
+  }
+  return { value: num };
+}
+
 usersRouter.get('/', async (req, res) => {
   const { page = '1', per_page = '20', search, status, sort_by = 'created_at', sort_dir = 'desc' } = req.query;
   const sortColumn = USERS_SORTABLE_COLUMNS.includes(sort_by as string) ? (sort_by as string) : 'created_at';
@@ -89,11 +104,28 @@ usersRouter.get('/:id', async (req, res) => {
 usersRouter.post('/', async (req, res) => {
   const { name, email, phone_number, pin, is_whitelisted } = req.body;
 
+  const markupResult = parseCustomMarkupPercent(req.body.custom_markup_percent);
+  if ('error' in markupResult) {
+    res.status(400).json({ success: false, error: markupResult.error });
+    return;
+  }
+
+  // Whitelist and custom markup are mutually exclusive: a whitelisted user
+  // always pays the base Amazon price, so any custom markup is cleared.
+  const whitelisted = !!is_whitelisted;
+  const customMarkup = whitelisted ? null : markupResult.value;
+
   const pinHash = pin ? await bcrypt.hash(pin, 10) : null;
 
   const { data: user, error } = await supabaseAdmin
     .from('users')
-    .insert({ name, email, status: 'active', is_whitelisted: is_whitelisted || false })
+    .insert({
+      name,
+      email,
+      status: 'active',
+      is_whitelisted: whitelisted,
+      custom_markup_percent: customMarkup,
+    })
     .select()
     .single();
 
@@ -135,7 +167,32 @@ usersRouter.patch('/:id', async (req, res) => {
   if (name !== undefined) updates.name = name;
   if (email !== undefined) updates.email = email;
   if (status !== undefined) updates.status = status;
-  if (is_whitelisted !== undefined) updates.is_whitelisted = is_whitelisted;
+
+  let markup: number | null | undefined;
+  if (req.body.custom_markup_percent !== undefined) {
+    const markupResult = parseCustomMarkupPercent(req.body.custom_markup_percent);
+    if ('error' in markupResult) {
+      res.status(400).json({ success: false, error: markupResult.error });
+      return;
+    }
+    markup = markupResult.value;
+  }
+
+  // Enforce mutual exclusivity between whitelist and custom markup.
+  if (is_whitelisted !== undefined) {
+    const whitelisted = !!is_whitelisted;
+    updates.is_whitelisted = whitelisted;
+    if (whitelisted) {
+      // Turning whitelist on clears any custom markup.
+      updates.custom_markup_percent = null;
+    } else if (markup !== undefined) {
+      updates.custom_markup_percent = markup;
+    }
+  } else if (markup !== undefined) {
+    // Setting a custom markup turns whitelist off; clearing it leaves whitelist as-is.
+    updates.custom_markup_percent = markup;
+    if (markup !== null) updates.is_whitelisted = false;
+  }
 
   const { data, error } = await supabaseAdmin
     .from('users')

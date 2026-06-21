@@ -321,7 +321,13 @@ export function UserDetailPage() {
   const [user, setUser] = useState<any>(null);
   const [loginHistory, setLoginHistory] = useState<any[]>([]);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', status: '', is_whitelisted: false });
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    status: '',
+    is_whitelisted: false,
+    custom_markup_percent: '',
+  });
   const [newPin, setNewPin] = useState('');
 
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
@@ -349,6 +355,8 @@ export function UserDetailPage() {
         email: res.data.email || '',
         status: res.data.status,
         is_whitelisted: res.data.is_whitelisted,
+        custom_markup_percent:
+          res.data.custom_markup_percent != null ? String(res.data.custom_markup_percent) : '',
       });
     });
 
@@ -362,7 +370,19 @@ export function UserDetailPage() {
   }, [id]);
 
   const handleSave = async () => {
-    await apiPatch(`/users/${id}`, form);
+    const trimmedMarkup = form.custom_markup_percent.trim();
+    const markupNum = trimmedMarkup === '' ? null : Number(trimmedMarkup);
+    if (markupNum !== null && (!Number.isFinite(markupNum) || markupNum < 0)) {
+      alert('Custom markup % must be a number greater than or equal to 0');
+      return;
+    }
+    await apiPatch(`/users/${id}`, {
+      name: form.name,
+      email: form.email,
+      status: form.status,
+      is_whitelisted: form.is_whitelisted,
+      custom_markup_percent: form.is_whitelisted ? null : markupNum,
+    });
     await refreshUser();
     setEditing(false);
   };
@@ -564,9 +584,36 @@ export function UserDetailPage() {
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.is_whitelisted}
-                  onChange={(e) => setForm({ ...form, is_whitelisted: e.target.checked })} />
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      is_whitelisted: e.target.checked,
+                      custom_markup_percent: e.target.checked ? '' : form.custom_markup_percent,
+                    })
+                  } />
                 Whitelisted (no markup)
               </label>
+              <div>
+                <label className="text-sm font-medium text-gray-600">Custom markup %</label>
+                <input
+                  value={form.custom_markup_percent}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9.]/g, '');
+                    setForm({
+                      ...form,
+                      custom_markup_percent: v,
+                      is_whitelisted: v.trim() !== '' ? false : form.is_whitelisted,
+                    });
+                  }}
+                  inputMode="decimal"
+                  placeholder="Leave blank for default markup"
+                  disabled={form.is_whitelisted}
+                  className="mt-1 w-full rounded border px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Overrides the default system markup for this user. Mutually exclusive with whitelisting.
+                </p>
+              </div>
               <button onClick={handleSave} className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">
                 Save
               </button>
@@ -577,6 +624,13 @@ export function UserDetailPage() {
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Email</dt><dd>{user.email || '-'}</dd></div>
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Status</dt><dd>{user.status}</dd></div>
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Whitelisted</dt><dd>{user.is_whitelisted ? 'Yes' : 'No'}</dd></div>
+              <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Markup</dt><dd>{
+                user.is_whitelisted
+                  ? 'Whitelisted (0%)'
+                  : user.custom_markup_percent != null
+                    ? `Custom: ${user.custom_markup_percent}%`
+                    : 'Default'
+              }</dd></div>
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Phone(s)</dt><dd>{user.user_phones?.map((p: any) => p.phone_number).join(', ') || '-'}</dd></div>
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Addresses</dt><dd>{addresses.length}</dd></div>
               <div className="flex gap-2"><dt className="font-medium text-gray-500 w-28">Cards</dt><dd>{user.payment_methods?.length || 0}</dd></div>

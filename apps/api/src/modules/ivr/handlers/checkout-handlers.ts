@@ -34,6 +34,74 @@ async function getActiveFulfillmentProvider(): Promise<FulfillmentProvider> {
   return data?.value === 'manual' ? 'manual' : 'rye';
 }
 
+type PaymentMethodRow = {
+  id: string;
+  user_id: string;
+  is_verified?: boolean | null;
+  is_default?: boolean | null;
+  card_last4?: string | null;
+};
+
+/**
+ * Promote a card to verified after it has successfully passed an auth hold.
+ * If the card was just entered (unverified), it also becomes the user's default
+ * payment method. No-op for cards that were already verified (e.g. a saved card
+ * the user picked from the list).
+ */
+async function promoteVerifiedCard(
+  paymentMethod: PaymentMethodRow,
+  callSid: string,
+  userId: string
+): Promise<void> {
+  if (paymentMethod.is_verified) return;
+
+  await supabaseAdmin
+    .from('payment_methods')
+    .update({ is_verified: true, is_default: true })
+    .eq('id', paymentMethod.id);
+
+  await supabaseAdmin
+    .from('payment_methods')
+    .update({ is_default: false })
+    .eq('user_id', userId)
+    .neq('id', paymentMethod.id);
+
+  await logCheckoutEvent({
+    callSid,
+    userId,
+    eventType: 'payment_method_verified',
+    details: {
+      payment_method_id: paymentMethod.id,
+      card_last4: paymentMethod.card_last4 ?? null,
+    },
+  });
+}
+
+/**
+ * Delete a card that never completed a payment. Only removes cards that are
+ * still unverified, so a previously-saved card the user reused is never touched.
+ */
+async function discardUnverifiedCard(
+  paymentMethod: PaymentMethodRow,
+  callSid: string,
+  userId: string
+): Promise<void> {
+  if (paymentMethod.is_verified) return;
+
+  await supabaseAdmin.from('payment_methods').delete().eq('id', paymentMethod.id).eq('is_verified', false);
+
+  await logCheckoutEvent({
+    callSid,
+    userId,
+    eventType: 'payment_method_discarded',
+    details: {
+      payment_method_id: paymentMethod.id,
+      card_last4: paymentMethod.card_last4 ?? null,
+      reason: 'auth_failed',
+    },
+  });
+}
+
 registerHandler('address_choice', async (ctx) => {
   const userId = ctx.sessionData.user_id;
 
@@ -714,6 +782,7 @@ registerHandler('payment_choice', async (ctx) => {
     .from('payment_methods')
     .select('*')
     .eq('user_id', userId)
+    .eq('is_verified', true)
     .order('is_default', { ascending: false });
 
   if (methods && methods.length > 0) {
@@ -1070,6 +1139,11 @@ registerHandler('card_confirm', async (ctx) => {
     const expMonth = parseInt(ccExp.substring(0, 2), 10);
     const expYear = parseInt(ccExp.substring(2, 4), 10) + 2000;
 
+    // Tokenization only vaults the card -- it does NOT confirm the card can be
+    // charged. Persist it as UNVERIFIED and non-default for now. It is promoted
+    // to verified (and made default) only after a successful auth hold in
+    // `checkout_pay`, and deleted there if the auth declines. This prevents a
+    // card that never completed a payment from sticking around on the account.
     const { data: savedCard } = await supabaseAdmin
       .from('payment_methods')
       .insert({
@@ -1079,18 +1153,13 @@ registerHandler('card_confirm', async (ctx) => {
         card_brand: solaResult.xCardType || null,
         card_exp_month: expMonth,
         card_exp_year: expYear,
-        is_default: true,
+        is_default: false,
+        is_verified: false,
       })
       .select()
       .single();
 
     if (!savedCard) throw new Error('Failed to save card');
-
-    await supabaseAdmin
-      .from('payment_methods')
-      .update({ is_default: false })
-      .eq('user_id', userId)
-      .neq('id', savedCard.id);
 
     await logCheckoutEvent({
       callSid: ctx.callSid,
@@ -1099,6 +1168,7 @@ registerHandler('card_confirm', async (ctx) => {
       details: {
         payment_method_id: savedCard.id,
         source: 'new',
+        verified: false,
         card_brand: savedCard.card_brand,
         card_last4: savedCard.card_last4,
       },
@@ -1107,7 +1177,7 @@ registerHandler('card_confirm', async (ctx) => {
     return {
       type: 'actions',
       response: buildSay(
-        `Your ${solaResult.xCardType || 'card'} ending in ${last4} has been saved.`,
+        `Your ${solaResult.xCardType || 'card'} ending in ${last4} is ready.`,
         '/api/ivr/voice/gather',
         {
           call_sid: ctx.callSid, user_id: userId,
@@ -1273,7 +1343,7 @@ registerHandler('final_confirm', async (ctx) => {
         const session = await ivrRuntime.getSession(ctx.callSid);
         const { data: user } = await supabaseAdmin
           .from('users')
-          .select('is_whitelisted')
+          .select('is_whitelisted, custom_markup_percent')
           .eq('id', userId)
           .maybeSingle();
 
@@ -1281,6 +1351,7 @@ registerHandler('final_confirm', async (ctx) => {
           userId,
           callerPhone: session?.phone_number || null,
           isWhitelisted: user?.is_whitelisted || false,
+          customMarkupPercent: user?.custom_markup_percent ?? null,
         });
 
         if (revalidation.hasChanges) {
@@ -2088,6 +2159,7 @@ registerHandler('checkout_pay', async (ctx) => {
       authResult = await solaAuthOnly(paymentMethod.sola_token, totalCents);
     } catch (authError) {
       console.error('Sola auth hold failed:', authError);
+      await discardUnverifiedCard(paymentMethod, ctx.callSid, userId);
       await logCheckoutEvent({
         callSid: ctx.callSid,
         userId,
@@ -2118,6 +2190,7 @@ registerHandler('checkout_pay', async (ctx) => {
     }
 
     if (authResult.xResult !== 'A') {
+      await discardUnverifiedCard(paymentMethod, ctx.callSid, userId);
       await logCheckoutEvent({
         callSid: ctx.callSid,
         userId,
@@ -2149,6 +2222,12 @@ registerHandler('checkout_pay', async (ctx) => {
     }
 
     const solaRefNum = authResult.xRefNum;
+
+    // The card just passed an auth hold, so it's confirmed chargeable. Promote a
+    // freshly-entered (unverified) card to verified and make it the user's
+    // default now that we know it works.
+    await promoteVerifiedCard(paymentMethod, ctx.callSid, userId);
+
     await logCheckoutEvent({
       callSid: ctx.callSid,
       userId,

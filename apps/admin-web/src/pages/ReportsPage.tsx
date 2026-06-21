@@ -340,11 +340,40 @@ function sourceLabel(run: any): string {
   return run.actor_label || 'Admin';
 }
 
+function syncRunProgress(run: {
+  status: 'running' | 'completed' | 'paused' | 'failed';
+  changed_count: number;
+  processed_count: number;
+  total_count: number;
+}): { label: string; className: string } {
+  const total = run.total_count ?? 0;
+  const changed = run.changed_count ?? 0;
+  const processed = run.processed_count ?? 0;
+  const checked =
+    total > 0
+      ? processed > 0
+        ? `${processed} of ${total}`
+        : `? of ${total}`
+      : String(processed);
+  const label = `${changed} changed · ${checked} checked`;
+
+  let className = 'text-gray-500';
+  if (run.status === 'completed') {
+    className = 'text-green-600';
+  } else if (run.status === 'failed' || run.status === 'paused') {
+    className = 'text-red-600';
+  }
+
+  return { label, className };
+}
+
 function ProductSyncTable({ data }: { data: any[] }) {
   return (
-    <div className="divide-y">
-      {data.map((run: any) => (
-        <div key={run.id} className="px-6 py-4">
+    <div className="space-y-3 bg-gray-50 p-4">
+      {data.map((run: any) => {
+        const progress = syncRunProgress(run);
+        return (
+        <div key={run.id} className="rounded-lg bg-white px-6 py-4 shadow-sm">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span className="text-sm font-medium text-gray-800">{new Date(run.started_at).toLocaleString()}</span>
             <span className={`rounded-full px-2 py-0.5 text-xs ${triggerBadgeClass(run.trigger)}`}>
@@ -365,8 +394,8 @@ function ProductSyncTable({ data }: { data: any[] }) {
                 ) : ''}
               </span>
             )}
-            <span className="ml-auto text-xs text-gray-400">
-              {run.changed_count} changed / {run.processed_count} checked
+            <span className={`ml-auto text-xs font-medium ${progress.className}`}>
+              {progress.label}
             </span>
           </div>
 
@@ -418,7 +447,8 @@ function ProductSyncTable({ data }: { data: any[] }) {
             <p className="mt-2 text-xs text-gray-400">No changes in this run.</p>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

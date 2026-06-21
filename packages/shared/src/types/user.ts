@@ -4,11 +4,31 @@ export interface User {
   email: string | null;
   status: UserStatus;
   is_whitelisted: boolean;
+  /**
+   * Optional per-user markup percent that overrides the global default markup.
+   * Mutually exclusive with `is_whitelisted` (whitelisted users pay the base
+   * Amazon price). `null` means fall back to the default system markup.
+   */
+  custom_markup_percent: number | null;
   created_at: string;
   updated_at: string;
 }
 
 export type UserStatus = 'active' | 'frozen' | 'deleted';
+
+/**
+ * Resolve the markup percent to apply for a given user. A per-user custom markup
+ * takes precedence over the default. For whitelisted users the returned value is
+ * irrelevant (pricing short-circuits to the base Amazon price), so callers should
+ * still pass the user's `is_whitelisted` flag to `getProductPriceCents`.
+ */
+export function resolveEffectiveMarkup(
+  defaultMarkupPercent: number,
+  user: { custom_markup_percent?: number | null } | null | undefined,
+): number {
+  const custom = user?.custom_markup_percent;
+  return custom != null && Number.isFinite(custom) ? custom : defaultMarkupPercent;
+}
 
 export interface UserPhone {
   id: string;

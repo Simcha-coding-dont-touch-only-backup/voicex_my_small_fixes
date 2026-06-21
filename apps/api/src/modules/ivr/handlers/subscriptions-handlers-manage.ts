@@ -273,6 +273,7 @@ registerHandler('subscriptions_card_menu', async (ctx) => {
     .from('payment_methods')
     .select('*')
     .eq('user_id', subscription.user_id)
+    .eq('is_verified', true)
     .order('is_default', { ascending: false });
 
   if (!cards || cards.length === 0) {
@@ -304,6 +305,7 @@ registerHandler('subscriptions_card_list', async (ctx) => {
     .from('payment_methods')
     .select('*')
     .eq('user_id', subscription.user_id)
+    .eq('is_verified', true)
     .order('is_default', { ascending: false });
   const list = (cards || []).slice(0, 9);
   const ids = (ctx.sessionData.card_ids || '').split(',').filter(Boolean);

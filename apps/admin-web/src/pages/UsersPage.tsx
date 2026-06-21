@@ -137,7 +137,13 @@ export function UsersPage() {
                     {user.status}
                   </span>
                 </td>
-                <td className="px-6 py-4">{user.is_whitelisted ? 'Yes' : 'No'}</td>
+                <td className="px-6 py-4">
+                  {user.is_whitelisted
+                    ? 'Yes'
+                    : user.custom_markup_percent != null
+                      ? `No (${user.custom_markup_percent}%)`
+                      : 'No'}
+                </td>
                 <td className="px-6 py-4">
                   {returnsCount > 0 ? (
                     <button

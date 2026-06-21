@@ -7,7 +7,12 @@
 import { supabaseAdmin } from './supabase.js';
 import { solaSaleRecurring } from './sola.js';
 import { calculateManualPricing } from './manual-pricing.js';
-import { getProductDisplayName, getProductPriceCents, SUBSCRIPTION_ALERT_ISSUE_TYPES } from '@voicex/shared';
+import {
+  getProductDisplayName,
+  getProductPriceCents,
+  resolveEffectiveMarkup,
+  SUBSCRIPTION_ALERT_ISSUE_TYPES,
+} from '@voicex/shared';
 import {
   etClock,
   etToday,
@@ -20,6 +25,7 @@ import {
   getSubscriptionByUser,
   addDaysToYmd,
   PRERUN_LEAD_DAYS,
+  type UserPricing,
 } from './subscriptions.js';
 import type { DeliveryRow, SubscriptionRow } from './subscriptions.js';
 import {
@@ -52,9 +58,16 @@ function isCardExpired(card: { card_exp_month: number; card_exp_year: number } |
   return false;
 }
 
-async function loadUserWhitelist(userId: string): Promise<boolean> {
-  const { data } = await supabaseAdmin.from('users').select('is_whitelisted').eq('id', userId).maybeSingle();
-  return !!data?.is_whitelisted;
+async function loadUserPricing(userId: string): Promise<UserPricing> {
+  const { data } = await supabaseAdmin
+    .from('users')
+    .select('is_whitelisted, custom_markup_percent')
+    .eq('id', userId)
+    .maybeSingle();
+  return {
+    is_whitelisted: !!data?.is_whitelisted,
+    custom_markup_percent: data?.custom_markup_percent ?? null,
+  };
 }
 
 /**
@@ -64,10 +77,11 @@ async function loadUserWhitelist(userId: string): Promise<boolean> {
  */
 async function snapshotPackage(
   run: RunRow,
-  isWhitelisted: boolean,
+  userPricing: UserPricing,
 ): Promise<{ includedSubtotal: number; includedCount: number; skippedCount: number }> {
   const items = await getDeliveryItems(run.delivery_id);
-  const markup = await getDefaultMarkupPercent();
+  const defaultMarkup = await getDefaultMarkupPercent();
+  const markup = resolveEffectiveMarkup(defaultMarkup, userPricing);
   let includedSubtotal = 0;
   let includedCount = 0;
   let skippedCount = 0;
@@ -79,7 +93,7 @@ async function snapshotPackage(
     const product = item.catalog_products;
     if (!product) continue;
     const disabled = product.status !== 'active';
-    const unit = getProductPriceCents(product, markup, isWhitelisted) ?? 0;
+    const unit = getProductPriceCents(product, markup, userPricing.is_whitelisted) ?? 0;
     if (disabled) {
       skippedCount += 1;
       await supabaseAdmin.from('subscription_delivery_run_items').insert({
@@ -255,8 +269,8 @@ async function lockSingleRun(run: RunRow, now: Date): Promise<'locked' | 'failed
     }
   }
 
-  const isWhitelisted = await loadUserWhitelist(run.user_id);
-  const snap = hardIssue ? { includedSubtotal: 0, includedCount: 0, skippedCount: 0 } : await snapshotPackage(run, isWhitelisted);
+  const userPricing = await loadUserPricing(run.user_id);
+  const snap = hardIssue ? { includedSubtotal: 0, includedCount: 0, skippedCount: 0 } : await snapshotPackage(run, userPricing);
 
   if (!hardIssue && snap.includedCount === 0) {
     hardIssue = { issue_type: ISSUE.PRODUCTS_UNAVAILABLE, message: 'No shippable products in the package' };
@@ -362,8 +376,8 @@ async function finishProcessRun(run: RunRow, actor: string, isRetry: boolean): P
   // If we are re-processing (retry), re-snapshot so disabled products / new
   // prices are reflected.
   if (isRetry) {
-    const isWhitelisted = await loadUserWhitelist(run.user_id);
-    await snapshotPackage(run, isWhitelisted);
+    const userPricing = await loadUserPricing(run.user_id);
+    await snapshotPackage(run, userPricing);
   }
 
   const { data: runItems } = await supabaseAdmin

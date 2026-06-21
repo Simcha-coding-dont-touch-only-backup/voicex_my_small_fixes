@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
 import { buildGather, buildGatherFromNode, buildSay, formatCurrency } from '../../teltech/teltech-builder.js';
 import { normalizeInput, normalizeVoicexId } from '../../teltech/input-normalizer.js';
-import { getProductDisplayName, getProductPriceCents } from '@voicex/shared';
+import { getProductDisplayName, getProductPriceCents, resolveEffectiveMarkup } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
 import { fetchAmazonProductReviews } from '../../../lib/rainforest.js';
 
@@ -28,15 +28,29 @@ registerHandler('lookup_product', async (ctx) => {
     .from('catalog_products')
     .select('*')
     .eq('voicex_id', lookupId)
-    .eq('status', 'active')
     .is('deleted_at', null)
     .single();
 
-  if (!product) {
+  const spokenDigits = digits.split('').join(' ');
+
+  if (product && product.status === 'frozen') {
     return {
       type: 'actions',
       response: buildGather({
-        prompt: `Product with catalog number ${digits.split('').join(' ')} was not found. Please enter a different catalog number.`,
+        prompt: `Product with catalog number ${spokenDigits} is currently unavailable. Please enter a different catalog number.`,
+        actionPath: '/api/ivr/voice/gather',
+        timeout: 10,
+        finishOnKey: '#',
+        sessionData: { call_sid: ctx.callSid, user_id: userId, node_key: ctx.node.node_key },
+      }),
+    };
+  }
+
+  if (!product || product.status !== 'active') {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: `Product with catalog number ${spokenDigits} was not found. Please enter a different catalog number.`,
         actionPath: '/api/ivr/voice/gather',
         timeout: 10,
         finishOnKey: '#',
@@ -47,7 +61,7 @@ registerHandler('lookup_product', async (ctx) => {
 
   const { data: user } = await supabaseAdmin
     .from('users')
-    .select('is_whitelisted')
+    .select('is_whitelisted, custom_markup_percent')
     .eq('id', userId)
     .single();
 
@@ -57,7 +71,8 @@ registerHandler('lookup_product', async (ctx) => {
     .eq('key', 'default_markup_percent')
     .single();
 
-  const markupPercent = settings ? parseFloat(settings.value) : 15;
+  const defaultMarkupPercent = settings ? parseFloat(settings.value) : 15;
+  const markupPercent = resolveEffectiveMarkup(defaultMarkupPercent, user);
   const isWhitelisted = user?.is_whitelisted || false;
   const displayName = getProductDisplayName(product);
   const priceCents = getProductPriceCents(product, markupPercent, isWhitelisted);
@@ -326,7 +341,7 @@ registerHandler('confirm_qty', async (ctx) => {
 
     const { data: user } = await supabaseAdmin
       .from('users')
-      .select('is_whitelisted')
+      .select('is_whitelisted, custom_markup_percent')
       .eq('id', userId)
       .single();
 
@@ -336,7 +351,8 @@ registerHandler('confirm_qty', async (ctx) => {
       .eq('key', 'default_markup_percent')
       .single();
 
-    const markupPercent = settings ? parseFloat(settings.value) : 15;
+    const defaultMarkupPercent = settings ? parseFloat(settings.value) : 15;
+    const markupPercent = resolveEffectiveMarkup(defaultMarkupPercent, user);
     const isWhitelisted = user?.is_whitelisted || false;
     const priceCents = getProductPriceCents(product, markupPercent, isWhitelisted) || 0;
 

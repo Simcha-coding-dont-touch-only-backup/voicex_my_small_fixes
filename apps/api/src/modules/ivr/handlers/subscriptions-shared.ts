@@ -11,6 +11,7 @@ import { ivrRuntime } from '../runtime.js';
 import {
   getProductDisplayName,
   getProductPriceCents,
+  resolveEffectiveMarkup,
   weekLabel,
   TERMS_EXPLANATION_REQUIRED_PLAYS,
   SUBSCRIPTION_WEEKS,
@@ -139,6 +140,21 @@ export async function isWhitelisted(userId: string): Promise<boolean> {
   return !!data?.is_whitelisted;
 }
 
+/** Pricing-relevant user fields (whitelist flag + optional per-user markup). */
+export async function getUserPricingFields(
+  userId: string,
+): Promise<{ is_whitelisted: boolean; custom_markup_percent: number | null }> {
+  const { data } = await supabaseAdmin
+    .from('users')
+    .select('is_whitelisted, custom_markup_percent')
+    .eq('id', userId)
+    .maybeSingle();
+  return {
+    is_whitelisted: !!data?.is_whitelisted,
+    custom_markup_percent: data?.custom_markup_percent ?? null,
+  };
+}
+
 /** Look up an active, non-deleted catalog product by dialed VoiceX ID. */
 export async function lookupActiveProduct(digits: string): Promise<CatalogProduct | null> {
   const lookupId = normalizeVoicexId(digits);
@@ -153,9 +169,10 @@ export async function lookupActiveProduct(digits: string): Promise<CatalogProduc
 }
 
 export async function productPriceStr(product: CatalogProduct, userId: string): Promise<string> {
-  const markup = await getDefaultMarkupPercent();
-  const wl = await isWhitelisted(userId);
-  const cents = getProductPriceCents(product, markup, wl);
+  const defaultMarkup = await getDefaultMarkupPercent();
+  const user = await getUserPricingFields(userId);
+  const markup = resolveEffectiveMarkup(defaultMarkup, user);
+  const cents = getProductPriceCents(product, markup, user.is_whitelisted);
   return cents != null ? formatCurrency(cents) : 'price unavailable';
 }
 

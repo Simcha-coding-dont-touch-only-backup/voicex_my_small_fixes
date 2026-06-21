@@ -380,6 +380,14 @@ reportsRouter.get('/product-sync', async (req, res) => {
         became_unavailable: i.became_unavailable,
       };
     });
+    const itemCount = items.length;
+    const changed_count = Math.max(r.changed_count ?? 0, itemCount);
+    let processed_count = r.processed_count ?? 0;
+    if (processed_count === 0) {
+      if (r.status === 'completed') {
+        processed_count = r.total_count ?? 0;
+      }
+    }
     return {
       id: r.id,
       trigger: r.trigger,
@@ -387,8 +395,8 @@ reportsRouter.get('/product-sync', async (req, res) => {
       actor_kind: r.actor_kind,
       actor_label: r.actor_label,
       total_count: r.total_count,
-      processed_count: r.processed_count,
-      changed_count: r.changed_count,
+      processed_count,
+      changed_count,
       started_at: r.started_at,
       finished_at: r.finished_at,
       order_id: r.order_id,

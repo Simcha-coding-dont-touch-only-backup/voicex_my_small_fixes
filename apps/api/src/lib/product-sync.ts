@@ -1,6 +1,7 @@
 import {
   SETTING_KEYS,
   getProductPriceCents,
+  resolveEffectiveMarkup,
   type CatalogProduct,
   type ProductSyncActorKind,
   type ProductSyncTrigger,
@@ -291,6 +292,19 @@ export async function addSyncRunItem(runId: string, result: ProductSyncResult): 
   if (error) console.error('[product-sync] failed to add sync run item:', error.message);
 }
 
+/** Persist live progress so partial runs survive crashes/restarts. */
+export async function updateSyncRunProgress(
+  runId: string,
+  processed: number,
+  changed: number,
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('product_sync_runs')
+    .update({ processed_count: processed, changed_count: changed })
+    .eq('id', runId);
+  if (error) console.error('[product-sync] failed to update sync run progress:', error.message);
+}
+
 export async function finalizeSyncRun(
   runId: string,
   totals: { total: number; processed: number; changed: number; status?: 'completed' | 'paused' | 'failed' },
@@ -327,12 +341,37 @@ export async function backfillSyncRunOrder(runId: string, orderId: number): Prom
 export async function reconcileOrphanedSyncRuns(exceptRunId?: string | null): Promise<void> {
   let query = supabaseAdmin
     .from('product_sync_runs')
-    .update({ status: 'failed', finished_at: new Date().toISOString() })
+    .select('id, processed_count, changed_count')
     .in('trigger', ['auto', 'manual_full', 'manual_bulk'])
     .in('status', ['running', 'paused']);
   if (exceptRunId) query = query.neq('id', exceptRunId);
-  const { error } = await query;
-  if (error) console.error('[product-sync] failed to reconcile orphaned sync runs:', error.message);
+  const { data: orphans, error: fetchErr } = await query;
+  if (fetchErr) {
+    console.error('[product-sync] failed to list orphaned sync runs:', fetchErr.message);
+    return;
+  }
+  for (const orphan of orphans || []) {
+    const { count: itemCount, error: countErr } = await supabaseAdmin
+      .from('product_sync_run_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('run_id', orphan.id);
+    if (countErr) {
+      console.error('[product-sync] failed to count sync run items:', countErr.message);
+      continue;
+    }
+    const changed = Math.max(orphan.changed_count ?? 0, itemCount ?? 0);
+    const { error } = await supabaseAdmin
+      .from('product_sync_runs')
+      .update({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        changed_count: changed,
+        // Keep processed_count when incremental progress was persisted; otherwise
+        // leave it (report UI falls back to item count as a lower bound).
+      })
+      .eq('id', orphan.id);
+    if (error) console.error('[product-sync] failed to reconcile orphaned sync run:', error.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +506,7 @@ export async function runFullSync(opts: RunFullSyncOptions): Promise<{ runId: st
       if (result.priceChanged || result.becameUnavailable) jobState.changed += 1;
       if (result.error) jobState.lastError = result.error;
       jobState.processed += 1;
+      if (runId) await updateSyncRunProgress(runId, jobState.processed, jobState.changed);
 
       if (jobState.pauseRequested) {
         paused = true;
@@ -558,6 +598,7 @@ export async function runBulkSync(opts: RunBulkSyncOptions): Promise<{ runId: st
       if (result.priceChanged || result.becameUnavailable) jobState.changed += 1;
       if (result.error) jobState.lastError = result.error;
       jobState.processed += 1;
+      if (runId) await updateSyncRunProgress(runId, jobState.processed, jobState.changed);
 
       if (jobState.pauseRequested) {
         paused = true;
@@ -639,9 +680,17 @@ export interface CheckoutRevalidationResult {
  */
 export async function revalidateCartAtCheckout(
   cartItems: CheckoutCartItem[],
-  context: { userId: string | null; callerPhone: string | null; isWhitelisted: boolean },
+  context: {
+    userId: string | null;
+    callerPhone: string | null;
+    isWhitelisted: boolean;
+    customMarkupPercent?: number | null;
+  },
 ): Promise<CheckoutRevalidationResult> {
-  const markupPercent = await getDefaultMarkupPercent();
+  const defaultMarkupPercent = await getDefaultMarkupPercent();
+  const markupPercent = resolveEffectiveMarkup(defaultMarkupPercent, {
+    custom_markup_percent: context.customMarkupPercent ?? null,
+  });
   const priceChanges: CheckoutRevalidationItemChange[] = [];
   const unavailable: CheckoutRevalidationUnavailable[] = [];
   const remainingItems: CheckoutCartItem[] = [];

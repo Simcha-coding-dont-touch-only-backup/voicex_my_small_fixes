@@ -16,6 +16,7 @@ import {
   logSubscriptionEvent,
   getOrCreateDelivery,
   type DeliveryRow,
+  type UserPricing,
 } from '../../lib/subscriptions.js';
 import {
   createFailedDeliveryAlert,
@@ -41,9 +42,9 @@ async function latestRunStatus(deliveryId: string): Promise<string | null> {
   return data?.status ?? null;
 }
 
-async function buildDeliveryCard(delivery: DeliveryRow, isWhitelisted: boolean) {
+async function buildDeliveryCard(delivery: DeliveryRow, userPricing: UserPricing) {
   const items = await getDeliveryItems(delivery.id);
-  const priced = await priceDeliveryItems(items, isWhitelisted);
+  const priced = await priceDeliveryItems(items, userPricing);
   const lastRun = await latestRunStatus(delivery.id);
   let display: DisplayStatus = delivery.status as DisplayStatus;
   if (delivery.status === 'active' && lastRun === 'failed') display = 'failed';
@@ -64,9 +65,12 @@ async function buildDeliveryCard(delivery: DeliveryRow, isWhitelisted: boolean) 
 }
 
 async function buildSubscriptionRow(sub: any) {
-  const isWhitelisted = !!sub.users?.is_whitelisted;
+  const userPricing: UserPricing = {
+    is_whitelisted: !!sub.users?.is_whitelisted,
+    custom_markup_percent: sub.users?.custom_markup_percent ?? null,
+  };
   const deliveries = await getDeliveries(sub.id);
-  const cards = await Promise.all(deliveries.map((d) => buildDeliveryCard(d, isWhitelisted)));
+  const cards = await Promise.all(deliveries.map((d) => buildDeliveryCard(d, userPricing)));
   const byWeek = new Map(cards.map((c) => [c.week_number, c]));
   const weeks = [1, 2, 3, 4].map((w) => byWeek.get(w) || null);
 
@@ -131,7 +135,7 @@ subscriptionsRouter.get('/', async (req, res) => {
 
   let query = supabaseAdmin
     .from('subscriptions')
-    .select('*, users(name, email, is_whitelisted)', { count: 'exact' });
+    .select('*, users(name, email, is_whitelisted, custom_markup_percent)', { count: 'exact' });
   if (userIds) query = query.in('user_id', userIds);
 
   const { data, count, error } = await query
@@ -154,7 +158,7 @@ subscriptionsRouter.get('/', async (req, res) => {
 subscriptionsRouter.get('/:id', async (req, res) => {
   const { data: sub, error } = await supabaseAdmin
     .from('subscriptions')
-    .select('*, users(name, email, is_whitelisted)')
+    .select('*, users(name, email, is_whitelisted, custom_markup_percent)')
     .eq('id', req.params.id)
     .maybeSingle();
   if (error || !sub) {
@@ -188,12 +192,15 @@ subscriptionsRouter.get('/deliveries/:deliveryId/items', async (req, res) => {
   }
   const { data: sub } = await supabaseAdmin
     .from('subscriptions')
-    .select('id, user_id, users(is_whitelisted)')
+    .select('id, user_id, users(is_whitelisted, custom_markup_percent)')
     .eq('id', delivery.subscription_id)
     .maybeSingle();
-  const isWhitelisted = !!(sub as any)?.users?.is_whitelisted;
+  const userPricing: UserPricing = {
+    is_whitelisted: !!(sub as any)?.users?.is_whitelisted,
+    custom_markup_percent: (sub as any)?.users?.custom_markup_percent ?? null,
+  };
   const items = await getDeliveryItems(delivery.id);
-  const priced = await priceDeliveryItems(items, isWhitelisted);
+  const priced = await priceDeliveryItems(items, userPricing);
   res.json({
     success: true,
     data: {
@@ -332,7 +339,7 @@ subscriptionsRouter.get('/:id/checkout', async (req, res) => {
   if (!sub) { res.status(404).json({ success: false, error: 'Subscription not found' }); return; }
   const [{ data: addresses }, { data: cards }, { data: address }, { data: card }] = await Promise.all([
     supabaseAdmin.from('addresses').select('*').eq('user_id', sub.user_id).order('is_default', { ascending: false }),
-    supabaseAdmin.from('payment_methods').select('id, card_last4, card_brand, card_exp_month, card_exp_year, is_default').eq('user_id', sub.user_id).order('is_default', { ascending: false }),
+    supabaseAdmin.from('payment_methods').select('id, card_last4, card_brand, card_exp_month, card_exp_year, is_default').eq('user_id', sub.user_id).eq('is_verified', true).order('is_default', { ascending: false }),
     sub.subscription_address_id ? supabaseAdmin.from('addresses').select('*').eq('id', sub.subscription_address_id).maybeSingle() : Promise.resolve({ data: null }),
     sub.payment_method_id ? supabaseAdmin.from('payment_methods').select('id, card_last4, card_brand').eq('id', sub.payment_method_id).maybeSingle() : Promise.resolve({ data: null }),
   ]);

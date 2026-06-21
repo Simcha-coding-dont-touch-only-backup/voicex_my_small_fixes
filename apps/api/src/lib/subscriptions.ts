@@ -7,6 +7,7 @@ import { createDeliveryIssueAlert, resolveDeliveryIssueAlert } from './subscript
 import {
   getProductDisplayName,
   getProductPriceCents,
+  resolveEffectiveMarkup,
   processingDayForWeek,
   SUBSCRIPTION_TIMEZONE,
   SUBSCRIPTION_WEEKS,
@@ -354,18 +355,29 @@ export interface PricedPackage {
   total_quantity: number;
 }
 
+/**
+ * Pricing-relevant user fields. `is_whitelisted` short-circuits to the base
+ * Amazon price; otherwise `custom_markup_percent` (when set) overrides the
+ * global default markup.
+ */
+export interface UserPricing {
+  is_whitelisted: boolean;
+  custom_markup_percent: number | null;
+}
+
 export async function priceDeliveryItems(
   items: DeliveryItemRow[],
-  isWhitelisted: boolean,
+  user: UserPricing,
 ): Promise<PricedPackage> {
-  const markup = await getDefaultMarkupPercent();
+  const defaultMarkup = await getDefaultMarkupPercent();
+  const markup = resolveEffectiveMarkup(defaultMarkup, user);
   const lines: PricedLine[] = [];
   let subtotal = 0;
   let totalQty = 0;
   for (const item of items) {
     const product = item.catalog_products;
     if (!product) continue;
-    const unit = getProductPriceCents(product, markup, isWhitelisted) ?? 0;
+    const unit = getProductPriceCents(product, markup, user.is_whitelisted) ?? 0;
     const lineTotal = unit * item.quantity;
     subtotal += lineTotal;
     totalQty += item.quantity;
