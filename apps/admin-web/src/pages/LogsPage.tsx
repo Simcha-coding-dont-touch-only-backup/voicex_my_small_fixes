@@ -488,6 +488,8 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   address_attempted: 'Address attempt',
   address_selected: 'Address selected',
   payment_method_selected: 'Payment method selected',
+  payment_method_verified: 'Payment method verified',
+  payment_method_discarded: 'Payment method discarded',
   rye_intent_created: 'Rye intent created',
   rye_intent_failed: 'Rye intent failed',
   rye_intent_unavailable: 'Rye intent: item unavailable',

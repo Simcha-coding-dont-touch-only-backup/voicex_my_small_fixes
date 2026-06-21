@@ -14,6 +14,8 @@ export type CheckoutEventType =
   | 'address_attempted'             // each Google address validation call (per attempt/retry/re-enter)
   | 'address_selected'              // saved address picked or new one created
   | 'payment_method_selected'       // saved card picked or new one collected
+  | 'payment_method_verified'       // unverified card promoted to verified after a successful auth
+  | 'payment_method_discarded'      // unverified card deleted after its auth declined
   // Rye intent creation
   | 'rye_intent_created'            // intent reached awaiting_confirmation
   | 'rye_intent_failed'             // intent reached failed (any non-stock reason)
