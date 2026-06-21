@@ -10,6 +10,15 @@ export interface HandlerContext {
   userId: string | null;
   flowVersionId: string;
   sessionData: Record<string, string>;
+  /**
+   * Transient sensitive fields (raw card number / expiry / CVV mid-entry) read
+   * from server-side session state. These are NEVER passed through the
+   * provider's action-URL query string. Use `setSecureData` to persist new
+   * values across steps and `clearSecureData` once tokenized.
+   */
+  secureData: Record<string, string>;
+  setSecureData: (partial: Record<string, string>) => Promise<void>;
+  clearSecureData: () => Promise<void>;
 }
 
 export interface HandlerResult {

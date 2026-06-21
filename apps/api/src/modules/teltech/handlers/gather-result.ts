@@ -29,6 +29,22 @@ function getResponseType(response: any): string {
   return types.join('+');
 }
 
+/**
+ * Nodes where the caller's keypresses ARE raw card data (PAN / expiry / CVV /
+ * billing ZIP). The dialed digits for these steps must never be written to the
+ * step log. Covers both the one-time checkout and the subscription card flows.
+ */
+const SENSITIVE_INPUT_NODE_KEYS = new Set([
+  'checkout_card_number',
+  'checkout_card_exp',
+  'checkout_card_cvv',
+  'checkout_card_zip',
+  'subscriptions_card_number',
+  'subscriptions_card_exp',
+  'subscriptions_card_cvv',
+  'subscriptions_card_confirm',
+]);
+
 async function logWebhookStep(
   callSid: string,
   nodeKey: string,
@@ -49,22 +65,27 @@ async function logWebhookStep(
       userName = user?.name || null;
     }
 
+    // Redact dialed digits on card-entry nodes so the raw PAN / CVV / expiry
+    // never lands in ivr_error_logs.
+    const safeDigits =
+      digits && SENSITIVE_INPUT_NODE_KEYS.has(nodeKey) ? '[REDACTED]' : digits;
+
     await supabaseAdmin.from('ivr_error_logs').insert({
       call_sid: callSid,
       error_type: 'call_step',
-      error_detail: `${nodeKey}${digits ? ` (digits: ${digits})` : ''}`,
+      error_detail: `${nodeKey}${safeDigits ? ` (digits: ${safeDigits})` : ''}`,
       caller_id: session?.phone_number || null,
       user_id: session?.user_id || null,
       user_name: userName,
       node_key: nodeKey,
       flow_version_id: session?.flow_version_id || null,
       session_data: {
-        digits,
+        digits: safeDigits,
         action_count: actionCount,
         response_type: responseType,
         recursion_depth: recursionDepth,
       },
-      raw_payload: { node: nodeKey, digits },
+      raw_payload: { node: nodeKey, digits: safeDigits },
     });
   } catch (err) {
     console.error('Failed to log webhook step:', err);

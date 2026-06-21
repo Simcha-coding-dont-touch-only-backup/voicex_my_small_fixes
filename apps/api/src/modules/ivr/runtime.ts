@@ -12,6 +12,23 @@ interface CachedFlow {
 const CACHE_TTL_MS = 60_000;
 const MENU_STACK_MAX = 10;
 
+/**
+ * Key under `call_sessions.state_data` that holds transient sensitive data
+ * (raw card fields mid-entry). Centralized so log/error paths can redact it.
+ */
+export const SECURE_STATE_KEY = 'secure';
+
+/** Strip the secure sub-object from a state_data blob before logging it. */
+export function redactSecureState(
+  stateData: Record<string, unknown> | null | undefined
+): Record<string, unknown> | null {
+  if (!stateData || typeof stateData !== 'object') return stateData ?? null;
+  if (!(SECURE_STATE_KEY in stateData)) return stateData;
+  const next = { ...stateData };
+  delete next[SECURE_STATE_KEY];
+  return next;
+}
+
 class IvrRuntime {
   private flowCache: CachedFlow | null = null;
 
@@ -57,6 +74,47 @@ class IvrRuntime {
       .from('call_sessions')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('call_sid', callSid);
+  }
+
+  /**
+   * Read transient sensitive fields (raw card number / expiry / CVV mid-entry)
+   * that are kept server-side in `state_data.secure` instead of being passed
+   * through the telephony provider's action-URL query string. This keeps PAN /
+   * CVV out of URLs, request logs, and the provider's own logs. The data is
+   * wiped via `clearSecureData` as soon as it's tokenized.
+   */
+  async getSecureData(callSid: string): Promise<Record<string, string>> {
+    const session = await this.getSession(callSid);
+    const stateData = (session?.state_data || {}) as Record<string, unknown>;
+    const secure = stateData[SECURE_STATE_KEY];
+    return secure && typeof secure === 'object'
+      ? { ...(secure as Record<string, string>) }
+      : {};
+  }
+
+  /** Merge sensitive fields into `state_data.secure`. */
+  async setSecureData(callSid: string, partial: Record<string, string>): Promise<void> {
+    const session = await this.getSession(callSid);
+    if (!session) return;
+    const stateData = (session.state_data || {}) as Record<string, unknown>;
+    const existing =
+      stateData[SECURE_STATE_KEY] && typeof stateData[SECURE_STATE_KEY] === 'object'
+        ? (stateData[SECURE_STATE_KEY] as Record<string, string>)
+        : {};
+    await this.updateSession(callSid, {
+      state_data: { ...stateData, [SECURE_STATE_KEY]: { ...existing, ...partial } },
+    });
+  }
+
+  /** Remove all sensitive fields from the session (call after tokenization). */
+  async clearSecureData(callSid: string): Promise<void> {
+    const session = await this.getSession(callSid);
+    if (!session) return;
+    const stateData = (session.state_data || {}) as Record<string, unknown>;
+    if (!(SECURE_STATE_KEY in stateData)) return;
+    const next = { ...stateData };
+    delete next[SECURE_STATE_KEY];
+    await this.updateSession(callSid, { state_data: next });
   }
 
   async getActiveFlowVersion(): Promise<IvrFlowVersion | null> {

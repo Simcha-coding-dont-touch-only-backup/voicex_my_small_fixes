@@ -81,7 +81,7 @@ async function activeDeliveryCountByUser(userIds: string[]): Promise<Map<string,
 usersRouter.get('/:id', async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('users')
-    .select('*, user_phones(*), addresses(*), payment_methods(id, card_last4, card_brand, card_exp_month, card_exp_year, is_default)')
+    .select('*, user_phones(*), addresses(*), payment_methods(id, card_last4, card_brand, card_exp_month, card_exp_year, is_default, is_verified)')
     .eq('id', req.params.id)
     .single();
 

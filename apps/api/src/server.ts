@@ -22,6 +22,27 @@ app.all('/api/ivr/voice/status', ...rawBodyParsers, handleCallStatus);
 app.all('/api/ivr/voice/error', ...rawBodyParsers, handleErrorWebhook);
 
 app.use(helmet({ contentSecurityPolicy: false }));
+
+// Redact sensitive query params (raw card fields, CVV, etc.) from request logs.
+// Card data is no longer passed via query string, but this is defense-in-depth
+// so a future regression can never leak a PAN/CVV into the access log.
+const SENSITIVE_QUERY_KEYS = /^(cc_num|cc_exp|cc_cvv|cc_zip|card_number|cvv)$/i;
+morgan.token('url', (req: express.Request) => {
+  const original = (req as any).originalUrl || req.url || '';
+  const qIdx = original.indexOf('?');
+  if (qIdx === -1) return original;
+  const path = original.slice(0, qIdx);
+  const params = new URLSearchParams(original.slice(qIdx + 1));
+  let changed = false;
+  for (const key of Array.from(params.keys())) {
+    if (SENSITIVE_QUERY_KEYS.test(key)) {
+      params.set(key, 'REDACTED');
+      changed = true;
+    }
+  }
+  const qs = params.toString();
+  return changed ? `${path}?${qs}` : original;
+});
 app.use(morgan('combined'));
 app.use(cors({ origin: config.adminUrl, credentials: true }));
 

@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { supabaseAdmin } from '../../../lib/supabase.js';
+import { redactSecureState } from '../../ivr/runtime.js';
 
 export async function handleErrorWebhook(req: Request, res: Response) {
   const {
@@ -34,7 +35,8 @@ export async function handleErrorWebhook(req: Request, res: Response) {
       userId = session.user_id;
       nodeKey = session.current_node_key;
       flowVersionId = session.flow_version_id;
-      sessionData = session.state_data;
+      // Never persist the transient secure sub-object (raw card fields) to logs.
+      sessionData = redactSecureState(session.state_data);
 
       if (userId) {
         const { data: user } = await supabaseAdmin

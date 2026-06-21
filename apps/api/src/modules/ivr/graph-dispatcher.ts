@@ -29,6 +29,7 @@ export async function dispatchNode(
   if (node.handler_name) {
     const handler = getHandler(node.handler_name);
     if (handler) {
+      const secureData = await ivrRuntime.getSecureData(callSid);
       const ctx: HandlerContext = {
         req,
         res,
@@ -37,6 +38,9 @@ export async function dispatchNode(
         userId,
         flowVersionId,
         sessionData,
+        secureData,
+        setSecureData: (partial) => ivrRuntime.setSecureData(callSid, partial),
+        clearSecureData: () => ivrRuntime.clearSecureData(callSid),
       };
 
       try {

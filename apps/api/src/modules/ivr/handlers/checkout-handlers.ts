@@ -910,6 +910,9 @@ registerHandler('card_number', async (ctx) => {
     };
   }
 
+  // Store the raw PAN server-side (never in the action-URL query string).
+  await ctx.setSecureData({ cc_num: cleaned });
+
   return {
     type: 'actions',
     response: buildGather({
@@ -921,7 +924,6 @@ registerHandler('card_number', async (ctx) => {
         call_sid: ctx.callSid, user_id: userId,
         node_key: 'checkout_card_exp',
         address_id: addressId,
-        cc_num: cleaned,
       },
     }),
   };
@@ -930,7 +932,6 @@ registerHandler('card_number', async (ctx) => {
 registerHandler('card_exp', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const addressId = ctx.sessionData.address_id;
-  const ccNum = ctx.sessionData.cc_num;
   const digits = ctx.req.body.digits || '';
 
   const cleaned = digits.replace(/[^0-9]/g, '');
@@ -946,7 +947,6 @@ registerHandler('card_exp', async (ctx) => {
           call_sid: ctx.callSid, user_id: userId,
           node_key: 'checkout_card_exp',
           address_id: addressId,
-          cc_num: ccNum,
         },
       }),
     };
@@ -965,11 +965,12 @@ registerHandler('card_exp', async (ctx) => {
           call_sid: ctx.callSid, user_id: userId,
           node_key: 'checkout_card_exp',
           address_id: addressId,
-          cc_num: ccNum,
         },
       }),
     };
   }
+
+  await ctx.setSecureData({ cc_exp: cleaned });
 
   return {
     type: 'actions',
@@ -982,8 +983,6 @@ registerHandler('card_exp', async (ctx) => {
         call_sid: ctx.callSid, user_id: userId,
         node_key: 'checkout_card_cvv',
         address_id: addressId,
-        cc_num: ccNum,
-        cc_exp: cleaned,
       },
     }),
   };
@@ -992,8 +991,6 @@ registerHandler('card_exp', async (ctx) => {
 registerHandler('card_cvv', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const addressId = ctx.sessionData.address_id;
-  const ccNum = ctx.sessionData.cc_num;
-  const ccExp = ctx.sessionData.cc_exp;
   const digits = ctx.req.body.digits || '';
 
   const cleaned = digits.replace(/[^0-9]/g, '');
@@ -1009,12 +1006,12 @@ registerHandler('card_cvv', async (ctx) => {
           call_sid: ctx.callSid, user_id: userId,
           node_key: 'checkout_card_cvv',
           address_id: addressId,
-          cc_num: ccNum,
-          cc_exp: ccExp,
         },
       }),
     };
   }
+
+  await ctx.setSecureData({ cc_cvv: cleaned });
 
   return {
     type: 'actions',
@@ -1028,9 +1025,6 @@ registerHandler('card_cvv', async (ctx) => {
         call_sid: ctx.callSid, user_id: userId,
         node_key: 'checkout_card_zip',
         address_id: addressId,
-        cc_num: ccNum,
-        cc_exp: ccExp,
-        cc_cvv: cleaned,
       },
     }),
   };
@@ -1039,9 +1033,8 @@ registerHandler('card_cvv', async (ctx) => {
 registerHandler('card_zip', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const addressId = ctx.sessionData.address_id;
-  const ccNum = ctx.sessionData.cc_num;
-  const ccExp = ctx.sessionData.cc_exp;
-  const ccCvv = ctx.sessionData.cc_cvv;
+  const ccNum = ctx.secureData.cc_num || '';
+  const ccExp = ctx.secureData.cc_exp || '';
   const digits = ctx.req.body.digits || '';
 
   if (digits.length !== 5) {
@@ -1057,13 +1050,12 @@ registerHandler('card_zip', async (ctx) => {
           call_sid: ctx.callSid, user_id: userId,
           node_key: 'checkout_card_zip',
           address_id: addressId,
-          cc_num: ccNum,
-          cc_exp: ccExp,
-          cc_cvv: ccCvv,
         },
       }),
     };
   }
+
+  await ctx.setSecureData({ cc_zip: digits });
 
   const last4 = ccNum.slice(-4);
   const expMonth = ccExp.substring(0, 2);
@@ -1080,10 +1072,6 @@ registerHandler('card_zip', async (ctx) => {
         call_sid: ctx.callSid, user_id: userId,
         node_key: 'checkout_card_confirm',
         address_id: addressId,
-        cc_num: ccNum,
-        cc_exp: ccExp,
-        cc_cvv: ccCvv,
-        cc_zip: digits,
       },
     }),
   };
@@ -1092,13 +1080,15 @@ registerHandler('card_zip', async (ctx) => {
 registerHandler('card_confirm', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const addressId = ctx.sessionData.address_id;
-  const ccNum = ctx.sessionData.cc_num;
-  const ccExp = ctx.sessionData.cc_exp;
-  const ccCvv = ctx.sessionData.cc_cvv;
-  const ccZip = ctx.sessionData.cc_zip;
+  const ccNum = ctx.secureData.cc_num || '';
+  const ccExp = ctx.secureData.cc_exp || '';
+  const ccCvv = ctx.secureData.cc_cvv || '';
+  const ccZip = ctx.secureData.cc_zip || '';
   const digits = ctx.req.body.digits;
 
   if (digits === '2') {
+    // User wants to re-enter; drop the half-entered card data immediately.
+    await ctx.clearSecureData();
     return {
       type: 'actions',
       response: buildGather({
@@ -1117,6 +1107,10 @@ registerHandler('card_confirm', async (ctx) => {
 
   try {
     const solaResult = await solaTokenize(ccNum, ccExp, ccCvv, ccZip);
+
+    // Raw card data has now been handed to the tokenizer; we never need it
+    // again, so wipe it from the session regardless of the outcome.
+    await ctx.clearSecureData();
 
     if (solaResult.xResult !== 'A') {
       return {
@@ -1189,6 +1183,7 @@ registerHandler('card_confirm', async (ctx) => {
     };
   } catch (error) {
     console.error('Card tokenization error:', error);
+    await ctx.clearSecureData();
     return {
       type: 'actions',
       response: buildGather({

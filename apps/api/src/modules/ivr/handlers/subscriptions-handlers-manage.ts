@@ -324,37 +324,43 @@ registerHandler('subscriptions_card_number', async (ctx) => {
   if (digits.length < 13 || digits.length > 19) {
     return gather('Invalid card number. Please enter your credit card number followed by the pound key.', { ...base(ctx), node_key: 'subscriptions_card_number' }, { finishOnKey: '#', timeout: 15 });
   }
-  return gather('Enter the expiration date as 4 digits, month then year. For example, 0 3 2 8 for March 2028.', { ...base(ctx), node_key: 'subscriptions_card_exp', cc_num: digits }, { numDigits: 4 });
+  // Store the raw PAN server-side (never in the action-URL query string).
+  await ctx.setSecureData({ cc_num: digits });
+  return gather('Enter the expiration date as 4 digits, month then year. For example, 0 3 2 8 for March 2028.', { ...base(ctx), node_key: 'subscriptions_card_exp' }, { numDigits: 4 });
 });
 
 registerHandler('subscriptions_card_exp', async (ctx) => {
-  const cc_num = ctx.sessionData.cc_num;
   const exp = (ctx.req.body.digits || '').replace(/[^0-9]/g, '');
   const month = parseInt(exp.substring(0, 2), 10);
   if (exp.length !== 4 || month < 1 || month > 12) {
-    return gather('Invalid expiration date. Please enter 4 digits, month then year.', { ...base(ctx), node_key: 'subscriptions_card_exp', cc_num }, { numDigits: 4 });
+    return gather('Invalid expiration date. Please enter 4 digits, month then year.', { ...base(ctx), node_key: 'subscriptions_card_exp' }, { numDigits: 4 });
   }
-  return gather('Enter the 3 or 4 digit security code from your card, followed by the pound key.', { ...base(ctx), node_key: 'subscriptions_card_cvv', cc_num, cc_exp: exp }, { finishOnKey: '#' });
+  await ctx.setSecureData({ cc_exp: exp });
+  return gather('Enter the 3 or 4 digit security code from your card, followed by the pound key.', { ...base(ctx), node_key: 'subscriptions_card_cvv' }, { finishOnKey: '#' });
 });
 
 registerHandler('subscriptions_card_cvv', async (ctx) => {
-  const { cc_num, cc_exp } = ctx.sessionData;
   const cvv = (ctx.req.body.digits || '').replace(/[^0-9]/g, '');
   if (cvv.length < 3 || cvv.length > 4) {
-    return gather('Invalid security code. Please enter the 3 or 4 digit code followed by the pound key.', { ...base(ctx), node_key: 'subscriptions_card_cvv', cc_num, cc_exp }, { finishOnKey: '#' });
+    return gather('Invalid security code. Please enter the 3 or 4 digit code followed by the pound key.', { ...base(ctx), node_key: 'subscriptions_card_cvv' }, { finishOnKey: '#' });
   }
-  return gather('Enter your 5 digit billing ZIP code.', { ...base(ctx), node_key: 'subscriptions_card_confirm', cc_num, cc_exp, cc_cvv: cvv }, { numDigits: 5 });
+  await ctx.setSecureData({ cc_cvv: cvv });
+  return gather('Enter your 5 digit billing ZIP code.', { ...base(ctx), node_key: 'subscriptions_card_confirm' }, { numDigits: 5 });
 });
 
 registerHandler('subscriptions_card_confirm', async (ctx) => {
   const subscription = await getSubscriptionCtx(ctx);
-  const { cc_num, cc_exp, cc_cvv } = ctx.sessionData;
+  const cc_num = ctx.secureData.cc_num || '';
+  const cc_exp = ctx.secureData.cc_exp || '';
+  const cc_cvv = ctx.secureData.cc_cvv || '';
   const zip = ctx.req.body.digits || '';
   if (zip.length !== 5) {
-    return gather('Please enter a valid 5 digit billing ZIP code.', { ...base(ctx), node_key: 'subscriptions_card_confirm', cc_num, cc_exp, cc_cvv }, { numDigits: 5 });
+    return gather('Please enter a valid 5 digit billing ZIP code.', { ...base(ctx), node_key: 'subscriptions_card_confirm' }, { numDigits: 5 });
   }
   try {
     const result = await solaTokenize(cc_num, cc_exp, cc_cvv, zip);
+    // Raw card data has been handed to the tokenizer; wipe it from the session.
+    await ctx.clearSecureData();
     if (result.xResult !== 'A') {
       return gather(`Your card could not be verified. ${result.xError || ''} Please enter your credit card number followed by the pound key.`, { ...base(ctx), node_key: 'subscriptions_card_number' }, { finishOnKey: '#', timeout: 15 });
     }
@@ -376,6 +382,7 @@ registerHandler('subscriptions_card_confirm', async (ctx) => {
     return subscriptionSuccessReturn(ctx, `Your card ending in ${last4} will now be used to pay for all your deliveries.`);
   } catch (err) {
     console.error('[subscriptions_card_confirm] tokenize error', err);
+    await ctx.clearSecureData();
     return gather('There was an error processing your card. Please enter your credit card number followed by the pound key.', { ...base(ctx), node_key: 'subscriptions_card_number' }, { finishOnKey: '#', timeout: 15 });
   }
 });

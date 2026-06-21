@@ -816,10 +816,23 @@ export function UserDetailPage() {
                           Default
                         </span>
                       )}
+                      {card.is_verified === false && (
+                        <span
+                          title="This card was entered during checkout but never completed a successful payment. It is hidden from the customer's saved cards."
+                          className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700"
+                        >
+                          Unverified
+                        </span>
+                      )}
                     </div>
                     <p className="text-gray-600">
                       Expires {String(card.card_exp_month).padStart(2, '0')}/{card.card_exp_year}
                     </p>
+                    {card.is_verified === false && (
+                      <p className="mt-0.5 text-xs text-amber-600">
+                        Not yet confirmed by a successful payment — hidden from the customer.
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-1">
                     {!card.is_default && (
