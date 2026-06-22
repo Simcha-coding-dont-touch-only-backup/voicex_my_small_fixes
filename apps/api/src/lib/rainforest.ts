@@ -29,10 +29,18 @@ export interface AmazonProductLookup {
 
 export class RainforestProductLookupError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /**
+   * True when the lookup was aborted because it exceeded the configured
+   * per-request timeout. Callers that have a cached fallback (e.g. checkout
+   * revalidation) use this to proceed on stale data instead of failing, while
+   * still flagging the result so it can be reviewed later.
+   */
+  timedOut: boolean;
+  constructor(message: string, status: number, timedOut = false) {
     super(message);
     this.name = 'RainforestProductLookupError';
     this.status = status;
+    this.timedOut = timedOut;
   }
 }
 
@@ -114,13 +122,27 @@ function mapAvailability(type: string | null | undefined): {
 
 async function fetchRainforestProduct(asin: string): Promise<RainforestProduct | null> {
   let res: Response;
+  // Bound the request so a slow/hung Rainforest call can never hold open an IVR
+  // webhook past TelTech's api_timeout. The default lives in config.priceSync.
+  const controller = new AbortController();
+  const timeoutMs = config.priceSync.lookupTimeoutMs;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    res = await fetch(buildUrl(asin));
+    res = await fetch(buildUrl(asin), { signal: controller.signal });
   } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new RainforestProductLookupError(
+        `Rainforest request timed out after ${timeoutMs}ms`,
+        504,
+        true,
+      );
+    }
     throw new RainforestProductLookupError(
       `Rainforest request failed: ${err?.message || 'network error'}`,
       502,
     );
+  } finally {
+    clearTimeout(timer);
   }
 
   if (res.status === 401 || res.status === 403) {

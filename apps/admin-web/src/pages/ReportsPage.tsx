@@ -414,29 +414,43 @@ function ProductSyncTable({ data }: { data: any[] }) {
                 {run.items.map((it: any, i: number) => {
                   const down = it.direction === 'down';
                   const up = it.direction === 'up';
-                  const colorClass = it.became_unavailable
-                    ? 'text-gray-500'
-                    : down
-                      ? 'text-green-600'
-                      : up
-                        ? 'text-red-600'
-                        : 'text-gray-700';
+                  const colorClass = it.stale
+                    ? 'text-amber-600'
+                    : it.became_unavailable
+                      ? 'text-gray-500'
+                      : down
+                        ? 'text-green-600'
+                        : up
+                          ? 'text-red-600'
+                          : 'text-gray-700';
                   return (
                     <tr key={i} className="border-b last:border-0">
-                      <td className={`py-2 pr-4 ${colorClass}`}>{it.product_name}</td>
+                      <td className={`py-2 pr-4 ${colorClass}`}>
+                        {it.product_name}
+                        {it.stale && (
+                          <span
+                            className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
+                            title={it.stale_reason || 'Price could not be verified; cached price used'}
+                          >
+                            Not verified
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 pr-4 font-mono text-xs text-gray-500">{it.voicex_id || '—'}</td>
                       <td className="py-2 pr-4 text-gray-600">{money(it.old_amazon_price_cents)}</td>
                       <td className={`py-2 pr-4 ${colorClass}`}>
-                        {it.became_unavailable ? '—' : money(it.new_amazon_price_cents)}
+                        {it.stale || it.became_unavailable ? '—' : money(it.new_amazon_price_cents)}
                       </td>
                       <td className={`py-2 ${colorClass}`}>
-                        {it.became_unavailable
-                          ? 'No longer available'
-                          : down
-                            ? `Down ${money((it.old_amazon_price_cents || 0) - (it.new_amazon_price_cents || 0))}`
-                            : up
-                              ? `Up ${money((it.new_amazon_price_cents || 0) - (it.old_amazon_price_cents || 0))}`
-                              : 'No change'}
+                        {it.stale
+                          ? `Not verified — charged cached price${it.stale_reason ? ` (${it.stale_reason})` : ''}`
+                          : it.became_unavailable
+                            ? 'No longer available'
+                            : down
+                              ? `Down ${money((it.old_amazon_price_cents || 0) - (it.new_amazon_price_cents || 0))}`
+                              : up
+                                ? `Up ${money((it.new_amazon_price_cents || 0) - (it.old_amazon_price_cents || 0))}`
+                                : 'No change'}
                       </td>
                     </tr>
                   );

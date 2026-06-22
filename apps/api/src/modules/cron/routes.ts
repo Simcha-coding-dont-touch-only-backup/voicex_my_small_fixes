@@ -10,7 +10,8 @@ import { ensureAllUpcomingRuns, resumeDueDeliveries } from '../../lib/subscripti
 import {
   getRainforestSyncSettings,
   getLastFullSyncStartedAt,
-  runFullSync,
+  startScheduledFullSync,
+  drainScheduledSync,
   SYSTEM_ACTOR,
 } from '../../lib/product-sync.js';
 
@@ -91,10 +92,13 @@ cronRouter.post('/subscriptions/drain', async (_req: Request, res: Response) => 
 });
 
 /**
- * Scheduled Rainforest catalog price sync. Fired daily near 4AM ET (dual UTC
- * hours for DST). No-op when auto-sync is disabled or the configured interval
- * has not yet elapsed since the last full sync. Syncs active products only and
- * skips products updated within the last 12 hours to save Rainforest credits.
+ * Scheduled Rainforest catalog price sync (start). Fired daily near 4AM ET
+ * (dual UTC hours for DST). No-op when auto-sync is disabled or the configured
+ * interval has not yet elapsed since the last full sync. Otherwise it *starts*
+ * a durable, resumable run (persists the eligible product queue) and kicks off
+ * the first bounded batch; the frequent `price-sync-drain` cron continues the
+ * run until its queue is empty. Syncs active products only and skips products
+ * updated within the last 12 hours to save Rainforest credits.
  */
 cronRouter.post('/catalog/price-sync', async (_req: Request, res: Response) => {
   try {
@@ -130,15 +134,39 @@ cronRouter.post('/catalog/price-sync', async (_req: Request, res: Response) => {
       }
     }
 
-    const result = await runFullSync({
+    const started = await startScheduledFullSync({
       trigger: 'auto',
       actor: SYSTEM_ACTOR,
       skipRecentlyUpdated: true,
     });
-    res.json({ ok: true, ...result });
+    if (!started.started) {
+      res.json({ ok: true, ...started });
+      return;
+    }
+    // Kick off the first batch within this invocation so progress begins
+    // promptly; the drain cron continues the rest.
+    const drained = await drainScheduledSync();
+    res.json({ ok: true, started: true, runId: started.runId, total: started.total, drained });
   } catch (err) {
     console.error('[cron] catalog price-sync error:', err);
     res.status(500).json({ error: 'catalog price-sync failed' });
+  }
+});
+
+/**
+ * Serverless-safe price sync drain. Triggered frequently by Supabase pg_cron to
+ * continue an in-progress scheduled (auto/manual_full) run a bounded batch at a
+ * time so each call finishes inside the serverless function timeout. Also
+ * reconciles dead runs to 'failed'. Idempotent and safe to overlap (the run is
+ * leased atomically).
+ */
+cronRouter.post('/catalog/price-sync-drain', async (_req: Request, res: Response) => {
+  try {
+    const drained = await drainScheduledSync();
+    res.json({ ok: true, ...drained });
+  } catch (err) {
+    console.error('[cron] catalog price-sync-drain error:', err);
+    res.status(500).json({ error: 'catalog price-sync-drain failed' });
   }
 });
 

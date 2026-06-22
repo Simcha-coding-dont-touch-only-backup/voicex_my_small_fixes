@@ -9,11 +9,21 @@ import { calculateManualPricing } from '../../../lib/manual-pricing.js';
 import { getProductDisplayName, getCartItemSavingsCents, formatOrderIdForSpeech } from '@voicex/shared';
 import type { FulfillmentProvider } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
+import { config } from '../../../config.js';
 import { logCheckoutEvent } from '../../../lib/checkout-logger.js';
 import {
   getRainforestSyncSettings,
-  revalidateCartAtCheckout,
+  revalidateCartBatch,
+  recordCheckoutSyncRun,
+  markItemsStale,
   backfillSyncRunOrder,
+} from '../../../lib/product-sync.js';
+import type {
+  CheckoutCartItem,
+  CheckoutRevalidationItemChange,
+  CheckoutRevalidationUnavailable,
+  CheckoutRevalidationStale,
+  ProductSyncResult,
 } from '../../../lib/product-sync.js';
 
 const MAX_STOCK_RETRIES_PER_ITEM = 3;
@@ -1252,6 +1262,111 @@ registerHandler('order_summary', async (ctx) => {
 /**
  * User pressed 1 to place order. Tell them to hold while we verify with Amazon.
  */
+// ===========================================================================
+// Checkout revalidation poll loop
+//
+// Re-checking each cart item against Rainforest can take several seconds per
+// item. Doing it all inside a single TelTech webhook risks exceeding the
+// provider's ~10s api_timeout and dropping the call (this is exactly what broke
+// live payments on 2026-06-22). Instead we run the revalidation as a bounded
+// poll loop: `order_confirm` enqueues the work into the call session, then a
+// `checkout_verify_wait` node drains a parallel batch per webhook and redirects
+// back to itself ("please hold") until the queue is empty, finally routing to
+// `checkout_final_confirm`. Each webhook stays well under the timeout, so the
+// flow scales to large carts. A poll cap guarantees we never exceed TelTech's
+// per-call webhook limit; any items left unverified fall back to cached pricing
+// and are flagged stale (reliability-first).
+// ===========================================================================
+
+const REVALIDATION_STATE_KEY = 'checkout_revalidation';
+
+/** Compact, session-serializable accumulator for the checkout revalidation job. */
+interface RevalidationJobState {
+  status: 'pending' | 'done';
+  /** cart_item ids still to verify. */
+  queue: string[];
+  totalItems: number;
+  pollCount: number;
+  priceChanges: CheckoutRevalidationItemChange[];
+  unavailable: CheckoutRevalidationUnavailable[];
+  stale: CheckoutRevalidationStale[];
+  /** Compact remaining items (id/product/qty/price) carried to final_confirm. */
+  remaining: Array<{
+    id: string;
+    product_id: string;
+    quantity: number;
+    unit_price_cents: number;
+    voicex_id: string | null;
+  }>;
+  results: ProductSyncResult[];
+  context: {
+    userId: string | null;
+    callerPhone: string | null;
+    isWhitelisted: boolean;
+    customMarkupPercent: number | null;
+  };
+}
+
+async function readRevalidationJob(callSid: string): Promise<RevalidationJobState | null> {
+  const session = await ivrRuntime.getSession(callSid);
+  const stateData = (session?.state_data || {}) as Record<string, unknown>;
+  const job = stateData[REVALIDATION_STATE_KEY];
+  return job && typeof job === 'object' ? (job as RevalidationJobState) : null;
+}
+
+async function writeRevalidationJob(callSid: string, job: RevalidationJobState): Promise<void> {
+  const session = await ivrRuntime.getSession(callSid);
+  const stateData = (session?.state_data || {}) as Record<string, unknown>;
+  await ivrRuntime.updateSession(callSid, {
+    state_data: { ...stateData, [REVALIDATION_STATE_KEY]: job },
+  });
+}
+
+async function clearRevalidationJob(callSid: string): Promise<void> {
+  const session = await ivrRuntime.getSession(callSid);
+  const stateData = (session?.state_data || {}) as Record<string, unknown>;
+  if (!(REVALIDATION_STATE_KEY in stateData)) return;
+  const next = { ...stateData };
+  delete next[REVALIDATION_STATE_KEY];
+  await ivrRuntime.updateSession(callSid, { state_data: next });
+}
+
+/**
+ * Advance the revalidation queue after one parallel slice. Every id in `sliceIds`
+ * is dropped from the head except ids in `stillExistingMissing` — cart rows that
+ * still exist but were absent from the batch fetch (retry next wave). Ids missing
+ * from both the fetch and the follow-up existence check are treated as concurrent
+ * deletes and removed. Never advance by `items.length`: that leaves deleted ids
+ * stuck when the whole slice vanishes, or fails to dequeue processed ids when a
+ * middle id was deleted.
+ */
+function advanceRevalidationQueue(
+  queue: string[],
+  sliceIds: string[],
+  stillExistingMissing: string[],
+): string[] {
+  return [...stillExistingMissing, ...queue.slice(sliceIds.length)];
+}
+
+function mergeBatchIntoJob(
+  job: RevalidationJobState,
+  batch: { results: ProductSyncResult[]; priceChanges: CheckoutRevalidationItemChange[]; unavailable: CheckoutRevalidationUnavailable[]; stale: CheckoutRevalidationStale[]; remainingItems: CheckoutCartItem[] },
+): void {
+  job.results.push(...batch.results);
+  job.priceChanges.push(...batch.priceChanges);
+  job.unavailable.push(...batch.unavailable);
+  job.stale.push(...batch.stale);
+  for (const it of batch.remainingItems) {
+    job.remaining.push({
+      id: it.id,
+      product_id: it.product_id,
+      quantity: it.quantity,
+      unit_price_cents: it.unit_price_cents,
+      voicex_id: it.voicex_id,
+    });
+  }
+}
+
 registerHandler('order_confirm', async (ctx) => {
   const userId = ctx.sessionData.user_id;
   const digits = ctx.req.body.digits;
@@ -1259,6 +1374,7 @@ registerHandler('order_confirm', async (ctx) => {
   const paymentMethodId = ctx.sessionData.payment_method_id;
 
   if (digits === '2') {
+    await clearRevalidationJob(ctx.callSid);
     return {
       type: 'actions',
       response: buildSay('Order cancelled. Returning to cart.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' }),
@@ -1274,6 +1390,54 @@ registerHandler('order_confirm', async (ctx) => {
     const { data: cartItems } = await supabaseAdmin.from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
     if (!cartItems || cartItems.length === 0) throw new Error('Empty cart');
 
+    const fulfillmentProvider = await getActiveFulfillmentProvider();
+    const rainforestSettings = await getRainforestSyncSettings();
+
+    // Only the manual path revalidates against Rainforest. When revalidation is
+    // off (or on the Rye path), skip the poll loop and go straight to
+    // final_confirm exactly as before.
+    if (fulfillmentProvider !== 'manual' || !rainforestSettings.checkoutRevalidationEnabled) {
+      await clearRevalidationJob(ctx.callSid);
+      return {
+        type: 'actions',
+        response: buildSay(
+          'Please hold while we verify your order.',
+          '/api/ivr/voice/gather',
+          {
+            call_sid: ctx.callSid, user_id: userId,
+            node_key: 'checkout_final_confirm',
+            address_id: addressId, payment_method_id: paymentMethodId,
+          }
+        ),
+      };
+    }
+
+    const session = await ivrRuntime.getSession(ctx.callSid);
+    const { data: user } = await supabaseAdmin
+      .from('users')
+      .select('is_whitelisted, custom_markup_percent')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const job: RevalidationJobState = {
+      status: 'pending',
+      queue: cartItems.map((ci) => ci.id),
+      totalItems: cartItems.length,
+      pollCount: 0,
+      priceChanges: [],
+      unavailable: [],
+      stale: [],
+      remaining: [],
+      results: [],
+      context: {
+        userId,
+        callerPhone: session?.phone_number || null,
+        isWhitelisted: user?.is_whitelisted || false,
+        customMarkupPercent: user?.custom_markup_percent ?? null,
+      },
+    };
+    await writeRevalidationJob(ctx.callSid, job);
+
     return {
       type: 'actions',
       response: buildSay(
@@ -1281,7 +1445,7 @@ registerHandler('order_confirm', async (ctx) => {
         '/api/ivr/voice/gather',
         {
           call_sid: ctx.callSid, user_id: userId,
-          node_key: 'checkout_final_confirm',
+          node_key: 'checkout_verify_wait',
           address_id: addressId, payment_method_id: paymentMethodId,
         }
       ),
@@ -1290,6 +1454,189 @@ registerHandler('order_confirm', async (ctx) => {
     console.error('Order confirmation error:', error);
     return { type: 'actions', response: buildHangup('We had trouble processing your order. Please try again later.') };
   }
+});
+
+/**
+ * Poll node: drains one parallel batch of the revalidation queue per webhook,
+ * then either redirects back to itself ("still verifying") or, once the queue is
+ * empty (or the poll budget is exhausted), records the sync run and routes to
+ * checkout_final_confirm. Each invocation returns fast so TelTech never times
+ * out, regardless of cart size.
+ */
+registerHandler('verify_wait', async (ctx) => {
+  const userId = ctx.sessionData.user_id;
+  const addressId = ctx.sessionData.address_id;
+  const paymentMethodId = ctx.sessionData.payment_method_id;
+
+  const forwardData = {
+    call_sid: ctx.callSid, user_id: userId,
+    address_id: addressId, payment_method_id: paymentMethodId,
+  };
+
+  const finalize = async (job: RevalidationJobState | null) => {
+    // Persist a sync run (when anything changed or is stale), log events, build
+    // the spoken change announcement, then route to the totals prompt.
+    let runId: string | null = null;
+    let announcement = '';
+    if (job) {
+      const changedCount = job.priceChanges.length + job.unavailable.length;
+      runId = await recordCheckoutSyncRun(job.context, job.totalItems, job.results, changedCount, job.stale.length);
+
+      if (changedCount > 0) {
+        const parts: string[] = [];
+        if (job.unavailable.length > 0) {
+          const names = job.unavailable.map((u) => u.productName).join(', ');
+          parts.push(
+            `We are sorry to inform you that the following ${job.unavailable.length === 1 ? 'product is' : 'products are'} no longer available and ${job.unavailable.length === 1 ? 'has' : 'have'} been removed from your order: ${names}.`,
+          );
+        }
+        if (job.priceChanges.length > 0) {
+          const changeParts = job.priceChanges.map((c) => {
+            const diff = Math.abs(c.newUnitPriceCents - c.oldUnitPriceCents);
+            return `${c.productName} ${c.direction === 'up' ? 'went up' : 'went down'} by ${formatCurrency(diff)} to ${formatCurrency(c.newUnitPriceCents)}`;
+          });
+          parts.push(`The price of the following changed: ${changeParts.join('; ')}.`);
+        }
+        announcement = `${parts.join(' ')} `;
+
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          eventType: 'checkout_revalidation_changes',
+          details: {
+            unavailable: job.unavailable.map((u) => u.productName),
+            price_changes: job.priceChanges.map((c) => ({
+              product: c.productName,
+              old_cents: c.oldUnitPriceCents,
+              new_cents: c.newUnitPriceCents,
+              direction: c.direction,
+            })),
+            stale: job.stale.map((s) => s.productName),
+            sync_run_id: runId,
+          },
+        });
+      }
+      if (job.stale.length > 0) {
+        await logCheckoutEvent({
+          callSid: ctx.callSid,
+          userId,
+          eventType: 'checkout_revalidation_stale',
+          severity: 'warn',
+          details: {
+            stale: job.stale.map((s) => ({ product: s.productName, reason: s.reason })),
+            sync_run_id: runId,
+          },
+        });
+      }
+
+      // If the whole cart became unavailable, there is nothing to pay for.
+      if (job.remaining.length === 0) {
+        await clearRevalidationJob(ctx.callSid);
+        return {
+          type: 'actions' as const,
+          response: buildSay(
+            `${announcement}Your cart no longer has any available items. Returning to the main menu.`,
+            '/api/ivr/voice/gather',
+            { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' },
+          ),
+        };
+      }
+    }
+    await clearRevalidationJob(ctx.callSid);
+    return {
+      type: 'actions' as const,
+      response: buildSay('', '/api/ivr/voice/gather', {
+        ...forwardData,
+        node_key: 'checkout_final_confirm',
+        ...(runId ? { revalidation_run_id: runId } : {}),
+        ...(announcement ? { revalidation_announcement: announcement } : {}),
+      }),
+    };
+  };
+
+  const job = await readRevalidationJob(ctx.callSid);
+  // No job (revalidation disabled or session lost) — just proceed.
+  if (!job) {
+    return finalize(null);
+  }
+
+  job.pollCount += 1;
+
+  const concurrency = config.priceSync.checkout.concurrency;
+  const budgetMs = config.priceSync.checkout.pollTimeBudgetMs;
+  const startedAt = Date.now();
+
+  // Drain waves of `concurrency` items until the queue empties or the per-poll
+  // time budget is (nearly) exhausted. At least one wave runs per poll.
+  while (job.queue.length > 0) {
+    const sliceIds = job.queue.slice(0, concurrency);
+    const { data: rows } = await supabaseAdmin
+      .from('cart_items')
+      .select('*, catalog_products(*)')
+      .in('id', sliceIds);
+
+    const items = (rows || []) as unknown as CheckoutCartItem[];
+    const returnedIds = new Set(items.map((item) => item.id));
+    const missingFromFetch = sliceIds.filter((id) => !returnedIds.has(id));
+
+    // A batch fetch can return fewer rows than requested. Only treat a missing id
+    // as gone when it is no longer in the cart; otherwise keep it queued so it is
+    // not dropped unprocessed.
+    let stillExistingMissing: string[] = [];
+    if (missingFromFetch.length > 0) {
+      const { data: existingRows } = await supabaseAdmin
+        .from('cart_items')
+        .select('id')
+        .in('id', missingFromFetch);
+      const existingIds = new Set((existingRows ?? []).map((row) => row.id));
+      stillExistingMissing = missingFromFetch.filter((id) => existingIds.has(id));
+    }
+
+    if (items.length > 0) {
+      const batch = await revalidateCartBatch(items, job.context, concurrency);
+      mergeBatchIntoJob(job, batch);
+    }
+    job.queue = advanceRevalidationQueue(job.queue, sliceIds, stillExistingMissing);
+
+    if (job.queue.length === 0) break;
+    // Stop if another wave would likely blow the budget; the next poll continues.
+    if (Date.now() - startedAt >= budgetMs) break;
+  }
+
+  // Queue drained — finalize and go to the totals prompt.
+  if (job.queue.length === 0) {
+    job.status = 'done';
+    await writeRevalidationJob(ctx.callSid, job);
+    return finalize(job);
+  }
+
+  // Safety valve: if we've hit the poll cap and items remain, charge them at the
+  // cached price (flagged stale) instead of looping further or dropping the call.
+  if (job.pollCount >= config.priceSync.checkout.maxPolls) {
+    const { data: rows } = await supabaseAdmin
+      .from('cart_items')
+      .select('*, catalog_products(*)')
+      .in('id', job.queue);
+    const leftover = (rows || []) as unknown as CheckoutCartItem[];
+    const staleBatch = markItemsStale(leftover, 'Verification budget exhausted; cached price used');
+    mergeBatchIntoJob(job, staleBatch);
+    job.queue = [];
+    job.status = 'done';
+    await writeRevalidationJob(ctx.callSid, job);
+    return finalize(job);
+  }
+
+  // More to do — persist progress and ask TelTech to call us back ("please
+  // hold"). Each redirect is a fresh webhook, resetting the provider timeout.
+  await writeRevalidationJob(ctx.callSid, job);
+  return {
+    type: 'actions',
+    response: buildSay(
+      'Still verifying your order. One moment please.',
+      '/api/ivr/voice/gather',
+      { ...forwardData, node_key: 'checkout_verify_wait' },
+    ),
+  };
 });
 
 /**
@@ -1329,74 +1676,14 @@ registerHandler('final_confirm', async (ctx) => {
 
     const fulfillmentProvider = await getActiveFulfillmentProvider();
     if (fulfillmentProvider === 'manual') {
-      let activeItems = cartItems;
-      let revalidationPrefix = '';
-      let revalidationRunId: string | null = null;
-
-      const rainforestSettings = await getRainforestSyncSettings();
-      if (rainforestSettings.checkoutRevalidationEnabled) {
-        const session = await ivrRuntime.getSession(ctx.callSid);
-        const { data: user } = await supabaseAdmin
-          .from('users')
-          .select('is_whitelisted, custom_markup_percent')
-          .eq('id', userId)
-          .maybeSingle();
-
-        const revalidation = await revalidateCartAtCheckout(cartItems as any, {
-          userId,
-          callerPhone: session?.phone_number || null,
-          isWhitelisted: user?.is_whitelisted || false,
-          customMarkupPercent: user?.custom_markup_percent ?? null,
-        });
-
-        if (revalidation.hasChanges) {
-          revalidationRunId = revalidation.runId;
-          const parts: string[] = [];
-          if (revalidation.unavailable.length > 0) {
-            const names = revalidation.unavailable.map((u) => u.productName).join(', ');
-            parts.push(
-              `We are sorry to inform you that the following ${revalidation.unavailable.length === 1 ? 'product is' : 'products are'} no longer available and ${revalidation.unavailable.length === 1 ? 'has' : 'have'} been removed from your order: ${names}.`,
-            );
-          }
-          if (revalidation.priceChanges.length > 0) {
-            const changeParts = revalidation.priceChanges.map((c) => {
-              const diff = Math.abs(c.newUnitPriceCents - c.oldUnitPriceCents);
-              return `${c.productName} ${c.direction === 'up' ? 'went up' : 'went down'} by ${formatCurrency(diff)} to ${formatCurrency(c.newUnitPriceCents)}`;
-            });
-            parts.push(`The price of the following changed: ${changeParts.join('; ')}.`);
-          }
-          revalidationPrefix = `${parts.join(' ')} `;
-
-          await logCheckoutEvent({
-            callSid: ctx.callSid,
-            userId,
-            eventType: 'checkout_revalidation_changes',
-            details: {
-              unavailable: revalidation.unavailable.map((u) => u.productName),
-              price_changes: revalidation.priceChanges.map((c) => ({
-                product: c.productName,
-                old_cents: c.oldUnitPriceCents,
-                new_cents: c.newUnitPriceCents,
-                direction: c.direction,
-              })),
-              sync_run_id: revalidation.runId,
-            },
-          });
-
-          activeItems = revalidation.remainingItems as any;
-        }
-
-        if (activeItems.length === 0) {
-          return {
-            type: 'actions',
-            response: buildSay(
-              `${revalidationPrefix}Your cart no longer has any available items. Returning to the main menu.`,
-              '/api/ivr/voice/gather',
-              { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' },
-            ),
-          };
-        }
-      }
+      // Revalidation (if enabled) already ran in the checkout_verify_wait poll
+      // loop, which mutated the cart (removed unavailable items, refreshed
+      // prices) and passed forward the spoken announcement + sync run id. The
+      // freshly re-read cartItems above therefore already reflect the verified
+      // state, so we just price them here.
+      const activeItems = cartItems;
+      const revalidationPrefix = ctx.sessionData.revalidation_announcement || '';
+      const revalidationRunId = ctx.sessionData.revalidation_run_id || null;
 
       const subtotal = activeItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
       const pricing = await calculateManualPricing(subtotal, address.state);

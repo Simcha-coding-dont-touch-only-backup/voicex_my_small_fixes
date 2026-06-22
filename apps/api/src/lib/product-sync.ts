@@ -7,6 +7,7 @@ import {
   type ProductSyncTrigger,
   type SyncJobState,
 } from '@voicex/shared';
+import { config } from '../config.js';
 import { supabaseAdmin } from './supabase.js';
 import { fetchAmazonProduct, RainforestProductLookupError } from './rainforest.js';
 import { syncProductCatalogAlerts, getDefaultMarkupPercent } from './product-price-alerts.js';
@@ -82,6 +83,16 @@ export interface ProductSyncResult {
   newStatus: string | null;
   /** True when no ASIN or lookup returned nothing actionable. */
   skipped: boolean;
+  /**
+   * True when the live Rainforest lookup could not be completed (timeout or
+   * transport/auth/rate-limit failure) and the caller is proceeding on the
+   * cached catalog price instead. Used by checkout revalidation so the call is
+   * never dropped, while the sync report still flags that fresh pricing was not
+   * verified for this item.
+   */
+  stale: boolean;
+  /** Reason the lookup was treated as stale (timeout, http error, etc.). */
+  staleReason: string | null;
   error: string | null;
 }
 
@@ -155,6 +166,8 @@ export async function syncProductPriceFromAmazon(
     oldStatus: null,
     newStatus: null,
     skipped: false,
+    stale: false,
+    staleReason: null,
     error: null,
   };
 
@@ -187,7 +200,10 @@ export async function syncProductPriceFromAmazon(
         : err instanceof Error
           ? err.message
           : 'Rainforest lookup failed';
-    return { ...base, skipped: true, error: message };
+    // Could not verify fresh pricing. The cached catalog price stands; flag the
+    // result as stale so checkout can proceed without dropping the call and the
+    // sync report can surface that this item was not freshly verified.
+    return { ...base, skipped: true, stale: true, staleReason: message, error: message };
   }
 
   if (!lookup) {
@@ -252,6 +268,8 @@ export interface CreateSyncRunArgs {
   orderId?: number | null;
   userId?: string | null;
   callerPhone?: string | null;
+  /** Persisted work queue for resumable (drained) scheduled runs. */
+  pendingProductIds?: string[];
 }
 
 export async function createSyncRun(args: CreateSyncRunArgs): Promise<string | null> {
@@ -269,6 +287,8 @@ export async function createSyncRun(args: CreateSyncRunArgs): Promise<string | n
       order_id: args.orderId ?? null,
       user_id: args.userId ?? null,
       caller_phone: args.callerPhone ?? null,
+      pending_product_ids: args.pendingProductIds ?? [],
+      last_progress_at: new Date().toISOString(),
     })
     .select('id')
     .single();
@@ -280,7 +300,9 @@ export async function createSyncRun(args: CreateSyncRunArgs): Promise<string | n
 }
 
 export async function addSyncRunItem(runId: string, result: ProductSyncResult): Promise<void> {
-  if (!result.priceChanged && !result.becameUnavailable) return;
+  // Record an item row when something changed OR when the price could not be
+  // verified (stale). Stale rows make unverified-pricing checkouts auditable.
+  if (!result.priceChanged && !result.becameUnavailable && !result.stale) return;
   const { error } = await supabaseAdmin.from('product_sync_run_items').insert({
     run_id: runId,
     product_id: result.productId,
@@ -288,6 +310,8 @@ export async function addSyncRunItem(runId: string, result: ProductSyncResult): 
     new_amazon_price_cents: result.newAmazonCents,
     direction: result.priceChanged ? result.direction : null,
     became_unavailable: result.becameUnavailable,
+    stale: result.stale,
+    stale_reason: result.stale ? result.staleReason : null,
   });
   if (error) console.error('[product-sync] failed to add sync run item:', error.message);
 }
@@ -297,10 +321,17 @@ export async function updateSyncRunProgress(
   runId: string,
   processed: number,
   changed: number,
+  pendingProductIds?: string[],
 ): Promise<void> {
+  const update: Record<string, unknown> = {
+    processed_count: processed,
+    changed_count: changed,
+    last_progress_at: new Date().toISOString(),
+  };
+  if (pendingProductIds) update.pending_product_ids = pendingProductIds;
   const { error } = await supabaseAdmin
     .from('product_sync_runs')
-    .update({ processed_count: processed, changed_count: changed })
+    .update(update)
     .eq('id', runId);
   if (error) console.error('[product-sync] failed to update sync run progress:', error.message);
 }
@@ -317,6 +348,9 @@ export async function finalizeSyncRun(
       processed_count: totals.processed,
       changed_count: totals.changed,
       finished_at: new Date().toISOString(),
+      // Clear the work queue on terminal states to keep report payloads small;
+      // a finalized run is never resumed.
+      pending_product_ids: [],
     })
     .eq('id', runId);
   if (error) console.error('[product-sync] failed to finalize sync run:', error.message);
@@ -366,6 +400,7 @@ export async function reconcileOrphanedSyncRuns(exceptRunId?: string | null): Pr
         status: 'failed',
         finished_at: new Date().toISOString(),
         changed_count: changed,
+        pending_product_ids: [],
         // Keep processed_count when incremental progress was persisted; otherwise
         // leave it (report UI falls back to item count as a lower bound).
       })
@@ -374,11 +409,58 @@ export async function reconcileOrphanedSyncRuns(exceptRunId?: string | null): Pr
   }
 }
 
+/**
+ * Fail out scheduled (`auto`/`manual_full`) runs whose heartbeat
+ * (`last_progress_at`) has gone stale — i.e. the serverless function that owned
+ * the batch was killed mid-run and no drain has touched it since. Unlike
+ * `reconcileOrphanedSyncRuns` (which only runs when a *new* full sync starts),
+ * this is safe to call on every frequent drain tick so a dead run is marked
+ * 'failed' (red in the report) promptly, and the interval gate stops treating
+ * it as an in-progress run. Returns the number of runs reconciled.
+ */
+export async function reconcileStaleScheduledRuns(staleMinutes = config.priceSync.staleRunMinutes): Promise<number> {
+  const cutoff = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
+  // Fetch all in-progress scheduled runs, then filter for staleness in JS to
+  // avoid embedding a raw timestamp inside a PostgREST `.or()` filter string.
+  const { data: candidates, error: fetchErr } = await supabaseAdmin
+    .from('product_sync_runs')
+    .select('id, changed_count, last_progress_at')
+    .eq('status', 'running')
+    .in('trigger', ['auto', 'manual_full']);
+  if (fetchErr) {
+    console.error('[product-sync] failed to list stale scheduled runs:', fetchErr.message);
+    return 0;
+  }
+  // Treat both an old heartbeat and a missing heartbeat (legacy rows) as stale.
+  const stale = (candidates || []).filter(
+    (r) => !r.last_progress_at || r.last_progress_at < cutoff,
+  );
+  let reconciled = 0;
+  for (const run of stale) {
+    const { count: itemCount } = await supabaseAdmin
+      .from('product_sync_run_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('run_id', run.id);
+    const changed = Math.max(run.changed_count ?? 0, itemCount ?? 0);
+    const { error } = await supabaseAdmin
+      .from('product_sync_runs')
+      .update({ status: 'failed', finished_at: new Date().toISOString(), changed_count: changed, pending_product_ids: [] })
+      .eq('id', run.id)
+      .eq('status', 'running');
+    if (error) {
+      console.error('[product-sync] failed to reconcile stale scheduled run:', error.message);
+      continue;
+    }
+    reconciled += 1;
+  }
+  return reconciled;
+}
+
 // ---------------------------------------------------------------------------
 // Full sync job (in-memory, server-side, survives client navigation)
 // ---------------------------------------------------------------------------
 
-const SYNC_SPACING_MS = 1500;
+const SYNC_SPACING_MS = config.priceSync.spacingMs;
 
 const jobState: SyncJobState = {
   status: 'idle',
@@ -397,10 +479,62 @@ export function getSyncJobState(): SyncJobState {
   return { ...jobState };
 }
 
+/**
+ * DB-aware sync status for the admin polling UI. Durable scheduled runs are
+ * drained by short, separate serverless invocations, so between drain ticks the
+ * in-memory `jobState` of any single process is idle even though the run is
+ * still in progress. When this process isn't actively iterating, reflect the
+ * active scheduled run from the DB so the "Syncing..." status bar stays live
+ * across ticks and instances.
+ */
+export async function getSyncJobStateResolved(): Promise<SyncJobState> {
+  if (jobState.status === 'running') return { ...jobState };
+  const run = await getActiveScheduledRun();
+  if (!run) return { ...jobState };
+  const pending = Array.isArray(run.pending_product_ids) ? run.pending_product_ids.length : 0;
+  return {
+    status: 'running',
+    total: run.total_count ?? run.processed_count + pending,
+    processed: run.processed_count ?? 0,
+    changed: run.changed_count ?? 0,
+    currentProductId: null,
+    currentProductName: null,
+    startedAt: jobState.startedAt,
+    runId: run.id,
+    pauseRequested: false,
+    lastError: null,
+  };
+}
+
 export function requestSyncPause(): void {
   if (jobState.status === 'running') {
     jobState.pauseRequested = true;
   }
+}
+
+/**
+ * Pause the active scheduled run. Sets the in-memory flag (so a batch currently
+ * iterating in *this* process stops after the current product) and, if no
+ * process is actively draining, finalizes the DB run as 'paused' immediately so
+ * the drain cron stops picking it up. The remaining `pending_product_ids` are
+ * preserved on the row for the record; "Sync Now" begins a fresh run.
+ */
+export async function pauseScheduledSync(): Promise<SyncJobState> {
+  jobState.pauseRequested = true;
+  if (jobState.status === 'running') {
+    // A live batch in this process will observe the flag and finalize as paused.
+    return { ...jobState };
+  }
+  const run = await getActiveScheduledRun();
+  if (run) {
+    await finalizeSyncRun(run.id, {
+      total: run.total_count ?? run.processed_count,
+      processed: run.processed_count ?? 0,
+      changed: run.changed_count ?? 0,
+      status: 'paused',
+    });
+  }
+  return getSyncJobState();
 }
 
 function delay(ms: number): Promise<void> {
@@ -444,6 +578,251 @@ async function loadActiveProductsForSync(): Promise<{ id: string; voice_name: st
   return out;
 }
 
+export interface StartScheduledSyncOptions {
+  trigger: Extract<ProductSyncTrigger, 'auto' | 'manual_full'>;
+  actor: SyncActor;
+  skipRecentlyUpdated?: boolean;
+}
+
+export type StartScheduledSyncOutcome =
+  | { started: true; runId: string; total: number }
+  | { started: false; reason: 'already_running' | 'nothing_to_sync' | 'create_failed'; runId?: string | null; total?: number };
+
+/**
+ * Begin a scheduled full/auto sync as a *durable, resumable* run. Instead of
+ * iterating the whole catalog inside one (serverless-killable) request, this
+ * computes the eligible product set, persists it as the run's
+ * `pending_product_ids` queue, and returns immediately. The frequent
+ * `drainScheduledSync()` cron then processes the queue a bounded batch at a
+ * time until it is empty. Only one scheduled run may be in progress at a time.
+ */
+export async function startScheduledFullSync(opts: StartScheduledSyncOptions): Promise<StartScheduledSyncOutcome> {
+  // Fail out any dead scheduled run first so a single stuck row can't block new
+  // runs forever, and so a fresh start doesn't collide with a zombie.
+  await reconcileStaleScheduledRuns();
+
+  const existing = await getActiveScheduledRun();
+  if (existing) {
+    return { started: false, reason: 'already_running', runId: existing.id, total: existing.total_count };
+  }
+
+  const allProducts = await loadActiveProductsForSync();
+  const products = opts.skipRecentlyUpdated
+    ? allProducts.filter((p) => !updatedWithinHours(p.updated_at, 12))
+    : allProducts;
+
+  if (products.length === 0) {
+    // Record a completed no-op run so the report shows the attempt explicitly.
+    const runId = await createSyncRun({ trigger: opts.trigger, actor: opts.actor, total: 0, pendingProductIds: [] });
+    if (runId) {
+      await finalizeSyncRun(runId, { total: 0, processed: 0, changed: 0, status: 'completed' });
+    }
+    return { started: false, reason: 'nothing_to_sync', runId, total: 0 };
+  }
+
+  const ids = products.map((p) => p.id);
+  const runId = await createSyncRun({
+    trigger: opts.trigger,
+    actor: opts.actor,
+    total: ids.length,
+    pendingProductIds: ids,
+  });
+  if (!runId) {
+    return { started: false, reason: 'create_failed' };
+  }
+  return { started: true, runId, total: ids.length };
+}
+
+interface ActiveScheduledRun {
+  id: string;
+  trigger: 'auto' | 'manual_full';
+  actor_kind: ProductSyncActorKind;
+  actor_label: string;
+  actor_admin_user_id: string | null;
+  total_count: number;
+  processed_count: number;
+  changed_count: number;
+  pending_product_ids: string[];
+}
+
+const SYNC_FIELDS =
+  'id, trigger, actor_kind, actor_label, actor_admin_user_id, total_count, processed_count, changed_count, pending_product_ids';
+
+/** The single in-progress scheduled run to resume/drain, or null. */
+async function getActiveScheduledRun(): Promise<ActiveScheduledRun | null> {
+  const { data } = await supabaseAdmin
+    .from('product_sync_runs')
+    .select(SYNC_FIELDS)
+    .eq('status', 'running')
+    .in('trigger', ['auto', 'manual_full'])
+    .order('started_at', { ascending: true })
+    .limit(1)
+    .maybeSingle<ActiveScheduledRun>();
+  return data ?? null;
+}
+
+/**
+ * Atomically claim the active scheduled run for this drain tick using
+ * `last_progress_at` as a short lease. The conditional update only succeeds if
+ * the heartbeat is older than `leaseMs` (or null), so two overlapping drain
+ * ticks can't both process the same run — the loser sees no claimed row. Within
+ * a tick the loop bumps `last_progress_at` after every product, extending the
+ * lease while work is ongoing.
+ */
+async function claimActiveScheduledRun(leaseMs: number): Promise<ActiveScheduledRun | null> {
+  const candidate = await getActiveScheduledRun();
+  if (!candidate) return null;
+  // Only claim if the lease has expired (heartbeat old or missing). Read the
+  // current heartbeat and decide in JS, then claim with an optimistic guard on
+  // that exact value so a concurrent tick that already re-stamped it loses.
+  const { data: current } = await supabaseAdmin
+    .from('product_sync_runs')
+    .select('last_progress_at')
+    .eq('id', candidate.id)
+    .maybeSingle<{ last_progress_at: string | null }>();
+  const leaseCutoff = new Date(Date.now() - leaseMs).toISOString();
+  const heartbeat = current?.last_progress_at ?? null;
+  if (heartbeat && heartbeat >= leaseCutoff) {
+    // Lease still held by another (possibly concurrent) drain tick.
+    return null;
+  }
+  const stamp = new Date().toISOString();
+  let claim = supabaseAdmin
+    .from('product_sync_runs')
+    .update({ last_progress_at: stamp })
+    .eq('id', candidate.id)
+    .eq('status', 'running');
+  // Guard on the exact heartbeat we observed so only one tick wins the claim.
+  claim = heartbeat === null
+    ? claim.is('last_progress_at', null)
+    : claim.eq('last_progress_at', heartbeat);
+  const { data, error } = await claim.select(SYNC_FIELDS).maybeSingle<ActiveScheduledRun>();
+  if (error) {
+    console.error('[product-sync] failed to claim scheduled run:', error.message);
+    return null;
+  }
+  return data ?? null;
+}
+
+/**
+ * Drain a bounded batch of the in-progress scheduled run's pending queue. Safe
+ * to call frequently (cron) and inside a serverless function timeout: it
+ * processes up to `drainBatchSize` products or until the wall-clock time budget
+ * is nearly exhausted, persisting progress and the shrunken queue after each
+ * product so a kill mid-batch loses at most one product's work. Finalizes the
+ * run as 'completed' when the queue empties.
+ */
+export async function drainScheduledSync(options?: {
+  maxProducts?: number;
+  timeBudgetMs?: number;
+}): Promise<{ runId: string | null; processed: number; changed: number; more: boolean; done: boolean }> {
+  const maxProducts = options?.maxProducts ?? config.priceSync.drainBatchSize;
+  const timeBudgetMs = options?.timeBudgetMs ?? config.priceSync.drainTimeBudgetMs;
+  const startedAt = Date.now();
+
+  // Reconcile dead runs before draining so we never resume a zombie.
+  await reconcileStaleScheduledRuns();
+
+  // Lease must outlast a full batch so a concurrent tick can't steal the run
+  // mid-batch; the per-product heartbeat keeps extending it while we work.
+  const leaseMs = timeBudgetMs + SYNC_SPACING_MS + 5000;
+  const run = await claimActiveScheduledRun(leaseMs);
+  if (!run) {
+    return { runId: null, processed: 0, changed: 0, more: false, done: false };
+  }
+
+  const actor: SyncActor = {
+    kind: run.actor_kind,
+    label: run.actor_label,
+    adminUserId: run.actor_admin_user_id,
+  };
+
+  const queue = Array.isArray(run.pending_product_ids) ? [...run.pending_product_ids] : [];
+  let processed = run.processed_count ?? 0;
+  let changed = run.changed_count ?? 0;
+  let processedThisBatch = 0;
+  let more = false;
+
+  // Mirror into in-memory jobState so the admin "Sync Now" polling UI shows
+  // live progress while this process owns a batch.
+  jobState.status = 'running';
+  jobState.runId = run.id;
+  jobState.total = run.total_count ?? queue.length + processed;
+  jobState.processed = processed;
+  jobState.changed = changed;
+  jobState.startedAt = jobState.startedAt ?? new Date().toISOString();
+  jobState.lastError = null;
+
+  let paused = false;
+  for (let i = 0; i < maxProducts; i++) {
+    const id = queue.shift();
+    if (!id) break;
+
+    jobState.currentProductId = id;
+    jobState.currentProductName = null;
+
+    const result = await syncProductPriceFromAmazon(id, actor);
+    await addSyncRunItem(run.id, result);
+    if (result.priceChanged || result.becameUnavailable) changed += 1;
+    if (result.error) jobState.lastError = result.error;
+    processed += 1;
+    processedThisBatch += 1;
+
+    jobState.processed = processed;
+    jobState.changed = changed;
+
+    // Persist progress + the shrunken queue after every product so a mid-batch
+    // kill resumes from here (losing at most this product's redo, which is
+    // idempotent anyway).
+    await updateSyncRunProgress(run.id, processed, changed, queue);
+
+    // Honor an admin pause request (in-memory; covers in-process runs and a
+    // single serverless invocation). The remaining queue is persisted, so the
+    // run is finalized 'paused' and "Sync Now" can begin a fresh run later.
+    if (jobState.pauseRequested) {
+      paused = true;
+      break;
+    }
+
+    if (queue.length === 0) break;
+
+    // Stop if the next product + spacing would risk exceeding the time budget;
+    // the next drain tick continues the queue.
+    if (i + 1 < maxProducts && Date.now() - startedAt + SYNC_SPACING_MS >= timeBudgetMs) {
+      more = true;
+      break;
+    }
+    if (i + 1 >= maxProducts) {
+      more = true;
+      break;
+    }
+    if (SYNC_SPACING_MS > 0) await delay(SYNC_SPACING_MS);
+  }
+
+  const done = queue.length === 0;
+  if (done || paused) {
+    await finalizeSyncRun(run.id, {
+      total: run.total_count ?? processed,
+      processed,
+      changed,
+      status: paused ? 'paused' : 'completed',
+    });
+    jobState.status = 'idle';
+    jobState.currentProductId = null;
+    jobState.currentProductName = null;
+    jobState.pauseRequested = false;
+    jobState.runId = null;
+  } else {
+    // Leave the run 'running' for the next drain tick. Settle in-memory state to
+    // idle so this process doesn't appear to own a job between ticks.
+    jobState.status = 'idle';
+    jobState.currentProductId = null;
+    jobState.currentProductName = null;
+  }
+
+  return { runId: run.id, processed: processedThisBatch, changed, more: more || !(done || paused), done: done || paused };
+}
+
 export interface RunFullSyncOptions {
   trigger: Extract<ProductSyncTrigger, 'auto' | 'manual_full'>;
   actor: SyncActor;
@@ -451,30 +830,21 @@ export interface RunFullSyncOptions {
 }
 
 /**
- * Runs a full sync over all active products. Used by both the manual "Sync Now"
- * job and the scheduled cron. Updates the in-memory job state and persists a
- * `product_sync_runs` row. Honors the in-memory pause flag between products.
+ * Legacy synchronous full sync, retained for non-serverless/in-process use
+ * (e.g. local dev or scripts) where holding the call open is acceptable. The
+ * scheduled (cron) and admin paths now use the durable
+ * `startScheduledFullSync()` + `drainScheduledSync()` pair instead, which is
+ * serverless-safe and resumable. Honors the in-memory pause flag.
  */
 export async function runFullSync(opts: RunFullSyncOptions): Promise<{ runId: string | null; processed: number; changed: number; paused: boolean }> {
-  // A 'running' job owns the in-memory state and is actively iterating, so a new
-  // sync must not start. A 'paused' job is restartable ("Sync Now" begins a
-  // fresh run); its stale `product_sync_runs` row is finalized by the
-  // reconciliation sweep below before a fresh run starts.
   if (jobState.status === 'running') {
     return { runId: jobState.runId, processed: jobState.processed, changed: jobState.changed, paused: false };
   }
 
-  // Claim the slot synchronously (before any await) so two concurrent callers
-  // can't both pass the guard above during the async setup below.
   jobState.status = 'running';
   jobState.pauseRequested = false;
   jobState.lastError = null;
 
-  // A previous job (this process or an earlier one that has since restarted)
-  // may have left a `product_sync_runs` row stuck in 'running'/'paused'. We
-  // don't resume in place, so finalize every such orphan as 'failed' before
-  // starting fresh. This sweeps all stranded rows at the DB level rather than
-  // only the single run tracked by in-memory state, which is lost on restart.
   await reconcileOrphanedSyncRuns();
 
   const allProducts = await loadActiveProductsForSync();
@@ -530,9 +900,6 @@ export async function runFullSync(opts: RunFullSyncOptions): Promise<{ runId: st
   const processed = jobState.processed;
   const changed = jobState.changed;
 
-  // Only stay 'paused' when there's a backing run row to resume/finalize. If
-  // `createSyncRun` failed (runId === null), a pause has nothing to persist, so
-  // settle to 'idle' instead of stranding the in-memory state at 'paused'.
   const persistedPause = paused && runId !== null;
   jobState.status = persistedPause ? 'paused' : 'idle';
   jobState.currentProductId = null;
@@ -662,63 +1029,189 @@ export interface CheckoutRevalidationUnavailable {
   productName: string;
 }
 
+export interface CheckoutRevalidationStale {
+  cartItemId: string;
+  productId: string;
+  productName: string;
+  reason: string;
+}
+
 export interface CheckoutRevalidationResult {
   hasChanges: boolean;
   priceChanges: CheckoutRevalidationItemChange[];
   unavailable: CheckoutRevalidationUnavailable[];
+  /**
+   * Items whose live price could NOT be verified (Rainforest timed out or
+   * errored) and which were therefore charged at the cached catalog price. The
+   * checkout still proceeds; these are recorded on the sync run so the order can
+   * be reviewed later.
+   */
+  stale: CheckoutRevalidationStale[];
   /** Remaining items after removing unavailable ones, with refreshed unit prices. */
   remainingItems: CheckoutCartItem[];
   runId: string | null;
 }
 
+export interface CheckoutRevalidationContext {
+  userId: string | null;
+  callerPhone: string | null;
+  isWhitelisted: boolean;
+  customMarkupPercent?: number | null;
+}
+
 /**
- * Re-checks each cart item against Rainforest at checkout (manual path).
- * Updates catalog Amazon prices (logging history + alerts via
- * `syncProductPriceFromAmazon`), refreshes the cart item unit prices, removes
- * items that are no longer available, and records a `checkout`-trigger sync run
- * when anything changed (so it shows in the Product Sync report).
+ * Run `fn` over `items` with at most `limit` promises in flight at once,
+ * returning results index-aligned with `items`. Used to parallelize the slow
+ * (network-bound) phase of checkout revalidation while capping concurrency so we
+ * don't burst the Rainforest API into rate limits.
+ *
+ * Each worker claims an index in a synchronous critical section, then awaits work.
+ * Under ECMAScript run-to-completion, that claim cannot interleave with other
+ * workers (unlike preemptive threads); the only suspension points are `await` below.
  */
-export async function revalidateCartAtCheckout(
-  cartItems: CheckoutCartItem[],
-  context: {
-    userId: string | null;
-    callerPhone: string | null;
-    isWhitelisted: boolean;
-    customMarkupPercent?: number | null;
-  },
-): Promise<CheckoutRevalidationResult> {
-  const defaultMarkupPercent = await getDefaultMarkupPercent();
-  const markupPercent = resolveEffectiveMarkup(defaultMarkupPercent, {
-    custom_markup_percent: context.customMarkupPercent ?? null,
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  /** Next index to process, or `undefined` when exhausted. No `await` inside — must stay synchronous. */
+  const claimIndex = (): number | undefined => {
+    const i = next;
+    if (i >= items.length) return undefined;
+    next += 1;
+    return i;
+  };
+  const worker = async () => {
+    for (;;) {
+      const index = claimIndex();
+      if (index === undefined) return;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+/**
+ * Outcome of revalidating a single cart item. The network/read phase
+ * (`syncProductPriceFromAmazon` + catalog re-read) is computed first so the
+ * mutation phase (cart writes, result accumulation) can run deterministically in
+ * cart order.
+ */
+interface ItemRevalidation {
+  item: CheckoutCartItem;
+  productName: string;
+  result: ProductSyncResult;
+  refreshed: CatalogProduct | null;
+}
+
+function productDisplayName(item: CheckoutCartItem): string {
+  return (
+    item.catalog_products?.voice_name ||
+    item.catalog_products?.amazon_name ||
+    item.voicex_id ||
+    'a product'
+  );
+}
+
+/**
+ * Phase 1 (parallel, read-only): look up fresh pricing for each item with a
+ * bounded concurrency. No DB writes here so it is safe to run many in parallel.
+ */
+async function lookupItemsParallel(
+  items: CheckoutCartItem[],
+  concurrency: number,
+): Promise<ItemRevalidation[]> {
+  return mapWithConcurrency(items, concurrency, async (item) => {
+    const productName = productDisplayName(item);
+    let result: ProductSyncResult;
+    try {
+      result = await syncProductPriceFromAmazon(item.product_id, CHECKOUT_ACTOR);
+    } catch (err) {
+      // Defensive: syncProductPriceFromAmazon already converts failures into a
+      // stale result, but never let one item's unexpected throw reject the whole
+      // batch — degrade it to stale so the call still completes.
+      const message = err instanceof Error ? err.message : 'Lookup failed';
+      result = {
+        productId: item.product_id,
+        asin: item.catalog_products?.amazon_asin ?? null,
+        priceChanged: false,
+        oldAmazonCents: item.catalog_products?.amazon_price_cents ?? null,
+        newAmazonCents: null,
+        direction: null,
+        availability: null,
+        isPurchasable: false,
+        becameUnavailable: false,
+        oldStatus: null,
+        newStatus: null,
+        skipped: true,
+        stale: true,
+        staleReason: message,
+        error: message,
+      };
+    }
+
+    let refreshed: CatalogProduct | null = null;
+    if (!result.stale && !result.becameUnavailable) {
+      const { data } = await supabaseAdmin
+        .from('catalog_products')
+        .select('*')
+        .eq('id', item.product_id)
+        .maybeSingle();
+      refreshed = (data as CatalogProduct | null) ?? null;
+    }
+    return { item, productName, result, refreshed };
   });
-  const priceChanges: CheckoutRevalidationItemChange[] = [];
-  const unavailable: CheckoutRevalidationUnavailable[] = [];
-  const remainingItems: CheckoutCartItem[] = [];
+}
+
+/**
+ * Phase 2 (sequential, deterministic): apply each looked-up item's outcome -
+ * remove unavailable items, write refreshed prices, and accumulate the
+ * change/stale/remaining lists in cart order. Mutates the passed accumulator
+ * arrays. Returns the per-item `ProductSyncResult`s so the caller can record
+ * them on a sync run.
+ */
+async function applyItemRevalidations(
+  looked: ItemRevalidation[],
+  markupPercent: number,
+  isWhitelisted: boolean,
+  acc: {
+    priceChanges: CheckoutRevalidationItemChange[];
+    unavailable: CheckoutRevalidationUnavailable[];
+    stale: CheckoutRevalidationStale[];
+    remainingItems: CheckoutCartItem[];
+  },
+): Promise<ProductSyncResult[]> {
   const results: ProductSyncResult[] = [];
-
-  for (const item of cartItems) {
-    const productName =
-      item.catalog_products?.voice_name || item.catalog_products?.amazon_name || item.voicex_id || 'a product';
-
-    const result = await syncProductPriceFromAmazon(item.product_id, CHECKOUT_ACTOR);
+  for (const { item, productName, result, refreshed } of looked) {
     results.push(result);
 
+    // Fresh pricing could not be verified (timeout / API error). Keep the item
+    // in the order at its cached price so the call is never dropped, but record
+    // it as stale for later review.
+    if (result.stale) {
+      acc.stale.push({
+        cartItemId: item.id,
+        productId: item.product_id,
+        productName,
+        reason: result.staleReason || 'Price not verified',
+      });
+      acc.remainingItems.push({ ...item });
+      continue;
+    }
+
     if (result.becameUnavailable) {
-      unavailable.push({ cartItemId: item.id, productId: item.product_id, productName });
+      acc.unavailable.push({ cartItemId: item.id, productId: item.product_id, productName });
       await supabaseAdmin.from('cart_items').delete().eq('id', item.id);
       continue;
     }
 
-    // Recompute the effective unit price from the refreshed catalog row.
-    const { data: refreshed } = await supabaseAdmin
-      .from('catalog_products')
-      .select('*')
-      .eq('id', item.product_id)
-      .maybeSingle();
-
     let newUnitPrice = item.unit_price_cents;
     if (refreshed) {
-      const computed = getProductPriceCents(refreshed as CatalogProduct, markupPercent, context.isWhitelisted);
+      const computed = getProductPriceCents(refreshed, markupPercent, isWhitelisted);
       if (computed != null) newUnitPrice = computed;
     }
 
@@ -731,7 +1224,7 @@ export async function revalidateCartAtCheckout(
         })
         .eq('id', item.id);
 
-      priceChanges.push({
+      acc.priceChanges.push({
         cartItemId: item.id,
         productId: item.product_id,
         productName,
@@ -741,31 +1234,153 @@ export async function revalidateCartAtCheckout(
       });
     }
 
-    remainingItems.push({ ...item, unit_price_cents: newUnitPrice });
+    acc.remainingItems.push({ ...item, unit_price_cents: newUnitPrice });
   }
+  return results;
+}
 
-  const hasChanges = priceChanges.length > 0 || unavailable.length > 0;
+export interface RevalidateBatchResult {
+  /** Per-item sync results for the processed slice (to record on a sync run). */
+  results: ProductSyncResult[];
+  priceChanges: CheckoutRevalidationItemChange[];
+  unavailable: CheckoutRevalidationUnavailable[];
+  stale: CheckoutRevalidationStale[];
+  remainingItems: CheckoutCartItem[];
+}
 
-  let runId: string | null = null;
-  if (hasChanges) {
-    runId = await createSyncRun({
-      trigger: 'checkout',
-      actor: CHECKOUT_ACTOR,
-      total: cartItems.length,
-      userId: context.userId,
-      callerPhone: context.callerPhone,
+/**
+ * Process a bounded slice of cart items for the checkout poll loop. Looks up
+ * pricing in parallel (capped) and applies the outcomes deterministically. The
+ * IVR poll handler calls this repeatedly across webhooks, accumulating the
+ * results in the call session, then records one sync run at the end.
+ *
+ * This does NOT create or finalize a sync run; the poll loop owns that so the
+ * report reflects the whole cart in a single run.
+ */
+export async function revalidateCartBatch(
+  items: CheckoutCartItem[],
+  context: CheckoutRevalidationContext,
+  concurrency: number,
+): Promise<RevalidateBatchResult> {
+  const defaultMarkupPercent = await getDefaultMarkupPercent();
+  const markupPercent = resolveEffectiveMarkup(defaultMarkupPercent, {
+    custom_markup_percent: context.customMarkupPercent ?? null,
+  });
+
+  const acc = {
+    priceChanges: [] as CheckoutRevalidationItemChange[],
+    unavailable: [] as CheckoutRevalidationUnavailable[],
+    stale: [] as CheckoutRevalidationStale[],
+    remainingItems: [] as CheckoutCartItem[],
+  };
+
+  const looked = await lookupItemsParallel(items, concurrency);
+  const results = await applyItemRevalidations(looked, markupPercent, context.isWhitelisted, acc);
+
+  return { results, ...acc };
+}
+
+/**
+ * Mark a list of items as stale (charged at cached price) without contacting
+ * Rainforest. Used by the poll loop's safety valve when the verification budget
+ * is exhausted before every item could be checked, so the call still completes.
+ */
+export function markItemsStale(items: CheckoutCartItem[], reason: string): RevalidateBatchResult {
+  const stale: CheckoutRevalidationStale[] = [];
+  const remainingItems: CheckoutCartItem[] = [];
+  const results: ProductSyncResult[] = [];
+  for (const item of items) {
+    stale.push({
+      cartItemId: item.id,
+      productId: item.product_id,
+      productName: productDisplayName(item),
+      reason,
     });
-    if (runId) {
-      for (const result of results) {
-        await addSyncRunItem(runId, result);
-      }
-      await finalizeSyncRun(runId, {
-        total: cartItems.length,
-        processed: cartItems.length,
-        changed: priceChanges.length + unavailable.length,
-      });
-    }
+    remainingItems.push({ ...item });
+    results.push({
+      productId: item.product_id,
+      asin: item.catalog_products?.amazon_asin ?? null,
+      priceChanged: false,
+      oldAmazonCents: item.catalog_products?.amazon_price_cents ?? null,
+      newAmazonCents: null,
+      direction: null,
+      availability: null,
+      isPurchasable: false,
+      becameUnavailable: false,
+      oldStatus: null,
+      newStatus: null,
+      skipped: true,
+      stale: true,
+      staleReason: reason,
+      error: reason,
+    });
   }
+  return { results, priceChanges: [], unavailable: [], stale, remainingItems };
+}
 
-  return { hasChanges, priceChanges, unavailable, remainingItems, runId };
+/**
+ * Persist a finished checkout revalidation as a `checkout`-trigger sync run when
+ * anything changed or any item was stale, so unverified-pricing checkouts are
+ * always auditable in the Product Sync report. Returns the run id (or null).
+ */
+export async function recordCheckoutSyncRun(
+  context: CheckoutRevalidationContext,
+  totalItems: number,
+  results: ProductSyncResult[],
+  changedCount: number,
+  staleCount: number,
+): Promise<string | null> {
+  const shouldRecordRun = changedCount > 0 || staleCount > 0;
+  if (!shouldRecordRun) return null;
+
+  const runId = await createSyncRun({
+    trigger: 'checkout',
+    actor: CHECKOUT_ACTOR,
+    total: totalItems,
+    userId: context.userId,
+    callerPhone: context.callerPhone,
+  });
+  if (!runId) return null;
+
+  for (const result of results) {
+    await addSyncRunItem(runId, result);
+  }
+  await finalizeSyncRun(runId, {
+    total: totalItems,
+    processed: totalItems,
+    changed: changedCount,
+  });
+  return runId;
+}
+
+/**
+ * Re-checks every cart item against Rainforest in one pass (parallel, capped).
+ * Used by non-IVR callers and as the single-shot path. The live phone checkout
+ * uses the poll loop (`revalidateCartBatch` + `recordCheckoutSyncRun`) instead
+ * so a large cart never blocks one webhook.
+ */
+export async function revalidateCartAtCheckout(
+  cartItems: CheckoutCartItem[],
+  context: CheckoutRevalidationContext,
+): Promise<CheckoutRevalidationResult> {
+  const concurrency = config.priceSync.checkout.concurrency;
+  const batch = await revalidateCartBatch(cartItems, context, concurrency);
+
+  const hasChanges = batch.priceChanges.length > 0 || batch.unavailable.length > 0;
+  const runId = await recordCheckoutSyncRun(
+    context,
+    cartItems.length,
+    batch.results,
+    batch.priceChanges.length + batch.unavailable.length,
+    batch.stale.length,
+  );
+
+  return {
+    hasChanges,
+    priceChanges: batch.priceChanges,
+    unavailable: batch.unavailable,
+    stale: batch.stale,
+    remainingItems: batch.remainingItems,
+    runId,
+  };
 }

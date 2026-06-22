@@ -16,10 +16,12 @@ import {
   createSyncRun,
   addSyncRunItem,
   finalizeSyncRun,
-  runFullSync,
   runBulkSync,
-  requestSyncPause,
   getSyncJobState,
+  getSyncJobStateResolved,
+  startScheduledFullSync,
+  drainScheduledSync,
+  pauseScheduledSync,
   adminActor,
   insertPriceHistory,
   insertStatusHistory,
@@ -1329,30 +1331,40 @@ catalogRouter.post('/products/sync', async (req, res) => {
   res.json({ success: true, data: getSyncJobState() });
 });
 
-// Start a full sync over all active products (in-memory job, survives navigation).
+// Start a full sync over all active products. Durable + resumable: persists the
+// eligible product queue as a scheduled run, then kicks off the first bounded
+// batch. The frequent price-sync-drain cron continues the run to completion, so
+// it survives serverless function timeouts (it no longer dies after a handful
+// of products). The admin UI polls /sync/status, which reflects the DB run.
 catalogRouter.post('/sync/start', async (req, res) => {
-  const state = getSyncJobState();
-  if (state.status === 'running') {
-    res.json({ success: true, data: state, message: 'A sync is already running' });
+  const actor = adminActor((req as any).adminUser);
+  const started = await startScheduledFullSync({ trigger: 'manual_full', actor, skipRecentlyUpdated: false });
+  if (!started.started && started.reason === 'already_running') {
+    const data = await getSyncJobStateResolved();
+    res.json({ success: true, data, message: 'A sync is already running' });
     return;
   }
-  const actor = adminActor((req as any).adminUser);
-  // Fire-and-forget: the loop runs server-side and updates in-memory state.
-  void runFullSync({ trigger: 'manual_full', actor, skipRecentlyUpdated: false }).catch((err) => {
-    console.error('[catalog] full sync failed:', err);
-  });
-  res.json({ success: true, data: getSyncJobState() });
+  if (started.started) {
+    // Kick off the first batch without holding the HTTP connection open.
+    void drainScheduledSync().catch((err) => {
+      console.error('[catalog] full sync drain failed:', err);
+    });
+  }
+  const data = await getSyncJobStateResolved();
+  res.json({ success: true, data });
 });
 
 // Request the running sync to pause after the current product completes.
 catalogRouter.post('/sync/pause', async (_req, res) => {
-  requestSyncPause();
-  res.json({ success: true, data: getSyncJobState() });
+  const data = await pauseScheduledSync();
+  res.json({ success: true, data });
 });
 
-// Poll the current sync job status.
+// Poll the current sync job status. DB-aware so a durable scheduled run drained
+// by separate serverless invocations still reports as live between ticks.
 catalogRouter.get('/sync/status', async (_req, res) => {
-  res.json({ success: true, data: getSyncJobState() });
+  const data = await getSyncJobStateResolved();
+  res.json({ success: true, data });
 });
 
 // Change history for a single product (price + status changes).
