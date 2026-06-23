@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    @apply text-gray-900 antialiased;
+  }
+}
+
 @layer components {
   /* Sola iFields: border lives on the host; iframe is borderless inside. */
   .sola-ifield-host {
