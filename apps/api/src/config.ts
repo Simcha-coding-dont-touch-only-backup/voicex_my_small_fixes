@@ -65,16 +65,24 @@ export const config = {
     // bounded poll loop, see checkout below), so this can be generous enough to
     // let most products verify. On timeout, checkout falls back to the cached
     // catalog price and flags the item as stale in the sync report.
-    lookupTimeoutMs: parseInt(process.env.PRICE_SYNC_LOOKUP_TIMEOUT_MS || '8000', 10),
+    // 15s sits safely under both TelTech's 40s webhook timeout and Vercel's 60s
+    // function max duration, so a slow Rainforest lookup can never drop the call.
+    lookupTimeoutMs: parseInt(process.env.PRICE_SYNC_LOOKUP_TIMEOUT_MS || '15000', 10),
     // Checkout-time revalidation runs inside a TelTech "please hold" poll loop.
     // Each poll drains a bounded batch of cart items, with up to `checkoutConcurrency`
     // Rainforest lookups in flight at once, until either the per-poll wall-clock
     // budget is hit or the cart queue empties. The loop repeats across at most
     // `checkoutMaxPolls` webhooks so it can never exceed TelTech's per-call
     // webhook cap; remaining unverified items then fall back to cached pricing.
+    //
+    // The budget is checked *after* each wave, so a poll can run one in-flight
+    // wave (~lookupTimeoutMs worst case) past the budget. Keep
+    // pollTimeBudgetMs + lookupTimeoutMs under TelTech's 40s webhook timeout:
+    // 22s + 15s = 37s < 40s (and < Vercel's 60s function cap). The larger budget
+    // lets more items verify per webhook so fewer fall back to cached pricing.
     checkout: {
       concurrency: parseInt(process.env.PRICE_SYNC_CHECKOUT_CONCURRENCY || '5', 10),
-      pollTimeBudgetMs: parseInt(process.env.PRICE_SYNC_CHECKOUT_POLL_BUDGET_MS || '7000', 10),
+      pollTimeBudgetMs: parseInt(process.env.PRICE_SYNC_CHECKOUT_POLL_BUDGET_MS || '22000', 10),
       maxPolls: parseInt(process.env.PRICE_SYNC_CHECKOUT_MAX_POLLS || '8', 10),
     },
     // Serverless drain (Supabase pg_cron-triggered every couple of minutes): the

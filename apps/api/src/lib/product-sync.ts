@@ -385,10 +385,13 @@ export async function reconcileOrphanedSyncRuns(exceptRunId?: string | null): Pr
     return;
   }
   for (const orphan of orphans || []) {
+    // Only count non-stale rows: stale (unverified) item rows are persisted for
+    // auditability but do not represent an actual price/availability change.
     const { count: itemCount, error: countErr } = await supabaseAdmin
       .from('product_sync_run_items')
       .select('*', { count: 'exact', head: true })
-      .eq('run_id', orphan.id);
+      .eq('run_id', orphan.id)
+      .eq('stale', false);
     if (countErr) {
       console.error('[product-sync] failed to count sync run items:', countErr.message);
       continue;
@@ -437,10 +440,12 @@ export async function reconcileStaleScheduledRuns(staleMinutes = config.priceSyn
   );
   let reconciled = 0;
   for (const run of stale) {
+    // Exclude stale rows (unverified items) from the change count fallback.
     const { count: itemCount } = await supabaseAdmin
       .from('product_sync_run_items')
       .select('*', { count: 'exact', head: true })
-      .eq('run_id', run.id);
+      .eq('run_id', run.id)
+      .eq('stale', false);
     const changed = Math.max(run.changed_count ?? 0, itemCount ?? 0);
     const { error } = await supabaseAdmin
       .from('product_sync_runs')

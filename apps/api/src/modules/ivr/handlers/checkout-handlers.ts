@@ -1267,8 +1267,9 @@ registerHandler('order_summary', async (ctx) => {
 //
 // Re-checking each cart item against Rainforest can take several seconds per
 // item. Doing it all inside a single TelTech webhook risks exceeding the
-// provider's ~10s api_timeout and dropping the call (this is exactly what broke
-// live payments on 2026-06-22). Instead we run the revalidation as a bounded
+// provider's api_timeout (configured to 40s in the TelTech dashboard; Vercel's
+// function max duration is 60s) and dropping the call (an unbounded version of
+// this broke live payments on 2026-06-22). Instead we run the revalidation as a bounded
 // poll loop: `order_confirm` enqueues the work into the call session, then a
 // `checkout_verify_wait` node drains a parallel batch per webhook and redirects
 // back to itself ("please hold") until the queue is empty, finally routing to

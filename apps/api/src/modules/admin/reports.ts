@@ -382,8 +382,14 @@ reportsRouter.get('/product-sync', async (req, res) => {
         stale_reason: i.stale_reason ?? null,
       };
     });
-    const itemCount = items.length;
-    const changed_count = Math.max(r.changed_count ?? 0, itemCount);
+    const unverified_count = items.filter((i: any) => i.stale).length;
+    // Item rows are persisted for real changes AND for stale (unverified) items
+    // so unverified-pricing checkouts stay auditable. Only the non-stale rows
+    // represent an actual price/availability change, so the changed-count
+    // fallback must exclude stale rows (otherwise "N unverified" would also be
+    // double-counted as "N changed").
+    const changedItemCount = items.length - unverified_count;
+    const changed_count = Math.max(r.changed_count ?? 0, changedItemCount);
     let processed_count = r.processed_count ?? 0;
     if (processed_count === 0) {
       if (r.status === 'completed') {
@@ -399,6 +405,7 @@ reportsRouter.get('/product-sync', async (req, res) => {
       total_count: r.total_count,
       processed_count,
       changed_count,
+      unverified_count,
       started_at: r.started_at,
       finished_at: r.finished_at,
       order_id: r.order_id,

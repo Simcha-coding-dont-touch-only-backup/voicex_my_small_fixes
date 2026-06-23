@@ -31,6 +31,7 @@ export interface ProductSyncRun {
   total_count: number;
   processed_count: number;
   changed_count: number;
+  unverified_count: number;
   order_id: number | null;
   user_id: string | null;
   caller_phone: string | null;

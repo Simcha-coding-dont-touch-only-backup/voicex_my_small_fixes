@@ -345,17 +345,22 @@ function syncRunProgress(run: {
   changed_count: number;
   processed_count: number;
   total_count: number;
+  unverified_count?: number;
 }): { label: string; className: string } {
   const total = run.total_count ?? 0;
   const changed = run.changed_count ?? 0;
   const processed = run.processed_count ?? 0;
+  const unverified = run.unverified_count ?? 0;
   const checked =
     total > 0
       ? processed > 0
         ? `${processed} of ${total}`
         : `? of ${total}`
       : String(processed);
-  const label = `${changed} changed · ${checked} checked`;
+  let label = `${changed} changed · ${checked} checked`;
+  if (unverified > 0) {
+    label += ` · ${unverified} unverified`;
+  }
 
   let className = 'text-gray-500';
   if (run.status === 'completed') {
