@@ -17,6 +17,9 @@ export default defineConfig(({ mode }) => {
         process.env.VITE_SUPABASE_ANON_KEY ||
         process.env.SUPABASE_ANON_KEY ||
         '';
+    const solaIfieldsKey = env.VITE_SOLA_IFIELDS_KEY ||
+        process.env.VITE_SOLA_IFIELDS_KEY ||
+        '';
     return {
         plugins: [react()],
         envDir: repoRoot,
@@ -29,6 +32,7 @@ export default defineConfig(({ mode }) => {
         define: {
             'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
             'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
+            'import.meta.env.VITE_SOLA_IFIELDS_KEY': JSON.stringify(solaIfieldsKey),
         },
         server: {
             port: 5173,

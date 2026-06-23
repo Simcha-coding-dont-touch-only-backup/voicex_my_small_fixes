@@ -42,6 +42,12 @@ function buildAmazonCartUrl(order: any, associateTag: string) {
   return `https://www.amazon.com/gp/aws/cart/add.html?${params.toString()}`;
 }
 
+function getPrimaryPhone(user: any) {
+  return user?.user_phones?.find((p: any) => p.is_primary)?.phone_number
+    || user?.user_phones?.[0]?.phone_number
+    || '';
+}
+
 function formatAddress(address: any) {
   if (!address) return '';
   return [
@@ -197,6 +203,7 @@ export function FulfillmentPage() {
               const amazonCartUrl = buildAmazonCartUrl(order, associateTag);
               const hold = (order.order_holds || []).find((h: any) => h.status === 'held');
               const acting = actionOrderId === order.id;
+              const phone = getPrimaryPhone(order.users);
 
               return (
                 <div key={order.id} className="p-6">
@@ -210,7 +217,9 @@ export function FulfillmentPage() {
                         {!hold && <span className="inline-flex items-center gap-1 rounded bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700"><AlertTriangle size={12} /> no held auth</span>}
                       </div>
                       <div className="mt-1 text-sm text-gray-600">
-                        {order.users?.name || 'N/A'} · {formatCents(order.total_cents)} approved · {new Date(order.created_at).toLocaleString()}
+                        {order.users?.name || 'N/A'}
+                        {phone ? ` · ${phone}` : ''}
+                        {' · '}{formatCents(order.total_cents)} approved · {new Date(order.created_at).toLocaleString()}
                       </div>
                     </div>
 
@@ -240,6 +249,16 @@ export function FulfillmentPage() {
                         <Clipboard size={14} />
                         {copied === `note-${order.id}` ? 'Copied' : 'Copy Order Note'}
                       </button>
+                      {phone && (
+                        <button
+                          type="button"
+                          onClick={() => copyText(`phone-${order.id}`, phone)}
+                          className="inline-flex items-center gap-1 rounded border px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          <Clipboard size={14} />
+                          {copied === `phone-${order.id}` ? 'Copied' : 'Copy Phone'}
+                        </button>
+                      )}
                     </div>
                   </div>
 

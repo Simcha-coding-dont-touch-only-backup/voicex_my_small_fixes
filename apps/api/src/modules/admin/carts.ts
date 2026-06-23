@@ -1,7 +1,10 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { supabaseAdmin } from '../../lib/supabase.js';
 
 export const cartsRouter = Router();
+
+const qtySchema = z.object({ quantity: z.coerce.number().int().min(1) });
 
 const CARTS_SORTABLE_COLUMNS = ['created_at', 'status', 'user_id'];
 
@@ -68,6 +71,47 @@ cartsRouter.delete('/:cartId', async (req, res) => {
     return;
   }
   res.json({ success: true });
+});
+
+cartsRouter.patch('/:cartId/items/:itemId', async (req, res) => {
+  const { cartId, itemId } = req.params;
+  const parsed = qtySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: 'Invalid body' });
+    return;
+  }
+
+  const { data: cart } = await supabaseAdmin
+    .from('carts')
+    .select('id, status')
+    .eq('id', cartId)
+    .single();
+  if (!cart) {
+    res.status(404).json({ success: false, error: 'Cart not found' });
+    return;
+  }
+  if (cart.status === 'checked_out') {
+    res.status(400).json({ success: false, error: 'Cannot modify checked out cart' });
+    return;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('cart_items')
+    .update({ quantity: parsed.data.quantity })
+    .eq('id', itemId)
+    .eq('cart_id', cartId)
+    .select()
+    .single();
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+  if (!data) {
+    res.status(404).json({ success: false, error: 'Cart item not found' });
+    return;
+  }
+
+  res.json({ success: true, data });
 });
 
 cartsRouter.delete('/:cartId/items/:itemId', async (req, res) => {

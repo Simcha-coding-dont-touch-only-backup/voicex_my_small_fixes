@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../lib/supabase.js';
-import { solaTokenize } from '../../lib/sola.js';
+import { solaTokenize, last4FromMaskedCardNumber } from '../../lib/sola.js';
 
 export const usersRouter = Router();
 
@@ -437,11 +437,11 @@ usersRouter.delete('/:id/addresses/:addressId', async (req, res) => {
 // ============================================================
 
 usersRouter.post('/:id/payment-methods', async (req, res) => {
-  const { card_number, exp_month, exp_year, cvv, zip, is_default } = req.body;
+  const { card_sut, cvv_sut, exp_month, exp_year, zip, is_default } = req.body;
 
-  const cleanNum = String(card_number || '').replace(/\D/g, '');
-  if (cleanNum.length < 13 || cleanNum.length > 19) {
-    res.status(400).json({ success: false, error: 'Invalid card number' });
+  const cardSut = String(card_sut || '').trim();
+  if (!cardSut) {
+    res.status(400).json({ success: false, error: 'Card token is required' });
     return;
   }
 
@@ -461,12 +461,17 @@ usersRouter.post('/:id/payment-methods', async (req, res) => {
   const expYY = String(yearInt % 100).padStart(2, '0');
   const expCombined = `${expMM}${expYY}`;
 
-  const cleanCvv = cvv ? String(cvv).replace(/\D/g, '') : undefined;
+  const cvvSut = String(cvv_sut || '').trim();
+  if (!cvvSut) {
+    res.status(400).json({ success: false, error: 'CVV token is required' });
+    return;
+  }
+
   const cleanZip = zip ? String(zip).replace(/\D/g, '') : undefined;
 
   let solaResult;
   try {
-    solaResult = await solaTokenize(cleanNum, expCombined, cleanCvv, cleanZip);
+    solaResult = await solaTokenize(cardSut, expCombined, cvvSut, cleanZip);
   } catch (err: any) {
     res.status(502).json({ success: false, error: err?.message || 'Card tokenization failed' });
     return;
@@ -480,7 +485,7 @@ usersRouter.post('/:id/payment-methods', async (req, res) => {
     return;
   }
 
-  const last4 = cleanNum.slice(-4);
+  const last4 = last4FromMaskedCardNumber(solaResult.xMaskedCardNumber);
 
   const { data: savedCard, error } = await supabaseAdmin
     .from('payment_methods')

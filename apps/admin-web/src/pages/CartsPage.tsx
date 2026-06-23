@@ -1,8 +1,9 @@
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiGet, apiDelete } from '../lib/api';
+import { apiGet, apiDelete, apiPatch } from '../lib/api';
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
+import { InlineConfirmPopover } from '../components/InlineConfirmPopover';
 
 interface CartProduct {
   voicex_id: string;
@@ -39,6 +40,11 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export function CartsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingQtyItemId, setEditingQtyItemId] = useState<string | null>(null);
+  const [qtyDraft, setQtyDraft] = useState('');
+  const [savingQty, setSavingQty] = useState(false);
+  const [confirmDeleteCartId, setConfirmDeleteCartId] = useState<string | null>(null);
+  const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
 
   const table = useAdminTableQuery<CartRow>({
     defaultSort: { field: 'created_at', dir: 'desc' },
@@ -64,17 +70,34 @@ export function CartsPage() {
   const cartTotal = (items: CartItemRow[]) =>
     items.reduce((sum, i) => sum + i.quantity * i.unit_price_cents, 0);
 
-  const deleteCart = async (cartId: string) => {
-    if (!window.confirm('Delete this entire cart? The user will have no cart when they call back.')) return;
-    await apiDelete(`/carts/${cartId}`);
-    if (expandedId === cartId) setExpandedId(null);
-    table.refresh();
+  const cancelQtyEdit = () => {
+    setEditingQtyItemId(null);
+    setQtyDraft('');
   };
 
-  const deleteCartItem = async (cartId: string, itemId: string) => {
-    if (!window.confirm('Remove this product from the cart?')) return;
-    await apiDelete(`/carts/${cartId}/items/${itemId}`);
-    table.refresh();
+  const updateCartItemQty = async (cartId: string, itemId: string, currentQty: number) => {
+    const quantity = parseInt(qtyDraft, 10);
+    if (!quantity || quantity < 1) {
+      cancelQtyEdit();
+      return;
+    }
+    if (quantity === currentQty) {
+      cancelQtyEdit();
+      return;
+    }
+
+    setSavingQty(true);
+    try {
+      await apiPatch(`/carts/${cartId}/items/${itemId}`, { quantity });
+      cancelQtyEdit();
+      table.refresh();
+    } catch (err) {
+      alert((err as Error).message || 'Failed to update quantity');
+      setQtyDraft(String(currentQty));
+      setEditingQtyItemId(null);
+    } finally {
+      setSavingQty(false);
+    }
   };
 
   return (
@@ -159,13 +182,34 @@ export function CartsPage() {
                       {new Date(cart.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-3 py-3">
-                      <button
-                        onClick={() => deleteCart(cart.id)}
-                        className="text-gray-400 hover:text-red-600"
-                        title="Delete cart"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="relative inline-block">
+                        <button
+                          type="button"
+                          aria-pressed={confirmDeleteCartId === cart.id}
+                          onClick={() => {
+                            setConfirmDeleteItemId(null);
+                            setConfirmDeleteCartId((current) => (current === cart.id ? null : cart.id));
+                          }}
+                          className={`text-gray-400 hover:text-red-600 ${confirmDeleteCartId === cart.id ? 'text-red-600' : ''}`}
+                          title="Delete cart"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                        <InlineConfirmPopover
+                          open={confirmDeleteCartId === cart.id}
+                          confirmLabel="Delete"
+                          cancelLabel="Cancel"
+                          side="bottom"
+                          align="end"
+                          onCancel={() => setConfirmDeleteCartId(null)}
+                          onConfirm={async () => {
+                            await apiDelete(`/carts/${cart.id}`);
+                            if (expandedId === cart.id) setExpandedId(null);
+                            setConfirmDeleteCartId(null);
+                            table.refresh();
+                          }}
+                        />
+                      </div>
                     </td>
                   </tr>
                   {expanded && items.length > 0 && (() => {
@@ -195,6 +239,7 @@ export function CartsPage() {
                                 <th className="pb-1 pr-4 font-medium">VoiceX ID</th>
                                 <th className="pb-1 pr-4 font-medium">Qty</th>
                                 <th className="pb-1 pr-4 font-medium">Unit Price</th>
+                                <th className="pb-1 pr-4 font-medium">Total</th>
                                 <th className="pb-1 pr-4 font-medium">Retail</th>
                                 <th className="pb-1 pr-4 font-medium">Saving</th>
                                 <th className="pb-1 w-8" />
@@ -212,8 +257,42 @@ export function CartsPage() {
                                   <tr key={item.id} className="text-gray-600">
                                     <td className="py-0.5 pr-4">{item.catalog_products?.voice_name || item.catalog_products?.amazon_name || item.product_id.slice(-8)}</td>
                                     <td className="py-0.5 pr-4 font-mono">{item.catalog_products?.voicex_id || '—'}</td>
-                                    <td className="py-0.5 pr-4">{item.quantity}</td>
+                                    <td className="py-0.5 pr-4">
+                                      {editingQtyItemId === item.id ? (
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          autoFocus
+                                          value={qtyDraft}
+                                          disabled={savingQty}
+                                          className="w-12 rounded border px-1 py-0.5 text-xs"
+                                          onChange={(e) => setQtyDraft(e.target.value)}
+                                          onBlur={() => void updateCartItemQty(cart.id, item.id, item.quantity)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              void updateCartItemQty(cart.id, item.id, item.quantity);
+                                            } else if (e.key === 'Escape') {
+                                              cancelQtyEdit();
+                                            }
+                                          }}
+                                        />
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingQtyItemId(item.id);
+                                            setQtyDraft(String(item.quantity));
+                                          }}
+                                          className="cursor-pointer rounded px-1 hover:bg-indigo-50 hover:text-indigo-600"
+                                          title="Edit quantity"
+                                        >
+                                          {item.quantity}
+                                        </button>
+                                      )}
+                                    </td>
                                     <td className="py-0.5 pr-4">{fmt(charged)}</td>
+                                    <td className="py-0.5 pr-4 font-medium">{fmt(lineCharged)}</td>
                                     <td className="py-0.5 pr-4">
                                       {item.local_price_cents != null ? fmt(item.local_price_cents) : <span className="text-gray-300">—</span>}
                                     </td>
@@ -223,13 +302,33 @@ export function CartsPage() {
                                         : <span className="text-gray-300">—</span>}
                                     </td>
                                     <td className="py-0.5">
-                                      <button
-                                        onClick={() => deleteCartItem(cart.id, item.id)}
-                                        className="text-gray-400 hover:text-red-600"
-                                        title="Remove product"
-                                      >
-                                        <Trash2 size={14} />
-                                      </button>
+                                      <div className="relative inline-block">
+                                        <button
+                                          type="button"
+                                          aria-pressed={confirmDeleteItemId === item.id}
+                                          onClick={() => {
+                                            setConfirmDeleteCartId(null);
+                                            setConfirmDeleteItemId((current) => (current === item.id ? null : item.id));
+                                          }}
+                                          className={`text-gray-400 hover:text-red-600 ${confirmDeleteItemId === item.id ? 'text-red-600' : ''}`}
+                                          title="Remove product"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                        <InlineConfirmPopover
+                                          open={confirmDeleteItemId === item.id}
+                                          confirmLabel="Remove"
+                                          cancelLabel="Cancel"
+                                          side="bottom"
+                                          align="end"
+                                          onCancel={() => setConfirmDeleteItemId(null)}
+                                          onConfirm={async () => {
+                                            await apiDelete(`/carts/${cart.id}/items/${item.id}`);
+                                            setConfirmDeleteItemId(null);
+                                            table.refresh();
+                                          }}
+                                        />
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -237,7 +336,7 @@ export function CartsPage() {
                             </tbody>
                             <tfoot>
                               <tr className="border-t border-gray-200 text-gray-700">
-                                <td colSpan={7} className="pt-2">
+                                <td colSpan={8} className="pt-2">
                                   <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                                     <div>
                                       <span className="text-gray-400">Total Base Price: </span>

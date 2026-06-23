@@ -10,7 +10,7 @@ import { etaInputArraySchema, replaceOrderFulfillmentEtas, sortOrderFulfillmentE
 export const fulfillmentRouter = Router();
 
 const PROVIDERS = ['rye', 'manual'] as const;
-const MANUAL_ORDER_SELECT = '*, users(name, email), addresses(*), order_items(*), order_holds(*), order_fulfillment_etas(*)';
+const MANUAL_ORDER_SELECT = '*, users(name, email, user_phones(phone_number, is_primary)), addresses(*), order_items(*), order_holds(*), order_fulfillment_etas(*)';
 
 const providerSchema = z.object({
   provider: z.enum(PROVIDERS),

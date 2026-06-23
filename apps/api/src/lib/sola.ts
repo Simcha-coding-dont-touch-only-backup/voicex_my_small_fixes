@@ -73,6 +73,8 @@ async function solaRequest<T extends SolaBaseResponse>(payload: Record<string, s
 /**
  * Tokenize a card without processing a transaction.
  * Uses cc:save to get a reusable xToken.
+ * cardNum may be a raw PAN or an iFields single-use token (SUT).
+ * cvv may be a raw CVV or a CVV SUT.
  */
 export async function solaTokenize(
   cardNum: string,
@@ -176,4 +178,11 @@ export async function solaSaleRecurring(
   if (opts?.description) payload.xDescription = opts.description;
 
   return solaRequest<SolaSaleResponse>(payload);
+}
+
+/** Derive last4 from Sola's xMaskedCardNumber (e.g. XXXXXXXXXXXX4242). */
+export function last4FromMaskedCardNumber(masked: string | null | undefined): string {
+  const digits = String(masked || '').replace(/\D/g, '');
+  if (digits.length >= 4) return digits.slice(-4);
+  return '0000';
 }
