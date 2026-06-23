@@ -328,6 +328,29 @@ registerHandler('confirm_qty', async (ctx) => {
     };
   }
 
+  // Only add to cart on an explicit confirm key. Any other input — including no
+  // digits at all, which is what a `*`-back into this handler produces — must
+  // re-render the confirm prompt rather than silently re-running the add. The
+  // earlier success path drops product context from the session, so a bare
+  // re-run here would otherwise fail and surface a spurious add-to-cart error.
+  if (digits !== '1') {
+    return {
+      type: 'actions',
+      response: buildGather({
+        prompt: `You entered a quantity of ${qty}. Press 1 to confirm, or press 2 to re-enter.`,
+        actionPath: '/api/ivr/voice/gather',
+        numDigits: 1,
+        timeout: 10,
+        finishOnKey: '',
+        sessionData: {
+          call_sid: ctx.callSid, user_id: userId,
+          node_key: ctx.node.node_key,
+          product_id: productId, voicex_id: voicexId, qty: qty.toString(),
+        },
+      }),
+    };
+  }
+
   try {
     const { data: product } = await supabaseAdmin
       .from('catalog_products')

@@ -94,6 +94,16 @@ async function logWebhookStep(
 
 const NON_INTERACTIVE_NODE_TYPES = new Set(['entry', 'hangup']);
 
+// Node types that should never become a `*`-back target. `input` nodes are the
+// transient data-collection steps inside a single forward action (enter
+// quantity, confirm quantity, PIN entry, address capture, etc.). Backing into
+// the middle of such a sequence re-runs side-effectful handlers against stale
+// session data, so `*` should instead skip past them to the last real `menu`
+// the caller actually navigated. This is distinct from
+// `NON_INTERACTIVE_NODE_TYPES`, which still governs whether `*`-back is allowed
+// *from* the current node — callers can always back out of an input prompt.
+const NON_BACK_TARGET_NODE_TYPES = new Set(['entry', 'hangup', 'input']);
+
 function extractNodeKeyFromActionUrl(url: string | undefined): string | null {
   if (!url) return null;
   try {
@@ -222,7 +232,7 @@ export async function handleGatherResult(req: Request, res: Response) {
       const parkedNodeKey = extractGatheredNodeKey(captured);
       if (parkedNodeKey) {
         const parkedNode = await ivrRuntime.getNodeByKey(flowVersionId, parkedNodeKey);
-        if (!parkedNode || !NON_INTERACTIVE_NODE_TYPES.has(parkedNode.node_type)) {
+        if (!parkedNode || !NON_BACK_TARGET_NODE_TYPES.has(parkedNode.node_type)) {
           await ivrRuntime.recordMenuVisit(callSid, parkedNodeKey);
         }
       }
