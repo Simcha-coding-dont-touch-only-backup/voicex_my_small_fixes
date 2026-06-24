@@ -5,7 +5,8 @@ export type ProductSyncTrigger =
   | 'manual_full'
   | 'manual_single'
   | 'manual_bulk'
-  | 'checkout';
+  | 'checkout'
+  | 'admin_cart_checkout';
 
 export type ProductHistoryChangeType = 'price' | 'status';
 
@@ -62,6 +63,8 @@ export function productSyncTriggerLabel(trigger: ProductSyncTrigger): string {
       return 'Manual Bulk';
     case 'checkout':
       return 'Checkout';
+    case 'admin_cart_checkout':
+      return 'Admin Cart Checkout';
     default:
       return trigger;
   }

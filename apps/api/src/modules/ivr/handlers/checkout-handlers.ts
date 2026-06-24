@@ -18,6 +18,14 @@ import {
   markItemsStale,
   backfillSyncRunOrder,
 } from '../../../lib/product-sync.js';
+import {
+  loadActiveCartWithPricing,
+  loadUserPricingContext,
+  priceCartItems,
+  pricedLinesByCartItemId,
+  sumPricedLines,
+  getUnpricedCartLineIds,
+} from '../../../lib/cart-pricing.js';
 import type {
   CheckoutCartItem,
   CheckoutRevalidationItemChange,
@@ -28,6 +36,17 @@ import type {
 
 const MAX_STOCK_RETRIES_PER_ITEM = 3;
 const MAX_UNAVAILABLE_RECOVERY_CYCLES = 3;
+
+function unpricedCartResponse(ctx: { callSid: string }, userId: string) {
+  return {
+    type: 'actions' as const,
+    response: buildSay(
+      'One or more items in your cart are no longer available or have no price. Please update your cart and try again.',
+      '/api/ivr/voice/gather',
+      { call_sid: ctx.callSid, user_id: userId, node_key: 'cart_menu' },
+    ),
+  };
+}
 
 async function getActiveFulfillmentProvider(): Promise<FulfillmentProvider> {
   const { data, error } = await supabaseAdmin
@@ -1216,29 +1235,21 @@ registerHandler('order_summary', async (ctx) => {
   const addressId = ctx.sessionData.address_id;
   const paymentMethodId = ctx.sessionData.payment_method_id;
 
-  const { data: cart } = await supabaseAdmin
-    .from('carts').select('id').eq('user_id', userId).eq('status', 'active').single();
-
-  if (!cart) {
+  const loaded = await loadActiveCartWithPricing(userId);
+  if (!loaded) {
     return { type: 'actions', response: buildSay('Your cart is empty.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }) };
   }
 
-  const { data: items } = await supabaseAdmin
-    .from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
-
-  if (!items || items.length === 0) {
-    return { type: 'actions', response: buildSay('Your cart is empty.', '/api/ivr/voice/gather', { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }) };
+  if (getUnpricedCartLineIds(loaded.pricedLines).length > 0) {
+    return unpricedCartResponse(ctx, userId);
   }
 
-  const subtotal = items.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+  const subtotal = sumPricedLines(loaded.pricedLines);
 
-  // Savings = local retail price - what the user actually pays per unit.
-  // For whitelisted users unit_price_cents already equals the base (Amazon) price,
-  // so this gives them "local - base" automatically.
-  const savingsCents = items.reduce(
-    (sum, i) =>
-      sum + getCartItemSavingsCents(i.local_price_cents, i.unit_price_cents, i.quantity),
-    0
+  const savingsCents = loaded.pricedLines.reduce(
+    (sum, line) =>
+      sum + getCartItemSavingsCents(line.localPriceCents, line.unitPriceCents ?? 0, line.quantity),
+    0,
   );
   const savingsLine = savingsCents > 0
     ? ` A total savings of ${formatCurrency(savingsCents)} from the average local retail store pricing.`
@@ -1678,15 +1689,18 @@ registerHandler('final_confirm', async (ctx) => {
     const fulfillmentProvider = await getActiveFulfillmentProvider();
     if (fulfillmentProvider === 'manual') {
       // Revalidation (if enabled) already ran in the checkout_verify_wait poll
-      // loop, which mutated the cart (removed unavailable items, refreshed
-      // prices) and passed forward the spoken announcement + sync run id. The
-      // freshly re-read cartItems above therefore already reflect the verified
-      // state, so we just price them here.
-      const activeItems = cartItems;
+      // loop, which refreshed catalog prices and removed unavailable items.
+      // Cart snapshot rows are unchanged; pricing is always computed live here.
+      const pricingCtx = await loadUserPricingContext(userId);
+      const pricedLines = priceCartItems(cartItems, pricingCtx);
+      if (getUnpricedCartLineIds(pricedLines).length > 0) {
+        return unpricedCartResponse(ctx, userId);
+      }
+
       const revalidationPrefix = ctx.sessionData.revalidation_announcement || '';
       const revalidationRunId = ctx.sessionData.revalidation_run_id || null;
 
-      const subtotal = activeItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+      const subtotal = sumPricedLines(pricedLines);
       const pricing = await calculateManualPricing(subtotal, address.state);
       const shippingStr = pricing.shippingCents > 0
         ? `Shipping is ${formatCurrency(pricing.shippingCents)}. `
@@ -1985,7 +1999,14 @@ registerHandler('final_confirm', async (ctx) => {
       return { type: 'actions', response: buildHangup('We were unable to process your order. Please try again later.') };
     }
 
-    const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+    const pricingCtx = await loadUserPricingContext(userId);
+    const pricedLines = priceCartItems(cartItems, pricingCtx);
+    if (getUnpricedCartLineIds(pricedLines).length > 0) {
+      return unpricedCartResponse(ctx, userId);
+    }
+    const pricedByItemId = pricedLinesByCartItemId(pricedLines);
+
+    const subtotal = sumPricedLines(pricedLines);
     const totalWithFees = subtotal + intentResult.shippingCents + intentResult.taxCents + intentResult.surchareCents;
 
     await logCheckoutEvent({
@@ -1998,16 +2019,20 @@ registerHandler('final_confirm', async (ctx) => {
         customer_subtotal_cents: subtotal,
         customer_total_cents: totalWithFees,
         // Per-item charge breakdown (our markup-based prices).
-        cart_items: cartItems.map((ci) => ({
-          cart_item_id: ci.id,
-          voicex_id: ci.voicex_id,
-          product_name: getProductDisplayName(ci.catalog_products),
-          amazon_url: ci.catalog_products?.amazon_url ?? null,
-          quantity: ci.quantity,
-          unit_price_cents: ci.unit_price_cents,
-          amazon_price_cents: ci.amazon_price_cents,
-          line_total_cents: ci.unit_price_cents * ci.quantity,
-        })),
+        cart_items: cartItems.map((ci) => {
+          const priced = pricedByItemId.get(ci.id);
+          const unitPriceCents = priced?.unitPriceCents ?? 0;
+          return {
+            cart_item_id: ci.id,
+            voicex_id: ci.voicex_id,
+            product_name: getProductDisplayName(ci.catalog_products),
+            amazon_url: ci.catalog_products?.amazon_url ?? null,
+            quantity: ci.quantity,
+            unit_price_cents: unitPriceCents,
+            amazon_price_cents: priced?.amazonPriceCents ?? 0,
+            line_total_cents: unitPriceCents * ci.quantity,
+          };
+        }),
       },
     });
 
@@ -2416,7 +2441,14 @@ registerHandler('checkout_pay', async (ctx) => {
     const { data: cartItems } = await supabaseAdmin.from('cart_items').select('*, catalog_products(*)').eq('cart_id', cart.id);
     if (!cartItems || cartItems.length === 0) throw new Error('Empty cart');
 
-    const subtotal = cartItems.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
+    const pricingCtx = await loadUserPricingContext(userId);
+    const pricedLines = priceCartItems(cartItems, pricingCtx);
+    if (getUnpricedCartLineIds(pricedLines).length > 0) {
+      return unpricedCartResponse(ctx, userId);
+    }
+    const pricedByItemId = pricedLinesByCartItemId(pricedLines);
+
+    const subtotal = sumPricedLines(pricedLines);
     const totalCents = subtotal + shippingCents + taxCents + surchargeCents;
 
     // Same enrich-by-URL helper as in final_confirm so Rye-returned items[]
@@ -2551,16 +2583,19 @@ registerHandler('checkout_pay', async (ctx) => {
       await backfillSyncRunOrder(revalidationRunId, Number(order.id));
     }
 
-    const orderItems = cartItems.map((ci) => ({
-      order_id: String(order.id), product_id: ci.product_id, voicex_id: ci.voicex_id,
-      product_name: getProductDisplayName(ci.catalog_products),
-      quantity: ci.quantity, unit_price_cents: ci.unit_price_cents,
-      amazon_price_cents: ci.amazon_price_cents,
-      amazon_asin: ci.catalog_products?.amazon_asin ?? null,
-      amazon_url: ci.catalog_products?.amazon_url ?? null,
-      local_price_cents: ci.local_price_cents ?? null,
-      markup_percent: ci.markup_percent,
-    }));
+    const orderItems = cartItems.map((ci) => {
+      const priced = pricedByItemId.get(ci.id)!;
+      return {
+        order_id: String(order.id), product_id: ci.product_id, voicex_id: ci.voicex_id,
+        product_name: getProductDisplayName(ci.catalog_products),
+        quantity: ci.quantity, unit_price_cents: priced.unitPriceCents!,
+        amazon_price_cents: priced.amazonPriceCents ?? 0,
+        amazon_asin: ci.catalog_products?.amazon_asin ?? null,
+        amazon_url: ci.catalog_products?.amazon_url ?? null,
+        local_price_cents: priced.localPriceCents,
+        markup_percent: priced.markupPercent,
+      };
+    });
 
     await supabaseAdmin.from('order_items').insert(orderItems);
     await supabaseAdmin.from('order_events').insert({

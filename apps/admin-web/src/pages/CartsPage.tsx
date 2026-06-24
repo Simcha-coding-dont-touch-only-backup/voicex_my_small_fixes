@@ -1,9 +1,10 @@
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet, apiDelete, apiPatch } from '../lib/api';
-import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2, ShoppingCart } from 'lucide-react';
 import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
 import { InlineConfirmPopover } from '../components/InlineConfirmPopover';
+import { AdminCartCheckoutModal } from '../components/AdminCartCheckoutModal';
 
 interface CartProduct {
   voicex_id: string;
@@ -18,6 +19,11 @@ interface CartItemRow {
   unit_price_cents: number;
   amazon_price_cents: number;
   local_price_cents: number | null;
+  markup_percent: number;
+  live_unit_price_cents: number | null;
+  live_amazon_price_cents: number | null;
+  live_local_price_cents: number | null;
+  live_markup_percent: number;
   catalog_products: CartProduct | null;
 }
 
@@ -31,11 +37,28 @@ interface CartRow {
   user_id: string;
   status: string;
   created_at: string;
-  users: { name: string; email: string; is_whitelisted: boolean; user_phones: UserPhone[] } | null;
+  live_total_cents?: number;
+  users: {
+    name: string;
+    email: string;
+    is_whitelisted: boolean;
+    custom_markup_percent: number | null;
+    user_phones: UserPhone[];
+  } | null;
   cart_items: CartItemRow[];
 }
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+function userMarkupBadge(user: CartRow['users']) {
+  if (user?.is_whitelisted) {
+    return { label: 'Whitelisted', className: 'bg-amber-100 text-amber-700' };
+  }
+  if (user?.custom_markup_percent != null) {
+    return { label: `${user.custom_markup_percent}%`, className: 'bg-indigo-100 text-indigo-700' };
+  }
+  return { label: 'Regular', className: 'bg-slate-100 text-slate-600' };
+}
 
 export function CartsPage() {
   const [statusFilter, setStatusFilter] = useState('');
@@ -45,6 +68,7 @@ export function CartsPage() {
   const [savingQty, setSavingQty] = useState(false);
   const [confirmDeleteCartId, setConfirmDeleteCartId] = useState<string | null>(null);
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
+  const [checkoutCart, setCheckoutCart] = useState<CartRow | null>(null);
 
   const table = useAdminTableQuery<CartRow>({
     defaultSort: { field: 'created_at', dir: 'desc' },
@@ -67,8 +91,11 @@ export function CartsPage() {
   const carts = table.rows;
   const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
 
-  const cartTotal = (items: CartItemRow[]) =>
-    items.reduce((sum, i) => sum + i.quantity * i.unit_price_cents, 0);
+  const cartTotal = (cart: CartRow, items: CartItemRow[]) =>
+    cart.live_total_cents ?? items.reduce((sum, i) => {
+      if (i.live_unit_price_cents == null) return sum;
+      return sum + i.quantity * i.live_unit_price_cents;
+    }, 0);
 
   const cancelQtyEdit = () => {
     setEditingQtyItemId(null);
@@ -134,6 +161,7 @@ export function CartsPage() {
             {carts.map((cart) => {
               const expanded = expandedId === cart.id;
               const items = cart.cart_items || [];
+              const markupBadge = userMarkupBadge(cart.users);
               return (
                 <Fragment key={cart.id}>
                   <tr className="border-b hover:bg-gray-50">
@@ -159,16 +187,12 @@ export function CartsPage() {
                           || cart.users?.user_phones?.[0]?.phone_number
                           || cart.users?.email || ''}
                       </div>
-                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        cart.users?.is_whitelisted
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {cart.users?.is_whitelisted ? 'Whitelisted' : 'Regular'}
+                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${markupBadge.className}`}>
+                        {markupBadge.label}
                       </span>
                     </td>
                     <td className="px-6 py-3 text-gray-500">{items.length}</td>
-                    <td className="px-6 py-3">${(cartTotal(items) / 100).toFixed(2)}</td>
+                    <td className="px-6 py-3">${(cartTotal(cart, items) / 100).toFixed(2)}</td>
                     <td className="px-6 py-3">
                       <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                         cart.status === 'active'
@@ -182,46 +206,60 @@ export function CartsPage() {
                       {new Date(cart.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-3 py-3">
-                      <div className="relative inline-block">
-                        <button
-                          type="button"
-                          aria-pressed={confirmDeleteCartId === cart.id}
-                          onClick={() => {
-                            setConfirmDeleteItemId(null);
-                            setConfirmDeleteCartId((current) => (current === cart.id ? null : cart.id));
-                          }}
-                          className={`text-gray-400 hover:text-red-600 ${confirmDeleteCartId === cart.id ? 'text-red-600' : ''}`}
-                          title="Delete cart"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                        <InlineConfirmPopover
-                          open={confirmDeleteCartId === cart.id}
-                          confirmLabel="Delete"
-                          cancelLabel="Cancel"
-                          side="bottom"
-                          align="end"
-                          onCancel={() => setConfirmDeleteCartId(null)}
-                          onConfirm={async () => {
-                            await apiDelete(`/carts/${cart.id}`);
-                            if (expandedId === cart.id) setExpandedId(null);
-                            setConfirmDeleteCartId(null);
-                            table.refresh();
-                          }}
-                        />
+                      <div className="flex items-center gap-1">
+                        {cart.status === 'active' && items.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmDeleteCartId(null);
+                              setConfirmDeleteItemId(null);
+                              setCheckoutCart(cart);
+                            }}
+                            className="text-gray-400 hover:text-indigo-600"
+                            title="Checkout for customer"
+                          >
+                            <ShoppingCart size={16} />
+                          </button>
+                        )}
+                        <div className="relative inline-block">
+                          <button
+                            type="button"
+                            aria-pressed={confirmDeleteCartId === cart.id}
+                            onClick={() => {
+                              setConfirmDeleteItemId(null);
+                              setConfirmDeleteCartId((current) => (current === cart.id ? null : cart.id));
+                            }}
+                            className={`text-gray-400 hover:text-red-600 ${confirmDeleteCartId === cart.id ? 'text-red-600' : ''}`}
+                            title="Delete cart"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                          <InlineConfirmPopover
+                            open={confirmDeleteCartId === cart.id}
+                            confirmLabel="Delete"
+                            cancelLabel="Cancel"
+                            side="bottom"
+                            align="end"
+                            onCancel={() => setConfirmDeleteCartId(null)}
+                            onConfirm={async () => {
+                              await apiDelete(`/carts/${cart.id}`);
+                              if (expandedId === cart.id) setExpandedId(null);
+                              setConfirmDeleteCartId(null);
+                              table.refresh();
+                            }}
+                          />
+                        </div>
                       </div>
                     </td>
                   </tr>
                   {expanded && items.length > 0 && (() => {
-                    const isWhitelisted = !!cart.users?.is_whitelisted;
                     let totalBase = 0;
                     let totalMarkedUp = 0;
                     let totalRetail = 0;
                     for (const it of items) {
-                      const base = it.amazon_price_cents * it.quantity;
-                      // For whitelisted users they pay base price; everyone else pays unit_price_cents (marked-up).
-                      const charged = (isWhitelisted ? it.amazon_price_cents : it.unit_price_cents) * it.quantity;
-                      const retail = (it.local_price_cents ?? 0) * it.quantity;
+                      const base = (it.live_amazon_price_cents ?? 0) * it.quantity;
+                      const charged = (it.live_unit_price_cents ?? 0) * it.quantity;
+                      const retail = (it.live_local_price_cents ?? 0) * it.quantity;
                       totalBase += base;
                       totalMarkedUp += charged;
                       totalRetail += retail;
@@ -239,6 +277,7 @@ export function CartsPage() {
                                 <th className="pb-1 pr-4 font-medium">VoiceX ID</th>
                                 <th className="pb-1 pr-4 font-medium">Qty</th>
                                 <th className="pb-1 pr-4 font-medium">Unit Price</th>
+                                <th className="pb-1 pr-4 font-medium">Snapshot</th>
                                 <th className="pb-1 pr-4 font-medium">Total</th>
                                 <th className="pb-1 pr-4 font-medium">Retail</th>
                                 <th className="pb-1 pr-4 font-medium">Saving</th>
@@ -247,12 +286,13 @@ export function CartsPage() {
                             </thead>
                             <tbody>
                               {items.map((item) => {
-                                const charged = isWhitelisted ? item.amazon_price_cents : item.unit_price_cents;
-                                const lineCharged = charged * item.quantity;
-                                const lineRetail = (item.local_price_cents ?? 0) * item.quantity;
-                                const lineSavings = item.local_price_cents != null
+                                const unitPrice = item.live_unit_price_cents;
+                                const lineCharged = (unitPrice ?? 0) * item.quantity;
+                                const lineRetail = (item.live_local_price_cents ?? 0) * item.quantity;
+                                const lineSavings = item.live_local_price_cents != null && unitPrice != null
                                   ? Math.max(0, lineRetail - lineCharged)
                                   : null;
+                                const snapshotDiffers = unitPrice != null && unitPrice !== item.unit_price_cents;
                                 return (
                                   <tr key={item.id} className="text-gray-600">
                                     <td className="py-0.5 pr-4">{item.catalog_products?.voice_name || item.catalog_products?.amazon_name || item.product_id.slice(-8)}</td>
@@ -291,10 +331,15 @@ export function CartsPage() {
                                         </button>
                                       )}
                                     </td>
-                                    <td className="py-0.5 pr-4">{fmt(charged)}</td>
+                                    <td className="py-0.5 pr-4">
+                                      {unitPrice != null ? fmt(unitPrice) : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className={`py-0.5 pr-4 ${snapshotDiffers ? 'text-amber-600' : 'text-gray-400'}`}>
+                                      {fmt(item.unit_price_cents)}
+                                    </td>
                                     <td className="py-0.5 pr-4 font-medium">{fmt(lineCharged)}</td>
                                     <td className="py-0.5 pr-4">
-                                      {item.local_price_cents != null ? fmt(item.local_price_cents) : <span className="text-gray-300">—</span>}
+                                      {item.live_local_price_cents != null ? fmt(item.live_local_price_cents) : <span className="text-gray-300">—</span>}
                                     </td>
                                     <td className="py-0.5 pr-4">
                                       {lineSavings != null && lineSavings > 0
@@ -336,7 +381,7 @@ export function CartsPage() {
                             </tbody>
                             <tfoot>
                               <tr className="border-t border-gray-200 text-gray-700">
-                                <td colSpan={8} className="pt-2">
+                                <td colSpan={9} className="pt-2">
                                   <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                                     <div>
                                       <span className="text-gray-400">Total Base Price: </span>
@@ -398,6 +443,15 @@ export function CartsPage() {
           itemLabelPlural="Carts"
         />
       </div>
+
+      {checkoutCart && (
+        <AdminCartCheckoutModal
+          cartId={checkoutCart.id}
+          userName={checkoutCart.users?.name || checkoutCart.users?.email || 'Customer'}
+          onClose={() => setCheckoutCart(null)}
+          onComplete={() => table.refresh()}
+        />
+      )}
     </div>
   );
 }

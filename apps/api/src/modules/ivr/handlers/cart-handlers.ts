@@ -4,29 +4,27 @@ import { buildGather, buildGatherFromNode, buildSay, formatCurrency } from '../.
 import { normalizeInput, normalizeVoicexId } from '../../teltech/input-normalizer.js';
 import { getProductDisplayName } from '@voicex/shared';
 import { ivrRuntime } from '../runtime.js';
+import { loadActiveCartWithPricing } from '../../../lib/cart-pricing.js';
 
 async function getCartSummary(userId: string) {
-  const { data: cart } = await supabaseAdmin
-    .from('carts')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .single();
+  const loaded = await loadActiveCartWithPricing(userId);
+  if (!loaded) return null;
 
-  if (!cart) return null;
+  const itemCount = loaded.items.length;
+  const totalQty = loaded.items.reduce((sum, i) => sum + i.quantity, 0);
+  const totalCents = loaded.pricedLines.reduce((sum, line) => {
+    if (line.unitPriceCents == null) return sum;
+    return sum + line.unitPriceCents * line.quantity;
+  }, 0);
 
-  const { data: items } = await supabaseAdmin
-    .from('cart_items')
-    .select('*, catalog_products(*)')
-    .eq('cart_id', cart.id);
-
-  if (!items || items.length === 0) return null;
-
-  const itemCount = items.length;
-  const totalQty = items.reduce((sum, i) => sum + i.quantity, 0);
-  const totalCents = items.reduce((sum, i) => sum + i.unit_price_cents * i.quantity, 0);
-
-  return { cartId: cart.id, items, itemCount, totalQty, totalCents };
+  return {
+    cartId: loaded.cart.id,
+    items: loaded.items,
+    pricedByItemId: loaded.pricedByItemId,
+    itemCount,
+    totalQty,
+    totalCents,
+  };
 }
 
 registerHandler('cart_summary', async (ctx) => {
@@ -119,8 +117,14 @@ registerHandler('cart_list', async (ctx) => {
   }
 
   const lines = summary.items.map((item: any, idx: number) => {
-    const name = getProductDisplayName(item.catalog_products);
-    return `Item ${idx + 1}: ${name}, quantity ${item.quantity}, at ${formatCurrency(item.unit_price_cents)} each`;
+    const name = item.catalog_products
+      ? getProductDisplayName(item.catalog_products)
+      : item.voicex_id || 'Unknown Product';
+    const priced = summary.pricedByItemId.get(item.id);
+    const unitStr = priced?.unitPriceCents != null
+      ? formatCurrency(priced.unitPriceCents)
+      : 'price unavailable';
+    return `Item ${idx + 1}: ${name}, quantity ${item.quantity}, at ${unitStr} each`;
   });
 
   return {
@@ -314,7 +318,9 @@ registerHandler('cart_remove_id', async (ctx) => {
     };
   }
 
-  const name = getProductDisplayName(item.catalog_products);
+  const name = item.catalog_products
+    ? getProductDisplayName(item.catalog_products)
+    : item.voicex_id || 'this item';
   const nextNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'found');
 
   if (nextNode) {

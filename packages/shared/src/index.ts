@@ -1,6 +1,7 @@
 export * from './types/user.js';
 export * from './types/catalog.js';
 export * from './types/cart.js';
+export * from './cart-pricing.js';
 export * from './types/order.js';
 export * from './types/return.js';
 export * from './types/subscription.js';

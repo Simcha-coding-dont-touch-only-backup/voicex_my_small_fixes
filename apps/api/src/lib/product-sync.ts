@@ -1174,10 +1174,9 @@ async function lookupItemsParallel(
 
 /**
  * Phase 2 (sequential, deterministic): apply each looked-up item's outcome -
- * remove unavailable items, write refreshed prices, and accumulate the
- * change/stale/remaining lists in cart order. Mutates the passed accumulator
- * arrays. Returns the per-item `ProductSyncResult`s so the caller can record
- * them on a sync run.
+ * remove unavailable items, refresh catalog pricing, and accumulate the
+ * change/stale/remaining lists in cart order. Cart snapshot rows are not
+ * mutated; live customer prices are derived from catalog + user markup.
  */
 async function applyItemRevalidations(
   looked: ItemRevalidation[],
@@ -1194,9 +1193,12 @@ async function applyItemRevalidations(
   for (const { item, productName, result, refreshed } of looked) {
     results.push(result);
 
-    // Fresh pricing could not be verified (timeout / API error). Keep the item
-    // in the order at its cached price so the call is never dropped, but record
-    // it as stale for later review.
+    const catalogBefore = (item.catalog_products as CatalogProduct | null) ?? null;
+    const oldLive =
+      catalogBefore?.status === 'active'
+        ? getProductPriceCents(catalogBefore, markupPercent, isWhitelisted)
+        : null;
+
     if (result.stale) {
       acc.stale.push({
         cartItemId: item.id,
@@ -1204,7 +1206,11 @@ async function applyItemRevalidations(
         productName,
         reason: result.staleReason || 'Price not verified',
       });
-      acc.remainingItems.push({ ...item });
+      acc.remainingItems.push({
+        ...item,
+        unit_price_cents: oldLive ?? item.unit_price_cents,
+        catalog_products: catalogBefore,
+      });
       continue;
     }
 
@@ -1214,32 +1220,28 @@ async function applyItemRevalidations(
       continue;
     }
 
-    let newUnitPrice = item.unit_price_cents;
-    if (refreshed) {
-      const computed = getProductPriceCents(refreshed, markupPercent, isWhitelisted);
-      if (computed != null) newUnitPrice = computed;
-    }
+    const catalogAfter = refreshed ?? catalogBefore;
+    const newLive =
+      catalogAfter?.status === 'active'
+        ? getProductPriceCents(catalogAfter, markupPercent, isWhitelisted)
+        : null;
 
-    if (newUnitPrice !== item.unit_price_cents) {
-      await supabaseAdmin
-        .from('cart_items')
-        .update({
-          unit_price_cents: newUnitPrice,
-          amazon_price_cents: refreshed?.amazon_price_cents ?? item.catalog_products?.amazon_price_cents ?? 0,
-        })
-        .eq('id', item.id);
-
+    if (oldLive != null && newLive != null && newLive !== oldLive) {
       acc.priceChanges.push({
         cartItemId: item.id,
         productId: item.product_id,
         productName,
-        oldUnitPriceCents: item.unit_price_cents,
-        newUnitPriceCents: newUnitPrice,
-        direction: newUnitPrice > item.unit_price_cents ? 'up' : 'down',
+        oldUnitPriceCents: oldLive,
+        newUnitPriceCents: newLive,
+        direction: newLive > oldLive ? 'up' : 'down',
       });
     }
 
-    acc.remainingItems.push({ ...item, unit_price_cents: newUnitPrice });
+    acc.remainingItems.push({
+      ...item,
+      unit_price_cents: newLive ?? item.unit_price_cents,
+      catalog_products: catalogAfter,
+    });
   }
   return results;
 }
@@ -1324,23 +1326,32 @@ export function markItemsStale(items: CheckoutCartItem[], reason: string): Reval
 }
 
 /**
- * Persist a finished checkout revalidation as a `checkout`-trigger sync run when
- * anything changed or any item was stale, so unverified-pricing checkouts are
- * always auditable in the Product Sync report. Returns the run id (or null).
+ * Persist a finished checkout revalidation as a sync run. For IVR `checkout`,
+ * only records when something changed or stale. For `admin_cart_checkout`,
+ * always records so admin-initiated checks are auditable.
  */
+export interface CheckoutSyncRunOptions {
+  trigger?: ProductSyncTrigger;
+  actor?: SyncActor;
+}
+
 export async function recordCheckoutSyncRun(
   context: CheckoutRevalidationContext,
   totalItems: number,
   results: ProductSyncResult[],
   changedCount: number,
   staleCount: number,
+  options?: CheckoutSyncRunOptions,
 ): Promise<string | null> {
-  const shouldRecordRun = changedCount > 0 || staleCount > 0;
+  const trigger = options?.trigger ?? 'checkout';
+  const actor = options?.actor ?? CHECKOUT_ACTOR;
+  const shouldRecordRun =
+    trigger === 'admin_cart_checkout' || changedCount > 0 || staleCount > 0;
   if (!shouldRecordRun) return null;
 
   const runId = await createSyncRun({
-    trigger: 'checkout',
-    actor: CHECKOUT_ACTOR,
+    trigger,
+    actor,
     total: totalItems,
     userId: context.userId,
     callerPhone: context.callerPhone,
@@ -1367,6 +1378,7 @@ export async function recordCheckoutSyncRun(
 export async function revalidateCartAtCheckout(
   cartItems: CheckoutCartItem[],
   context: CheckoutRevalidationContext,
+  options?: CheckoutSyncRunOptions,
 ): Promise<CheckoutRevalidationResult> {
   const concurrency = config.priceSync.checkout.concurrency;
   const batch = await revalidateCartBatch(cartItems, context, concurrency);
@@ -1378,6 +1390,7 @@ export async function revalidateCartAtCheckout(
     batch.results,
     batch.priceChanges.length + batch.unavailable.length,
     batch.stale.length,
+    options,
   );
 
   return {

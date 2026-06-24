@@ -116,6 +116,7 @@ export function ReportsPage() {
                 <option value="manual_single">Manual Single</option>
                 <option value="manual_bulk">Manual Bulk</option>
                 <option value="checkout">Checkout</option>
+                <option value="admin_cart_checkout">Admin Cart Checkout</option>
               </select>
             </div>
           )}
@@ -328,6 +329,7 @@ function triggerBadgeClass(trigger: ProductSyncTrigger): string {
     case 'auto':
       return 'bg-purple-100 text-purple-700';
     case 'checkout':
+    case 'admin_cart_checkout':
       return 'bg-blue-100 text-blue-700';
     default:
       return 'bg-gray-100 text-gray-600';
@@ -385,7 +387,7 @@ function ProductSyncTable({ data }: { data: any[] }) {
               {productSyncTriggerLabel(run.trigger)}
             </span>
             <span className="text-xs text-gray-500">by {sourceLabel(run)}</span>
-            {run.trigger === 'checkout' && (
+            {(run.trigger === 'checkout' || run.trigger === 'admin_cart_checkout') && (
               <span className="text-xs text-gray-500">
                 {run.customer_name || 'Customer'}
                 {run.customer_phone ? ` · ${run.customer_phone}` : ''}
