@@ -10,7 +10,7 @@ const RETURNS_SORTABLE_COLUMNS = ['created_at', 'status', 'id', 'order_id', 'ite
 const RETURN_LIST_SELECT =
   '*, users(name, email), orders(id, created_at, status), order_return_items(quantity, unit_price_cents), order_return_fees(amount_cents)';
 const RETURN_DETAIL_SELECT =
-  '*, users(name, email), orders(id, created_at, status, subtotal_cents, shipping_cents, tax_cents, total_cents), order_return_items(*), order_return_fees(*)';
+  '*, users(name, email), orders(id, created_at, status, subtotal_cents, shipping_cents, tax_cents, total_cents, external_order_id), order_return_items(*), order_return_fees(*)';
 
 /** Return ids are a BIGINT sequence (start 50001); accept any positive integer. */
 function returnIdFromParam(raw: string | undefined): string | null {

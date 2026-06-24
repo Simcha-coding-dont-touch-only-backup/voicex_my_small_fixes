@@ -360,6 +360,19 @@ function ReturnDetailModal({
               <div><span className="text-gray-500">Customer:</span> <Link to={`/admin/users/${data.user_id}`} className="text-indigo-600 hover:underline">{data.users?.name || 'N/A'}</Link></div>
               <div><span className="text-gray-500">Source:</span> {data.source}</div>
               <div><span className="text-gray-500">Created:</span> {new Date(data.created_at).toLocaleString()}</div>
+              {data.orders?.external_order_id && (
+                <div>
+                  <span className="text-gray-500">Amazon Order:</span>{' '}
+                  <a
+                    href={`https://www.amazon.com/gp/css/order-details?orderID=${encodeURIComponent(data.orders.external_order_id)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-indigo-600 hover:underline"
+                  >
+                    {data.orders.external_order_id}
+                  </a>
+                </div>
+              )}
             </div>
 
             <div className="overflow-x-auto rounded-lg border">

@@ -61,7 +61,7 @@ export function OrderDetailPage() {
             <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Tax</dt><dd>${(order.tax_cents / 100).toFixed(2)}</dd></div>
             <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Total</dt><dd className="font-bold">${(order.total_cents / 100).toFixed(2)}</dd></div>
             <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Fulfillment</dt><dd>{order.fulfillment_provider || 'rye'}{order.fulfillment_status && order.fulfillment_status !== 'none' ? ` · ${order.fulfillment_status}` : ''}</dd></div>
-            {order.external_order_id && <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">External Order</dt><dd className="font-mono">{order.external_order_id}</dd></div>}
+            {order.external_order_id && <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">External Order</dt><dd className="font-mono"><a href={`https://www.amazon.com/gp/css/order-details?orderID=${encodeURIComponent(order.external_order_id)}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">{order.external_order_id}</a></dd></div>}
             <div className="flex gap-2"><dt className="font-medium text-gray-500 w-32">Date</dt><dd>{new Date(order.created_at).toLocaleString()}</dd></div>
           </dl>
 
