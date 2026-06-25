@@ -5,6 +5,22 @@ import type { TeltechResponse, TeltechCollectAction, TeltechGatherAction } from 
 const BASE = config.apiBaseUrl;
 
 /**
+ * Resolve the gather timeout (in seconds) for a node. The node's editor-set
+ * `config.timeout_seconds` always wins when present so changes made in the IVR
+ * flow editor actually take effect; otherwise we fall back to the caller's
+ * per-prompt default (e.g. a longer window for card entry, a shorter one for a
+ * re-prompt). Pass `undefined`/`null` for `node` when there is no node context
+ * and only the fallback should apply.
+ */
+export function resolveNodeTimeout(
+  node: { config?: { timeout_seconds?: number } } | null | undefined,
+  fallbackSeconds: number,
+): number {
+  const configured = node?.config?.timeout_seconds;
+  return typeof configured === 'number' && configured > 0 ? configured : fallbackSeconds;
+}
+
+/**
  * Sanitize text for TelTech TTS (FreeSWITCH say action).
  * Strips characters that can break or silence TTS output:
  * - Double quotes / smart quotes (e.g. 12" Melamine)

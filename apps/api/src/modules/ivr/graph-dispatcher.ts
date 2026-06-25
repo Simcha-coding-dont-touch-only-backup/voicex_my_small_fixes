@@ -1,9 +1,45 @@
 import type { Request, Response } from 'express';
 import { ivrRuntime } from './runtime.js';
 import { getHandler } from './handler-registry.js';
-import { buildMenuFromNode, buildGather, buildHangup, buildSay } from '../teltech/teltech-builder.js';
+import { buildMenuFromNode, buildGather, buildHangup, buildSay, resolveNodeTimeout } from '../teltech/teltech-builder.js';
 import { normalizeInput } from '../teltech/input-normalizer.js';
 import type { HandlerContext } from './handler-registry.js';
+import type { TeltechResponse } from '../../lib/teltech.js';
+
+function extractNodeKeyFromActionUrl(actionUrl: string | undefined): string | null {
+  if (!actionUrl) return null;
+  try {
+    return new URL(actionUrl).searchParams.get('node_key');
+  } catch {
+    const match = actionUrl.match(/[?&]node_key=([^&]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+}
+
+/**
+ * Make the IVR flow editor the source of truth for gather timeouts. Handlers
+ * build gathers with their own per-prompt fallback timeout, but if the outgoing
+ * node (the one the caller's next keypress routes to) has an editor-configured
+ * `timeout_seconds`, that value wins. This is applied centrally here so every
+ * handler-driven gather honors the editor without each call site having to read
+ * the node config.
+ */
+async function applyNodeTimeoutOverrides(
+  response: TeltechResponse,
+  flowVersionId: string,
+): Promise<void> {
+  if (!response?.actions) return;
+  for (const action of response.actions) {
+    if (action.action !== 'gather') continue;
+    const outgoingNodeKey = extractNodeKeyFromActionUrl(action.action_url);
+    if (!outgoingNodeKey) continue;
+    const node = await ivrRuntime.getNodeByKey(flowVersionId, outgoingNodeKey);
+    const configured = node?.config?.timeout_seconds;
+    if (typeof configured === 'number' && configured > 0) {
+      action.timeout = resolveNodeTimeout(node, configured) * 1000;
+    }
+  }
+}
 
 export async function dispatchNode(
   req: Request,
@@ -45,6 +81,7 @@ export async function dispatchNode(
 
       try {
         const result = await handler(ctx);
+        await applyNodeTimeoutOverrides(result.response, flowVersionId);
         res.json(result.response);
         return;
       } catch (error) {

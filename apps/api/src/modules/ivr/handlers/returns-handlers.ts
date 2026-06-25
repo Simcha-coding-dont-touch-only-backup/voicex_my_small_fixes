@@ -38,6 +38,9 @@ function gather(prompt: string, sessionData: Record<string, string>, opts?: { nu
       actionPath: GATHER_PATH,
       numDigits: opts?.numDigits,
       finishOnKey: opts?.finishOnKey,
+      // The editor-configured `timeout_seconds` on the outgoing node is applied
+      // centrally in dispatchNode (see applyNodeTimeoutOverrides). The value
+      // here is only the fallback when the node has no configured timeout.
       timeout: opts?.timeout ?? 10,
       tries: opts?.tries,
       sessionData,
