@@ -4,6 +4,30 @@ import { registerHandler } from '../handler-registry.js';
 import { buildGather, buildGatherFromNode, buildCollect, buildHangup, buildSay } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
 
+/**
+ * Build a word-by-word spell-out of a name for the TTS confirmation readback so
+ * the caller can verify the transcribed spelling. Each word is announced, then
+ * its letters are read one at a time, e.g. "Bob Raven" becomes
+ * "Bob, B, O, B. Raven, R, A, V, E, N". Letters are separated by commas (which
+ * TTS reads as short pauses) so the engine reads them individually instead of
+ * pronouncing the word. Only the registration name intake uses this.
+ */
+function spellNameForReadback(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0)
+    .map((word) => {
+      const letters = word
+        .split('')
+        .filter((char) => /[A-Za-z0-9]/.test(char))
+        .map((char) => char.toUpperCase())
+        .join(', ');
+      return letters ? `${word}, ${letters}` : word;
+    })
+    .join('. ');
+}
+
 registerHandler('capture_name', async (ctx) => {
   const fieldTranscript = ctx.req.body.field_transcript;
   const fieldValue = ctx.req.body.field_value;
@@ -17,8 +41,9 @@ registerHandler('capture_name', async (ctx) => {
         type: 'recording',
         id: 'caller_name',
         prompt: 'Please say your full name after the beep, then press pound.',
-        confirm: true,
-        confirmMethod: 'transcribe',
+        // Confirmation is handled by our own register_name_confirm step (with a
+        // word-by-word spell-out), so TelTech's built-in readback is disabled.
+        confirm: false,
         transcribe: true,
         retry: 3,
         maxDuration: 10,
@@ -34,19 +59,23 @@ registerHandler('capture_name', async (ctx) => {
     state_data: { registration_name: trimmedName },
   });
 
-  // TelTech's collect with confirm:true already handled confirmation,
-  // so skip register_name_confirm and go straight to register_pin.
-  const pinNode = await ivrRuntime.getNodeByKey(ctx.flowVersionId, 'register_pin');
+  // Own the confirmation step so we can spell the name back word by word and
+  // letter by letter, letting the caller verify the transcribed spelling.
+  const confirmNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
+  const spelled = spellNameForReadback(trimmedName);
   return {
     type: 'actions',
     response: buildGather({
-      prompt: pinNode?.prompt_text || 'Please enter a 4 digit PIN that you will use to access your account.',
+      prompt: `${spelled}. Press 1 to confirm, or press 2 to re-enter.`,
       actionPath: '/api/ivr/voice/gather',
-      numDigits: 4,
-      timeout: 15,
+      numDigits: 1,
+      timeout: 10,
       finishOnKey: '',
-      regex: '[0-9]+',
-      sessionData: { call_sid: ctx.callSid, node_key: 'register_pin', name: trimmedName },
+      sessionData: {
+        call_sid: ctx.callSid,
+        node_key: confirmNode?.node_key || 'register_name_confirm',
+        name: trimmedName,
+      },
     }),
   };
 });
@@ -55,21 +84,42 @@ registerHandler('confirm_name', async (ctx) => {
   const digits = ctx.req.body.digits;
   const name = ctx.sessionData.name;
 
-  if (digits === '2' || !digits) {
-    const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
+  // Only `1` confirms. `2` (or no input, e.g. a timeout) re-records the name.
+  // Any other keypress — `#`, `0`, `3`-`9`, or a misfire like `1*2` — is
+  // invalid here and must re-prompt rather than fall through to PIN entry.
+  if (digits !== '1') {
+    const isReRecord = digits === '2' || !digits;
+    if (isReRecord) {
+      const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
+      return {
+        type: 'actions',
+        response: buildCollect({
+          type: 'recording',
+          id: 'caller_name',
+          prompt: 'Please say your full name after the beep, then press pound.',
+          // Re-recorded names go back through register_name_confirm for our own
+          // spell-out, so TelTech's built-in readback stays off here too.
+          confirm: false,
+          transcribe: true,
+          retry: 3,
+          maxDuration: 10,
+          actionPath: '/api/ivr/voice/gather',
+          sessionData: { call_sid: ctx.callSid, node_key: retryNode?.node_key || 'register_name' },
+        }),
+      };
+    }
+
+    // Invalid keypress: re-read the spelled-out name and ask again.
+    const spelled = name ? spellNameForReadback(name) : '';
     return {
       type: 'actions',
-      response: buildCollect({
-        type: 'recording',
-        id: 'caller_name',
-        prompt: 'Please say your full name after the beep, then press pound.',
-        confirm: true,
-        confirmMethod: 'transcribe',
-        transcribe: true,
-        retry: 3,
-        maxDuration: 10,
+      response: buildGather({
+        prompt: `${spelled ? `${spelled}. ` : ''}Sorry, I didn't get that. Press 1 to confirm, or press 2 to re-enter.`,
         actionPath: '/api/ivr/voice/gather',
-        sessionData: { call_sid: ctx.callSid, node_key: retryNode?.node_key || 'register_name' },
+        numDigits: 1,
+        timeout: 10,
+        finishOnKey: '',
+        sessionData: { call_sid: ctx.callSid, node_key: ctx.node.node_key, name: name || '' },
       }),
     };
   }
