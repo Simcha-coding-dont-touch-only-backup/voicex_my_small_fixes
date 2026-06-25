@@ -295,6 +295,11 @@ usersRouter.delete('/:id/hard', async (req, res) => {
     .update({ user_id: null })
     .eq('user_id', userId);
 
+  await supabaseAdmin
+    .from('checkout_events')
+    .update({ user_id: null })
+    .eq('user_id', userId);
+
   const { error } = await supabaseAdmin
     .from('users')
     .delete()
