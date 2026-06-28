@@ -23,6 +23,8 @@ const alertStatusZod = z.enum(['new', 'reviewing', 'resolved']);
 const alertTypeZod = z.enum([
   ADMIN_ALERT_TYPES.PRODUCT_VOICEX_PRICE_ABOVE_LOCAL,
   ADMIN_ALERT_TYPES.PRODUCT_MISSING_AMAZON_PRICE,
+  ADMIN_ALERT_TYPES.PRODUCT_AMAZON_OUT_OF_STOCK,
+  ADMIN_ALERT_TYPES.PRODUCT_ASIN_NOT_FOUND,
 ]);
 
 const ALERTS_SORTABLE_COLUMNS = ['created_at', 'status', 'alert_type'] as const;
@@ -41,6 +43,25 @@ const listQuerySchema = z.object({
 const patchBodySchema = z.object({
   status: alertStatusZod,
 });
+
+const bulkPatchBodySchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+  status: alertStatusZod,
+});
+
+function parseAlertIds(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const ids = raw.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  return ids.length > 0 ? ids : null;
+}
+
+function isValidAlertType(alertType: string): boolean {
+  return (
+    isProductCatalogAlertType(alertType) ||
+    isUserAlertType(alertType) ||
+    isSubscriptionAlertType(alertType)
+  );
+}
 
 function decorateEmbeddedProduct<T extends { thumbnail_path?: string | null }>(
   p: T | null | undefined,
@@ -81,7 +102,7 @@ alertsRouter.get('/', async (req, res) => {
       catalog_products (
         id, voicex_id, amazon_asin, amazon_name, voice_name,
         thumbnail_path, amazon_image_urls, status, frozen_source, deleted_at,
-        custom_price_cents, amazon_price_cents, local_price_cents
+        custom_price_cents, amazon_price_cents, local_price_cents, amazon_availability_status
       )`,
       { count: 'exact' },
     )
@@ -303,6 +324,104 @@ alertsRouter.post('/subscription', async (req, res) => {
   res.json({ success: true, data: { id } });
 });
 
+alertsRouter.patch('/', async (req, res) => {
+  const parsed = bulkPatchBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid body' });
+    return;
+  }
+
+  const { ids, status } = parsed.data;
+  const resolved_at = status === 'resolved' ? new Date().toISOString() : null;
+
+  const { data: existing, error: findErr } = await supabaseAdmin
+    .from('admin_alerts')
+    .select('id, alert_type')
+    .in('id', ids);
+
+  if (findErr) {
+    res.status(500).json({ success: false, error: findErr.message });
+    return;
+  }
+
+  const validIds = (existing || [])
+    .filter((row: { alert_type: string }) => isValidAlertType(row.alert_type))
+    .map((row: { id: string }) => row.id);
+
+  if (validIds.length === 0) {
+    res.status(404).json({ success: false, error: 'No alerts found' });
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('admin_alerts')
+    .update({
+      status,
+      resolved_at,
+      updated_at: new Date().toISOString(),
+    })
+    .in('id', validIds);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'bulk_update_admin_alert_status',
+    entity_type: 'admin_alert',
+    entity_id: validIds[0],
+    changes: { ids: validIds, status },
+  });
+
+  res.json({ success: true, updated: validIds.length });
+});
+
+alertsRouter.delete('/', async (req, res) => {
+  const ids = parseAlertIds(req.body?.ids);
+  if (!ids) {
+    res.status(400).json({ success: false, error: 'ids must be a non-empty string array' });
+    return;
+  }
+
+  const { data: existing, error: findErr } = await supabaseAdmin
+    .from('admin_alerts')
+    .select('id, alert_type')
+    .in('id', ids);
+
+  if (findErr) {
+    res.status(500).json({ success: false, error: findErr.message });
+    return;
+  }
+
+  const validIds = (existing || [])
+    .filter((row: { alert_type: string }) => isValidAlertType(row.alert_type))
+    .map((row: { id: string }) => row.id);
+
+  if (validIds.length === 0) {
+    res.json({ success: true, deleted: 0 });
+    return;
+  }
+
+  const { error } = await supabaseAdmin.from('admin_alerts').delete().in('id', validIds);
+
+  if (error) {
+    res.status(500).json({ success: false, error: error.message });
+    return;
+  }
+
+  await supabaseAdmin.from('admin_audit_logs').insert({
+    admin_user_id: (req as any).adminUser.id,
+    action: 'bulk_delete_admin_alerts',
+    entity_type: 'admin_alert',
+    entity_id: validIds[0],
+    changes: { ids: validIds },
+  });
+
+  res.json({ success: true, deleted: validIds.length });
+});
+
 alertsRouter.patch('/:id', async (req, res) => {
   const parsed = patchBodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -323,7 +442,7 @@ alertsRouter.patch('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: findErr.message });
     return;
   }
-  if (!existing || (!isProductCatalogAlertType(existing.alert_type) && !isUserAlertType(existing.alert_type) && !isSubscriptionAlertType(existing.alert_type))) {
+  if (!existing || !isValidAlertType(existing.alert_type)) {
     res.status(404).json({ success: false, error: 'Alert not found' });
     return;
   }
@@ -366,7 +485,7 @@ alertsRouter.delete('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: findErr.message });
     return;
   }
-  if (!existing || (!isProductCatalogAlertType(existing.alert_type) && !isUserAlertType(existing.alert_type) && !isSubscriptionAlertType(existing.alert_type))) {
+  if (!existing || !isValidAlertType(existing.alert_type)) {
     res.status(404).json({ success: false, error: 'Alert not found' });
     return;
   }

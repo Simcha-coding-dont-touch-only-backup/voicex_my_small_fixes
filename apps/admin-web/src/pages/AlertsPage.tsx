@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Trash2, AlertTriangle, Plus } from 'lucide-react';
@@ -8,14 +8,14 @@ import { ProductThumbnail } from '../components/ProductThumbnail';
 import {
   ADMIN_ALERT_TYPES,
   adminAlertTypeLabel,
+  amazonAvailabilityStatusLabel,
   getProductDisplayName,
-  PRODUCT_CATALOG_ALERT_TYPES,
   SUBSCRIPTION_ALERT_TYPES,
   subscriptionAlertIssueLabel,
   type CatalogProduct,
 } from '@voicex/shared';
 import { CatalogProductStatusBadge } from '../components/CatalogProductStatusBadge';
-import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery } from '../components/admin-table';
+import { EndlessTail, PaginationFooter, SortHeader, useAdminTableQuery, useRowSelection, SelectAllCheckbox, RowCheckbox, BulkActionBar, type BulkAction } from '../components/admin-table';
 
 type AlertStatus = 'new' | 'reviewing' | 'resolved';
 
@@ -199,11 +199,23 @@ function AlertStatusInlineEditor({
 
 type AlertTypeTab = string;
 
+/** Single UI tab for all catalog product alert types (price, availability, etc.). */
+const PRODUCT_ALERTS_TAB_ID = '__product_catalog__';
+
 const ALERT_TYPE_TABS: AlertTypeTab[] = [
-  ...PRODUCT_CATALOG_ALERT_TYPES,
+  PRODUCT_ALERTS_TAB_ID,
   ADMIN_ALERT_TYPES.HIGH_RETURNING_USER,
   ...SUBSCRIPTION_ALERT_TYPES,
 ];
+
+function isProductCatalogAlertTab(tab: AlertTypeTab): boolean {
+  return tab === PRODUCT_ALERTS_TAB_ID;
+}
+
+function alertTabLabel(tab: AlertTypeTab): string {
+  if (isProductCatalogAlertTab(tab)) return 'Product Alerts';
+  return adminAlertTypeLabel(tab);
+}
 
 function isUserAlertTab(tab: AlertTypeTab): boolean {
   return tab === ADMIN_ALERT_TYPES.HIGH_RETURNING_USER;
@@ -358,6 +370,12 @@ export function AlertsPage() {
   const [dateTo, setDateTo] = useState('');
   const [userFilter, setUserFilter] = useState<{ id: string; name: string } | null>(null);
   const [showAddAlert, setShowAddAlert] = useState(false);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [bulkStatusDraft, setBulkStatusDraft] = useState<AlertStatus>('resolved');
+  const [bulkStatusSaving, setBulkStatusSaving] = useState(false);
+  const [bulkStatusError, setBulkStatusError] = useState<string | null>(null);
 
   const subActive = isSubscriptionAlertTab(activeAlertType);
 
@@ -373,8 +391,7 @@ export function AlertsPage() {
     try {
       const entries = await Promise.all(
         ALERT_TYPE_TABS.map(async (alertType) => {
-          const params = new URLSearchParams({ page: '1', per_page: '1' });
-          if (statusFilter) params.set('status', statusFilter);
+          const params = new URLSearchParams({ page: '1', per_page: '1', status: 'new' });
           if (isUserAlertTab(alertType)) {
             const r = await apiGet<ListResponse>(`/alerts/user?${params}`);
             return [alertType, r.total || 0] as const;
@@ -385,7 +402,7 @@ export function AlertsPage() {
             const r = await apiGet<ListResponse>(`/alerts/subscription?${params}`);
             return [alertType, r.total || 0] as const;
           }
-          params.set('alert_type', alertType);
+          // Product Alerts tab: all catalog alert types, no alert_type filter.
           const r = await apiGet<ListResponse>(`/alerts?${params}`);
           return [alertType, r.total || 0] as const;
         }),
@@ -400,13 +417,13 @@ export function AlertsPage() {
 
   useEffect(() => {
     void refreshTypeCounts();
-  }, [statusFilter, heardFilter, dateFrom, dateTo, userFilter?.id]);
+  }, [heardFilter, dateFrom, dateTo, userFilter?.id]);
 
   useEffect(() => {
     const onRefresh = () => void refreshTypeCounts();
     window.addEventListener('voicex:alerts-count-refresh', onRefresh);
     return () => window.removeEventListener('voicex:alerts-count-refresh', onRefresh);
-  }, [statusFilter, heardFilter, dateFrom, dateTo, userFilter?.id]);
+  }, [heardFilter, dateFrom, dateTo, userFilter?.id]);
 
   const table = useAdminTableQuery<AdminAlertRow>({
     defaultSort: { field: 'created_at', dir: 'desc' },
@@ -428,9 +445,8 @@ export function AlertsPage() {
           endpoint = '/alerts/subscription';
           params.set('alert_type', activeAlertType);
           subParams(params);
-        } else {
-          params.set('alert_type', activeAlertType);
         }
+        // Product Alerts tab: omit alert_type to list all catalog product alerts.
         const r = await apiGet<ListResponse>(`${endpoint}?${params}`);
         setError('');
         return { data: r.data || [], total: r.total || 0 };
@@ -442,6 +458,15 @@ export function AlertsPage() {
   });
   const rows = table.rows;
   const { page, perPage, total, sortBy, sortDir, paginationMode } = table;
+
+  const rowSelection = useRowSelection();
+  const { selected, selectedCount, toggleOne, toggleAll, clear: clearSelection, isSelected, getSelectionState } = rowSelection;
+  const rowIds = useMemo(() => rows.map((r) => r.id), [rows]);
+  const { allSelected, someSelected } = getSelectionState(rowIds);
+
+  useEffect(() => {
+    clearSelection();
+  }, [statusFilter, activeAlertType, heardFilter, dateFrom, dateTo, userFilter?.id, page, perPage, sortBy, sortDir, clearSelection]);
 
   const activeTabCount = typeCounts[activeAlertType];
 
@@ -487,10 +512,12 @@ export function AlertsPage() {
       await apiDelete(`/alerts/${deleteTarget.id}`);
       table.setRows((prev) => prev.filter((x) => x.id !== deleteTarget.id));
       table.setTotal((t) => Math.max(0, t - 1));
-      setTypeCounts((prev) => ({
-        ...prev,
-        [activeAlertType]: Math.max(0, (prev[activeAlertType] ?? 0) - 1),
-      }));
+      if (deleteTarget.status === 'new') {
+        setTypeCounts((prev) => ({
+          ...prev,
+          [activeAlertType]: Math.max(0, (prev[activeAlertType] ?? 0) - 1),
+        }));
+      }
       setDeleteTarget(null);
       emitAlertsCountRefresh();
     } catch (err) {
@@ -499,6 +526,126 @@ export function AlertsPage() {
       setDeleting(false);
     }
   };
+
+  const adjustTypeCountForStatusChanges = (
+    affectedRows: { id: string; status: AlertStatus }[],
+    newStatus: AlertStatus,
+  ) => {
+    const selectedSet = new Set(Array.from(selected));
+    const matching = affectedRows.filter((r) => selectedSet.has(r.id));
+    let delta = 0;
+    for (const row of matching) {
+      if (row.status === 'new' && newStatus !== 'new') delta -= 1;
+      if (row.status !== 'new' && newStatus === 'new') delta += 1;
+    }
+    if (delta !== 0) {
+      setTypeCounts((prev) => ({
+        ...prev,
+        [activeAlertType]: Math.max(0, (prev[activeAlertType] ?? 0) + delta),
+      }));
+    }
+  };
+
+  const confirmBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setDeleting(true);
+    setBulkDeleteError(null);
+    try {
+      await apiDelete('/alerts', { ids });
+      const deletedIds = new Set(ids);
+      const deletedNewCount = rows.filter((r) => deletedIds.has(r.id) && r.status === 'new').length;
+      table.setRows((prev) => prev.filter((x) => !deletedIds.has(x.id)));
+      table.setTotal((t) => Math.max(0, t - ids.length));
+      if (deletedNewCount > 0) {
+        setTypeCounts((prev) => ({
+          ...prev,
+          [activeAlertType]: Math.max(0, (prev[activeAlertType] ?? 0) - deletedNewCount),
+        }));
+      }
+      clearSelection();
+      setBulkDeleteConfirm(false);
+      closeStatusPopup();
+      emitAlertsCountRefresh();
+    } catch (err) {
+      setBulkDeleteError(err instanceof Error ? err.message : 'Failed to delete alerts');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmBulkStatus = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setBulkStatusSaving(true);
+    setBulkStatusError(null);
+    try {
+      const newStatus = bulkStatusDraft;
+      await apiPatch('/alerts', { ids, status: newStatus });
+      adjustTypeCountForStatusChanges(rows, newStatus);
+      const idSet = new Set(ids);
+      table.setRows((prev) =>
+        prev.map((x) => (idSet.has(x.id) ? { ...x, status: newStatus } : x)),
+      );
+      clearSelection();
+      setBulkStatusOpen(false);
+      closeStatusPopup();
+      emitAlertsCountRefresh();
+    } catch (err) {
+      setBulkStatusError(err instanceof Error ? err.message : 'Failed to update status');
+    } finally {
+      setBulkStatusSaving(false);
+    }
+  };
+
+  const bulkActions: BulkAction[] = useMemo(
+    () => [
+      {
+        id: 'status',
+        label: (count) => `Change status for ${count} alert${count === 1 ? '' : 's'}`,
+        disabled: bulkStatusSaving || deleting,
+        onRun: () => {
+          setBulkStatusDraft('resolved');
+          setBulkStatusError(null);
+          setBulkStatusOpen(true);
+        },
+      },
+      {
+        id: 'delete',
+        label: (count) => `Delete ${count} alert${count === 1 ? '' : 's'}`,
+        icon: <Trash2 size={16} />,
+        variant: 'danger',
+        disabled: deleting || bulkStatusSaving,
+        onRun: () => {
+          setBulkDeleteError(null);
+          setBulkDeleteConfirm(true);
+        },
+      },
+    ],
+    [deleting, bulkStatusSaving],
+  );
+
+  const checkboxHeader = (
+    <th className="w-10 px-3 py-3">
+      <SelectAllCheckbox
+        checked={allSelected}
+        indeterminate={someSelected}
+        disabled={rows.length === 0}
+        onChange={() => toggleAll(rowIds)}
+        ariaLabel="Select all alerts on this page"
+      />
+    </th>
+  );
+
+  const checkboxCell = (rowId: string) => (
+    <td className="px-3 py-3">
+      <RowCheckbox
+        checked={isSelected(rowId)}
+        onChange={() => toggleOne(rowId)}
+        ariaLabel="Select alert"
+      />
+    </td>
+  );
 
   return (
     <div>
@@ -571,7 +718,7 @@ export function AlertsPage() {
               }}
             >
               <span className="inline-flex items-center gap-2">
-                {adminAlertTypeLabel(alertType)}
+                {alertTabLabel(alertType)}
                 {((typeCountsLoading && count === undefined) || (count ?? 0) > 0) && (
                   <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-semibold tabular-nums leading-none text-white">
                     {typeCountsLoading && count === undefined ? '…' : count}
@@ -587,11 +734,14 @@ export function AlertsPage() {
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
 
+      <BulkActionBar selectedCount={selectedCount} actions={bulkActions} />
+
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
         {subActive ? (
         <table className="w-full min-w-[900px] text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
+              {checkboxHeader}
               <th className="px-4 py-3 font-medium">Customer</th>
               <th className="px-4 py-3 font-medium">Phone</th>
               <th className="px-4 py-3 font-medium">Email</th>
@@ -605,13 +755,14 @@ export function AlertsPage() {
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={9} className="px-6 py-12 text-center text-gray-500">No alerts match your filters.</td></tr>
+              <tr><td colSpan={10} className="px-6 py-12 text-center text-gray-500">No alerts match your filters.</td></tr>
             ) : (
               rows.map((row: any) => {
                 const user = row.user;
                 const payload = row.payload || {};
                 return (
                   <tr key={row.id} className="border-b hover:bg-gray-50">
+                    {checkboxCell(row.id)}
                     <td className="px-4 py-3">
                       {user?.id ? (
                         <Link to={`/admin/users/${user.id}`} className="font-medium text-indigo-600 hover:underline">{user.name || 'Unknown'}</Link>
@@ -654,6 +805,7 @@ export function AlertsPage() {
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
+              {checkboxHeader}
               <th className="px-4 py-3 font-medium">Customer</th>
               <th className="px-4 py-3 font-medium">Email</th>
               <th className="px-4 py-3 font-medium">Returns</th>
@@ -666,7 +818,7 @@ export function AlertsPage() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                   {activeTabCount === 0 && !typeCountsLoading ? 'No high returning user alerts.' : 'No alerts match your filters.'}
                 </td>
               </tr>
@@ -677,6 +829,7 @@ export function AlertsPage() {
                 const name = user?.name ?? (row.payload?.user_name as string) ?? 'Unknown user';
                 return (
                   <tr key={row.id} className="border-b hover:bg-gray-50">
+                    {checkboxCell(row.id)}
                     <td className="px-4 py-3">
                       {user ? (
                         <Link to={`/admin/users/${user.id}`} className="font-medium text-indigo-600 hover:underline">{name}</Link>
@@ -709,14 +862,23 @@ export function AlertsPage() {
             )}
           </tbody>
         </table>
-        ) : (
-        <table className="w-full min-w-[960px] text-sm">
+        ) : isProductCatalogAlertTab(activeAlertType) ? (
+        <table className="w-full min-w-[1040px] text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-gray-500">
+              {checkboxHeader}
               <th className="px-3 py-3 font-medium w-16">Image</th>
               <th className="px-4 py-3 font-medium">Product</th>
               <th className="px-4 py-3 font-medium">VoiceX ID</th>
               <th className="px-4 py-3 font-medium">Product Status</th>
+              <SortHeader
+                label="Issue"
+                field="alert_type"
+                sortBy={sortBy}
+                sortDir={sortDir}
+                onSort={table.handleSort}
+                thClassName="px-4 py-3 font-medium"
+              />
               <th className="px-4 py-3 font-medium">ASIN</th>
               <th className="px-4 py-3 font-medium">Custom price</th>
               <th className="px-4 py-3 font-medium">Local price</th>
@@ -742,9 +904,9 @@ export function AlertsPage() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={12} className="px-6 py-12 text-center text-gray-500">
                   {activeTabCount === 0 && !typeCountsLoading
-                    ? `No ${adminAlertTypeLabel(activeAlertType)} alerts.`
+                    ? 'No product alerts.'
                     : 'No alerts match your filters.'}
                 </td>
               </tr>
@@ -763,13 +925,22 @@ export function AlertsPage() {
                 const customPriceDisplay =
                   row.alert_type === ADMIN_ALERT_TYPES.PRODUCT_MISSING_AMAZON_PRICE
                     ? customCents
-                    : effective;
+                    : row.alert_type === ADMIN_ALERT_TYPES.PRODUCT_AMAZON_OUT_OF_STOCK ||
+                        row.alert_type === ADMIN_ALERT_TYPES.PRODUCT_ASIN_NOT_FOUND
+                      ? null
+                      : effective;
+                const availabilityStatus =
+                  p?.amazon_availability_status ??
+                  (typeof row.payload.amazon_availability_status === 'string'
+                    ? row.payload.amazon_availability_status
+                    : null);
                 const local =
                   p?.local_price_cents ??
                   (typeof row.payload.local_price_cents === 'number' ? row.payload.local_price_cents : null);
 
                 return (
                   <tr key={row.id} className="border-b hover:bg-gray-50">
+                    {checkboxCell(row.id)}
                     <td className="px-3 py-2">
                       {p && !p.deleted_at ? (
                         <ProductThumbnail
@@ -795,7 +966,6 @@ export function AlertsPage() {
                       {p?.deleted_at && (
                         <span className="ml-2 text-xs text-amber-600">(trashed)</span>
                       )}
-                      <div className="mt-0.5 text-xs text-gray-500">{row.title}</div>
                     </td>
                     <td className="px-4 py-3 font-mono text-gray-700">
                       {(p?.voicex_id as string | undefined) ?? (row.payload.voicex_id as string) ?? '—'}
@@ -811,11 +981,18 @@ export function AlertsPage() {
                         '—'
                       )}
                     </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {adminAlertTypeLabel(row.alert_type)}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">
                       {(p?.amazon_asin as string | undefined) ?? (row.payload.amazon_asin as string) ?? '—'}
                     </td>
                     <td className="px-4 py-3 tabular-nums">
-                      {customPriceDisplay != null ? formatUsdFromCents(customPriceDisplay) : '—'}
+                      {customPriceDisplay != null
+                        ? formatUsdFromCents(customPriceDisplay)
+                        : availabilityStatus
+                          ? amazonAvailabilityStatusLabel(availabilityStatus)
+                          : '—'}
                     </td>
                     <td className="px-4 py-3 font-semibold tabular-nums text-red-600">
                       {local != null ? formatUsdFromCents(local) : '—'}
@@ -851,7 +1028,7 @@ export function AlertsPage() {
             )}
           </tbody>
         </table>
-        )}
+        ) : null}
 
         <EndlessTail
           paginationMode={paginationMode}
@@ -922,6 +1099,84 @@ export function AlertsPage() {
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               >
                 {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <AlertTriangle size={20} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Delete {selectedCount} alert{selectedCount === 1 ? '' : 's'}?
+              </h3>
+            </div>
+            <p className="mb-6 text-sm text-gray-600">
+              Remove {selectedCount === 1 ? 'this alert' : `these ${selectedCount} alerts`} from the system?
+              This does not change product prices.
+            </p>
+            {bulkDeleteError ? <p className="mb-4 text-sm text-red-600">{bulkDeleteError}</p> : null}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setBulkDeleteConfirm(false);
+                  setBulkDeleteError(null);
+                }}
+                disabled={deleting}
+                className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmBulkDelete()}
+                disabled={deleting}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting…' : `Delete ${selectedCount} alert${selectedCount === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkStatusOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">
+              Change status for {selectedCount} alert{selectedCount === 1 ? '' : 's'}
+            </h3>
+            <AlertStatusRadioGroup
+              name="alert-status-bulk"
+              value={bulkStatusDraft}
+              onChange={setBulkStatusDraft}
+            />
+            {bulkStatusError ? <p className="mt-3 text-sm text-red-600">{bulkStatusError}</p> : null}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setBulkStatusOpen(false);
+                  setBulkStatusError(null);
+                }}
+                disabled={bulkStatusSaving}
+                className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmBulkStatus()}
+                disabled={bulkStatusSaving}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {bulkStatusSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>

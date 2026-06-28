@@ -452,7 +452,9 @@ function ProductSyncTable({ data }: { data: any[] }) {
                         {it.stale
                           ? `Not verified — charged cached price${it.stale_reason ? ` (${it.stale_reason})` : ''}`
                           : it.became_unavailable
-                            ? 'No longer available'
+                            ? it.unavailable_reason === 'asin_not_found'
+                              ? 'ASIN not found on Amazon'
+                              : 'Out of stock on Amazon'
                             : down
                               ? `Down ${money((it.old_amazon_price_cents || 0) - (it.new_amazon_price_cents || 0))}`
                               : up

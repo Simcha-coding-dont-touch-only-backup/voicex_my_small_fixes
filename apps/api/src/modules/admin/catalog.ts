@@ -1278,6 +1278,8 @@ function syncResultSummary(result: ProductSyncResult) {
     direction: result.direction,
     availability: result.availability,
     became_unavailable: result.becameUnavailable,
+    unavailable_reason: result.unavailableReason,
+    asin_not_found: result.asinNotFound,
     old_status: result.oldStatus,
     new_status: result.newStatus,
     skipped: result.skipped,

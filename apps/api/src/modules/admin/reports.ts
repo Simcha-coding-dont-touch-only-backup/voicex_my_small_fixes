@@ -378,6 +378,7 @@ reportsRouter.get('/product-sync', async (req, res) => {
         new_amazon_price_cents: i.new_amazon_price_cents,
         direction: i.direction,
         became_unavailable: i.became_unavailable,
+        unavailable_reason: i.unavailable_reason ?? null,
         stale: i.stale ?? false,
         stale_reason: i.stale_reason ?? null,
       };

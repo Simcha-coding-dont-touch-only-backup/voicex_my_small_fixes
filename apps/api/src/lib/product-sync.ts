@@ -79,6 +79,9 @@ export interface ProductSyncResult {
   availability: 'in_stock' | 'out_of_stock' | 'unknown' | null;
   isPurchasable: boolean;
   becameUnavailable: boolean;
+  asinNotFound: boolean;
+  availabilityChanged: boolean;
+  unavailableReason: 'out_of_stock' | 'asin_not_found' | null;
   oldStatus: string | null;
   newStatus: string | null;
   /** True when no ASIN or lookup returned nothing actionable. */
@@ -100,6 +103,7 @@ interface ProductSyncRowForSync {
   id: string;
   amazon_asin: string | null;
   amazon_price_cents: number | null;
+  amazon_availability_status: string | null;
   status: string;
 }
 
@@ -140,6 +144,59 @@ export async function insertStatusHistory(
   if (error) console.error('[product-sync] failed to insert status history:', error.message);
 }
 
+export async function insertAvailabilityHistory(
+  productId: string,
+  oldStatus: string | null,
+  newStatus: string,
+  actor: SyncActor,
+): Promise<void> {
+  if (oldStatus === newStatus) return;
+  const { error } = await supabaseAdmin.from('product_history').insert({
+    product_id: productId,
+    change_type: 'amazon_availability',
+    old_value: oldStatus,
+    new_value: newStatus,
+    actor_kind: actor.kind,
+    actor_label: actor.label,
+    actor_admin_user_id: actor.adminUserId ?? null,
+  });
+  if (error) console.error('[product-sync] failed to insert availability history:', error.message);
+}
+
+async function persistAmazonAvailabilityStatus(
+  productId: string,
+  previousStatus: string | null,
+  nextStatus: string,
+  actor: SyncActor,
+): Promise<boolean> {
+  if (previousStatus === nextStatus) return false;
+
+  const { error } = await supabaseAdmin
+    .from('catalog_products')
+    .update({
+      amazon_availability_status: nextStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', productId);
+
+  if (error) {
+    console.error('[product-sync] failed to persist availability status:', error.message);
+    return false;
+  }
+
+  await insertAvailabilityHistory(productId, previousStatus, nextStatus, actor);
+  return true;
+}
+
+async function readProductStatus(productId: string, fallback: string): Promise<string> {
+  const { data: after } = await supabaseAdmin
+    .from('catalog_products')
+    .select('status')
+    .eq('id', productId)
+    .maybeSingle<{ status: string }>();
+  return after?.status ?? fallback;
+}
+
 /**
  * Sync a single product's Amazon price/availability from Rainforest.
  * - Updates `amazon_price_cents` when it changed (custom price auto-bumps via
@@ -163,6 +220,9 @@ export async function syncProductPriceFromAmazon(
     availability: null,
     isPurchasable: false,
     becameUnavailable: false,
+    asinNotFound: false,
+    availabilityChanged: false,
+    unavailableReason: null,
     oldStatus: null,
     newStatus: null,
     skipped: false,
@@ -173,7 +233,7 @@ export async function syncProductPriceFromAmazon(
 
   const { data: product, error } = await supabaseAdmin
     .from('catalog_products')
-    .select('id, amazon_asin, amazon_price_cents, status')
+    .select('id, amazon_asin, amazon_price_cents, amazon_availability_status, status')
     .eq('id', productId)
     .is('deleted_at', null)
     .maybeSingle<ProductSyncRowForSync>();
@@ -207,14 +267,46 @@ export async function syncProductPriceFromAmazon(
   }
 
   if (!lookup) {
-    // ASIN not found on Amazon: treat as unavailable signal but do not wipe price.
-    return { ...base, availability: 'unknown', becameUnavailable: false, error: 'ASIN not found on Amazon' };
+    // ASIN not found on Amazon: treat as unavailable but do not wipe price.
+    const nextAvailabilityStatus = 'asin_not_found';
+    base.availability = 'unknown';
+    base.asinNotFound = true;
+    base.becameUnavailable = true;
+    base.unavailableReason = 'asin_not_found';
+    base.error = 'ASIN not found on Amazon';
+    base.availabilityChanged = await persistAmazonAvailabilityStatus(
+      productId,
+      product.amazon_availability_status,
+      nextAvailabilityStatus,
+      actor,
+    );
+    await syncProductCatalogAlerts(productId);
+    base.newStatus = await readProductStatus(productId, product.status);
+    return base;
   }
 
   base.availability = lookup.availability;
   base.isPurchasable = lookup.is_purchasable;
-  base.becameUnavailable = lookup.availability === 'out_of_stock';
   base.newAmazonCents = lookup.price_cents;
+
+  const nextAvailabilityStatus =
+    lookup.availability === 'out_of_stock'
+      ? 'out_of_stock'
+      : lookup.availability === 'in_stock'
+        ? 'in_stock'
+        : 'unknown';
+
+  base.becameUnavailable = nextAvailabilityStatus === 'out_of_stock';
+  base.unavailableReason =
+    nextAvailabilityStatus === 'out_of_stock' ? 'out_of_stock' : null;
+
+  const availabilityChanged = await persistAmazonAvailabilityStatus(
+    productId,
+    product.amazon_availability_status,
+    nextAvailabilityStatus,
+    actor,
+  );
+  base.availabilityChanged = availabilityChanged;
 
   const newCents = lookup.price_cents;
   // A price change includes the transition to/from null: a product that loses
@@ -238,18 +330,14 @@ export async function syncProductPriceFromAmazon(
             ? 'up'
             : 'down';
     await insertPriceHistory(productId, product.amazon_price_cents, newCents, actor);
+  }
 
+  if (base.priceChanged || availabilityChanged) {
     // Re-evaluate alerts + auto-freeze using existing logic. Any resulting
     // status flip is logged to product_history by applyAutoFreezeState itself
     // (system actor), so we only read the resulting status here.
     await syncProductCatalogAlerts(productId);
-
-    const { data: after } = await supabaseAdmin
-      .from('catalog_products')
-      .select('status')
-      .eq('id', productId)
-      .maybeSingle<{ status: string }>();
-    base.newStatus = after?.status ?? product.status;
+    base.newStatus = await readProductStatus(productId, product.status);
   } else {
     base.newStatus = product.status;
   }
@@ -302,7 +390,7 @@ export async function createSyncRun(args: CreateSyncRunArgs): Promise<string | n
 export async function addSyncRunItem(runId: string, result: ProductSyncResult): Promise<void> {
   // Record an item row when something changed OR when the price could not be
   // verified (stale). Stale rows make unverified-pricing checkouts auditable.
-  if (!result.priceChanged && !result.becameUnavailable && !result.stale) return;
+  if (!result.priceChanged && !result.becameUnavailable && !result.stale && !result.availabilityChanged) return;
   const { error } = await supabaseAdmin.from('product_sync_run_items').insert({
     run_id: runId,
     product_id: result.productId,
@@ -310,6 +398,7 @@ export async function addSyncRunItem(runId: string, result: ProductSyncResult): 
     new_amazon_price_cents: result.newAmazonCents,
     direction: result.priceChanged ? result.direction : null,
     became_unavailable: result.becameUnavailable,
+    unavailable_reason: result.unavailableReason,
     stale: result.stale,
     stale_reason: result.stale ? result.staleReason : null,
   });
@@ -1150,6 +1239,9 @@ async function lookupItemsParallel(
         availability: null,
         isPurchasable: false,
         becameUnavailable: false,
+        asinNotFound: false,
+        availabilityChanged: false,
+        unavailableReason: null,
         oldStatus: null,
         newStatus: null,
         skipped: true,
@@ -1314,6 +1406,9 @@ export function markItemsStale(items: CheckoutCartItem[], reason: string): Reval
       availability: null,
       isPurchasable: false,
       becameUnavailable: false,
+      asinNotFound: false,
+      availabilityChanged: false,
+      unavailableReason: null,
       oldStatus: null,
       newStatus: null,
       skipped: true,

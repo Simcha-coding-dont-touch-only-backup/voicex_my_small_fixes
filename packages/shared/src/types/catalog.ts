@@ -19,6 +19,12 @@ export type CatalogProductStatus = 'active' | 'inactive' | 'frozen';
 
 export type CatalogProductFrozenSource = 'auto' | 'manual';
 
+export type AmazonAvailabilityStatus =
+  | 'in_stock'
+  | 'out_of_stock'
+  | 'unknown'
+  | 'asin_not_found';
+
 const CATALOG_PRODUCT_STATUSES: CatalogProductStatus[] = ['active', 'inactive', 'frozen'];
 
 export function isCatalogProductStatus(value: string): value is CatalogProductStatus {
@@ -51,12 +57,23 @@ export function catalogProductFrozenSublabel(
 export const ACTIVATE_PRODUCT_BLOCK = {
   ABOVE_LOCAL: "Can't activate: VoiceX price is above local retail",
   MISSING_AMAZON: "Can't activate: Amazon price is not set",
+  AMAZON_OUT_OF_STOCK: "Can't activate: product is out of stock on Amazon",
+  ASIN_NOT_FOUND: "Can't activate: ASIN not found on Amazon",
 } as const;
 
 export function getActivateProductBlockReason(
-  product: Pick<CatalogProduct, 'custom_price_cents' | 'amazon_price_cents' | 'local_price_cents'>,
+  product: Pick<
+    CatalogProduct,
+    'custom_price_cents' | 'amazon_price_cents' | 'local_price_cents' | 'amazon_availability_status'
+  >,
   markupPercent: number,
 ): string | null {
+  if (product.amazon_availability_status === 'out_of_stock') {
+    return ACTIVATE_PRODUCT_BLOCK.AMAZON_OUT_OF_STOCK;
+  }
+  if (product.amazon_availability_status === 'asin_not_found') {
+    return ACTIVATE_PRODUCT_BLOCK.ASIN_NOT_FOUND;
+  }
   if (product.amazon_price_cents == null) {
     return ACTIVATE_PRODUCT_BLOCK.MISSING_AMAZON;
   }
@@ -96,6 +113,8 @@ export interface CatalogProduct {
   status: CatalogProductStatus;
   /** Set when `status` is `frozen`: system auto-freeze vs admin manual freeze. */
   frozen_source: CatalogProductFrozenSource | null;
+  /** Last Rainforest sync availability classification; null if never synced. */
+  amazon_availability_status: AmazonAvailabilityStatus | null;
   lifetime_qty_sold: number;
   created_at: string;
   updated_at: string;

@@ -8,7 +8,9 @@ export type ProductSyncTrigger =
   | 'checkout'
   | 'admin_cart_checkout';
 
-export type ProductHistoryChangeType = 'price' | 'status';
+export type ProductHistoryChangeType = 'price' | 'status' | 'amazon_availability';
+
+export type ProductSyncUnavailableReason = 'out_of_stock' | 'asin_not_found';
 
 export interface ProductHistoryEntry {
   id: string;
@@ -48,7 +50,25 @@ export interface ProductSyncRunItem {
   new_amazon_price_cents: number | null;
   direction: 'up' | 'down' | null;
   became_unavailable: boolean;
+  unavailable_reason?: ProductSyncUnavailableReason | null;
+  stale?: boolean;
+  stale_reason?: string | null;
   created_at: string;
+}
+
+export function amazonAvailabilityStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case 'in_stock':
+      return 'In stock';
+    case 'out_of_stock':
+      return 'Out of stock';
+    case 'asin_not_found':
+      return 'ASIN not found';
+    case 'unknown':
+      return 'Unknown';
+    default:
+      return status ?? 'N/A';
+  }
 }
 
 export function productSyncTriggerLabel(trigger: ProductSyncTrigger): string {

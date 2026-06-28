@@ -30,6 +30,7 @@ function catalogSliceForPricing(row: {
     thumbnail_path: null,
     status: 'active',
     frozen_source: null,
+    amazon_availability_status: null,
     lifetime_qty_sold: 0,
     created_at: '',
     updated_at: '',

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import { apiGet } from '../lib/api';
-import type { ProductHistoryEntry } from '@voicex/shared';
+import { amazonAvailabilityStatusLabel, type ProductHistoryEntry } from '@voicex/shared';
 
 function formatPrice(value: string | null): string {
   if (value == null || value === '') return 'N/A';
@@ -20,6 +20,18 @@ function priceChangeColor(oldValue: string | null, newValue: string | null): str
     return 'text-gray-700';
   }
   return newNum < oldNum ? 'text-green-600' : 'text-red-600';
+}
+
+function changeTypeLabel(changeType: ProductHistoryEntry['change_type']): string {
+  if (changeType === 'price') return 'Price';
+  if (changeType === 'amazon_availability') return 'Amazon availability';
+  return 'Status';
+}
+
+function changeTypeBadgeClass(changeType: ProductHistoryEntry['change_type']): string {
+  if (changeType === 'price') return 'bg-indigo-100 text-indigo-700';
+  if (changeType === 'amazon_availability') return 'bg-rose-100 text-rose-700';
+  return 'bg-amber-100 text-amber-700';
 }
 
 function actorLabel(entry: ProductHistoryEntry): string {
@@ -101,12 +113,8 @@ export function ProductHistoryModal({
                   <tr key={e.id} className="border-b last:border-0">
                     <td className="py-2 pr-4 text-gray-600">{new Date(e.created_at).toLocaleString()}</td>
                     <td className="py-2 pr-4">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs ${
-                          e.change_type === 'price' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'
-                        }`}
-                      >
-                        {e.change_type === 'price' ? 'Price' : 'Status'}
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${changeTypeBadgeClass(e.change_type)}`}>
+                        {changeTypeLabel(e.change_type)}
                       </span>
                     </td>
                     <td className="py-2 pr-4 text-gray-700">
@@ -116,6 +124,11 @@ export function ProductHistoryModal({
                           <span className={priceChangeColor(e.old_value, e.new_value)}>
                             {formatPrice(e.new_value)}
                           </span>
+                        </span>
+                      ) : e.change_type === 'amazon_availability' ? (
+                        <span>
+                          {amazonAvailabilityStatusLabel(e.old_value)} <span className="text-gray-400">&rarr;</span>{' '}
+                          {amazonAvailabilityStatusLabel(e.new_value)}
                         </span>
                       ) : (
                         <span>

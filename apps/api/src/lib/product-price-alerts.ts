@@ -3,6 +3,7 @@ import {
   getProductPriceCents,
   SETTING_KEYS,
   type CatalogProduct,
+  type ProductAmazonAvailabilityAlertPayload,
   type ProductMissingAmazonPricePayload,
   type ProductVoicexPriceAboveLocalPayload,
 } from '@voicex/shared';
@@ -10,6 +11,8 @@ import { supabaseAdmin } from './supabase.js';
 
 const ALERT_TYPE_PRICE = ADMIN_ALERT_TYPES.PRODUCT_VOICEX_PRICE_ABOVE_LOCAL;
 const ALERT_TYPE_MISSING_AMAZON = ADMIN_ALERT_TYPES.PRODUCT_MISSING_AMAZON_PRICE;
+const ALERT_TYPE_OUT_OF_STOCK = ADMIN_ALERT_TYPES.PRODUCT_AMAZON_OUT_OF_STOCK;
+const ALERT_TYPE_ASIN_NOT_FOUND = ADMIN_ALERT_TYPES.PRODUCT_ASIN_NOT_FOUND;
 
 type ProductRow = Pick<
   CatalogProduct,
@@ -23,12 +26,13 @@ type ProductRow = Pick<
   | 'custom_price_cents'
   | 'amazon_price_cents'
   | 'local_price_cents'
+  | 'amazon_availability_status'
 > & { deleted_at: string | null };
 
 type ExistingAlert = { id: string; status: string };
 
 const PRODUCT_SELECT =
-  'id, status, frozen_source, deleted_at, voicex_id, amazon_asin, amazon_name, voice_name, custom_price_cents, amazon_price_cents, local_price_cents';
+  'id, status, frozen_source, deleted_at, voicex_id, amazon_asin, amazon_name, voice_name, custom_price_cents, amazon_price_cents, local_price_cents, amazon_availability_status';
 
 export async function getDefaultMarkupPercent(): Promise<number> {
   const { data, error } = await supabaseAdmin
@@ -74,6 +78,16 @@ function buildMissingAmazonPayload(product: ProductRow): ProductMissingAmazonPri
     amazon_name: product.amazon_name,
     custom_price_cents: product.custom_price_cents,
     local_price_cents: product.local_price_cents,
+  };
+}
+
+function buildAmazonAvailabilityPayload(product: ProductRow): ProductAmazonAvailabilityAlertPayload {
+  return {
+    voicex_id: product.voicex_id,
+    amazon_asin: product.amazon_asin,
+    voice_name: product.voice_name,
+    amazon_name: product.amazon_name,
+    amazon_availability_status: product.amazon_availability_status ?? 'unknown',
   };
 }
 
@@ -160,12 +174,24 @@ async function upsertAlert(
   if (updErr) console.error('[product-price-alerts] Failed to update alert:', updErr.message);
 }
 
-type FreezeReason = 'price_above_local' | 'missing_amazon_price' | 'both';
+type FreezeReason =
+  | 'price_above_local'
+  | 'missing_amazon_price'
+  | 'amazon_out_of_stock'
+  | 'asin_not_found';
 
-function freezeReasonFromFlags(priceAboveLocal: boolean, missingAmazon: boolean): FreezeReason {
-  if (priceAboveLocal && missingAmazon) return 'both';
-  if (missingAmazon) return 'missing_amazon_price';
-  return 'price_above_local';
+function freezeReasonsFromFlags(flags: {
+  priceAboveLocal: boolean;
+  missingAmazon: boolean;
+  outOfStock: boolean;
+  asinNotFound: boolean;
+}): FreezeReason[] {
+  const reasons: FreezeReason[] = [];
+  if (flags.priceAboveLocal) reasons.push('price_above_local');
+  if (flags.missingAmazon) reasons.push('missing_amazon_price');
+  if (flags.outOfStock) reasons.push('amazon_out_of_stock');
+  if (flags.asinNotFound) reasons.push('asin_not_found');
+  return reasons;
 }
 
 async function insertSystemAudit(
@@ -210,13 +236,17 @@ async function applyAutoFreezeState(
   productId: string,
   product: ProductRow,
   shouldFreeze: boolean,
-  priceAboveLocal: boolean,
-  missingAmazon: boolean,
+  freezeFlags: {
+    priceAboveLocal: boolean;
+    missingAmazon: boolean;
+    outOfStock: boolean;
+    asinNotFound: boolean;
+  },
 ): Promise<void> {
   if (shouldFreeze) {
     if (product.status !== 'active') return;
 
-    const reason = freezeReasonFromFlags(priceAboveLocal, missingAmazon);
+    const reasons = freezeReasonsFromFlags(freezeFlags);
     const { error } = await supabaseAdmin
       .from('catalog_products')
       .update({
@@ -232,7 +262,7 @@ async function applyAutoFreezeState(
     }
 
     await insertSystemAudit('auto_freeze_product', productId, {
-      reason,
+      reasons,
       previous_status: product.status,
       new_status: 'frozen',
       product_id: productId,
@@ -317,6 +347,54 @@ async function syncMissingAmazonAlert(
   await upsertAlert(productId, ALERT_TYPE_MISSING_AMAZON, existing, title, message, payload as unknown as Record<string, unknown>);
 }
 
+async function syncAmazonOutOfStockAlert(
+  productId: string,
+  product: ProductRow,
+  shouldFreeze: boolean,
+): Promise<void> {
+  const title = 'Amazon out of stock';
+  const existing = await loadExistingAlert(productId, ALERT_TYPE_OUT_OF_STOCK);
+  const outOfStock = product.amazon_availability_status === 'out_of_stock';
+
+  if (!outOfStock) {
+    await resolveAlert(
+      existing,
+      title,
+      'Product is back in stock on Amazon; alert auto-resolved.',
+    );
+    return;
+  }
+
+  const autoFrozenNote = shouldFreeze ? ' Product was auto-frozen.' : '';
+  const message = `Rainforest sync reports this product is out of stock on Amazon.${autoFrozenNote}`;
+  const payload = buildAmazonAvailabilityPayload(product);
+  await upsertAlert(productId, ALERT_TYPE_OUT_OF_STOCK, existing, title, message, payload as unknown as Record<string, unknown>);
+}
+
+async function syncAsinNotFoundAlert(
+  productId: string,
+  product: ProductRow,
+  shouldFreeze: boolean,
+): Promise<void> {
+  const title = 'ASIN not found on Amazon';
+  const existing = await loadExistingAlert(productId, ALERT_TYPE_ASIN_NOT_FOUND);
+  const asinNotFound = product.amazon_availability_status === 'asin_not_found';
+
+  if (!asinNotFound) {
+    await resolveAlert(
+      existing,
+      title,
+      'ASIN was found on Amazon; alert auto-resolved.',
+    );
+    return;
+  }
+
+  const autoFrozenNote = shouldFreeze ? ' Product was auto-frozen.' : '';
+  const message = `Rainforest sync could not find this ASIN on Amazon.${autoFrozenNote}`;
+  const payload = buildAmazonAvailabilityPayload(product);
+  await upsertAlert(productId, ALERT_TYPE_ASIN_NOT_FOUND, existing, title, message, payload as unknown as Record<string, unknown>);
+}
+
 /**
  * Syncs catalog product alerts (price above local, missing Amazon price) and auto-freeze state.
  */
@@ -335,9 +413,11 @@ export async function syncProductCatalogAlerts(productId: string): Promise<void>
   }
 
   if (!product || product.deleted_at != null) {
-    const [priceAlert, missingAlert] = await Promise.all([
+    const [priceAlert, missingAlert, outOfStockAlert, asinNotFoundAlert] = await Promise.all([
       loadExistingAlert(productId, ALERT_TYPE_PRICE),
       loadExistingAlert(productId, ALERT_TYPE_MISSING_AMAZON),
+      loadExistingAlert(productId, ALERT_TYPE_OUT_OF_STOCK),
+      loadExistingAlert(productId, ALERT_TYPE_ASIN_NOT_FOUND),
     ]);
     await resolveAlert(
       priceAlert,
@@ -349,6 +429,16 @@ export async function syncProductCatalogAlerts(productId: string): Promise<void>
       'Amazon price not set',
       'Product was removed or trashed; alert auto-resolved.',
     );
+    await resolveAlert(
+      outOfStockAlert,
+      'Amazon out of stock',
+      'Product was removed or trashed; alert auto-resolved.',
+    );
+    await resolveAlert(
+      asinNotFoundAlert,
+      'ASIN not found on Amazon',
+      'Product was removed or trashed; alert auto-resolved.',
+    );
     return;
   }
 
@@ -357,11 +447,16 @@ export async function syncProductCatalogAlerts(productId: string): Promise<void>
   const local = p.local_price_cents;
   const priceAboveLocal = effective != null && local != null && effective > local;
   const missingAmazon = p.amazon_price_cents == null;
-  const shouldFreeze = priceAboveLocal || missingAmazon;
+  const outOfStock = p.amazon_availability_status === 'out_of_stock';
+  const asinNotFound = p.amazon_availability_status === 'asin_not_found';
+  const freezeFlags = { priceAboveLocal, missingAmazon, outOfStock, asinNotFound };
+  const shouldFreeze = priceAboveLocal || missingAmazon || outOfStock || asinNotFound;
 
   await syncPriceAboveLocalAlert(productId, p, markupPercent, shouldFreeze);
   await syncMissingAmazonAlert(productId, p, shouldFreeze);
-  await applyAutoFreezeState(productId, p, shouldFreeze, priceAboveLocal, missingAmazon);
+  await syncAmazonOutOfStockAlert(productId, p, shouldFreeze);
+  await syncAsinNotFoundAlert(productId, p, shouldFreeze);
+  await applyAutoFreezeState(productId, p, shouldFreeze, freezeFlags);
 }
 
 /** @deprecated Use syncProductCatalogAlerts */
@@ -412,7 +507,31 @@ export async function resyncAllProductVoicexPriceAboveLocalAlerts(): Promise<voi
     offset += pageSize;
   }
 
-  for (const alertType of [ALERT_TYPE_PRICE, ALERT_TYPE_MISSING_AMAZON]) {
+  offset = 0;
+  for (;;) {
+    const { data: batch, error } = await supabaseAdmin
+      .from('catalog_products')
+      .select('id')
+      .is('deleted_at', null)
+      .in('amazon_availability_status', ['out_of_stock', 'asin_not_found'])
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      console.error('[product-price-alerts] resync batch (availability issues):', error.message);
+      break;
+    }
+    if (!batch?.length) break;
+    for (const row of batch) ids.add(row.id as string);
+    if (batch.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  for (const alertType of [
+    ALERT_TYPE_PRICE,
+    ALERT_TYPE_MISSING_AMAZON,
+    ALERT_TYPE_OUT_OF_STOCK,
+    ALERT_TYPE_ASIN_NOT_FOUND,
+  ]) {
     offset = 0;
     for (;;) {
       const { data: batch, error } = await supabaseAdmin

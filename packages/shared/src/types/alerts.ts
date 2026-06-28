@@ -4,6 +4,10 @@ export const ADMIN_ALERT_TYPES = {
   PRODUCT_VOICEX_PRICE_ABOVE_LOCAL: 'product_voicex_price_above_local',
   /** Catalog product has no Amazon price (`amazon_price_cents` is null). */
   PRODUCT_MISSING_AMAZON_PRICE: 'product_missing_amazon_price',
+  /** Rainforest sync reports the product is out of stock on Amazon. */
+  PRODUCT_AMAZON_OUT_OF_STOCK: 'product_amazon_out_of_stock',
+  /** Rainforest sync could not find the ASIN on Amazon. */
+  PRODUCT_ASIN_NOT_FOUND: 'product_asin_not_found',
   /** User has made more returns than the high-return threshold. */
   HIGH_RETURNING_USER: 'high_returning_user',
   /** 24h pre-run check found an issue with a pending subscription delivery. */
@@ -18,6 +22,8 @@ export type AdminAlertType = (typeof ADMIN_ALERT_TYPES)[keyof typeof ADMIN_ALERT
 export const PRODUCT_CATALOG_ALERT_TYPES = [
   ADMIN_ALERT_TYPES.PRODUCT_VOICEX_PRICE_ABOVE_LOCAL,
   ADMIN_ALERT_TYPES.PRODUCT_MISSING_AMAZON_PRICE,
+  ADMIN_ALERT_TYPES.PRODUCT_AMAZON_OUT_OF_STOCK,
+  ADMIN_ALERT_TYPES.PRODUCT_ASIN_NOT_FOUND,
 ] as const;
 
 /** Alert types scoped to a user (entity_type = 'user', no product_id). */
@@ -61,6 +67,12 @@ export function productCatalogAlertTypeLabel(alertType: string): string {
   }
   if (alertType === ADMIN_ALERT_TYPES.PRODUCT_MISSING_AMAZON_PRICE) {
     return toTitleCase('Missing Amazon Price');
+  }
+  if (alertType === ADMIN_ALERT_TYPES.PRODUCT_AMAZON_OUT_OF_STOCK) {
+    return 'Amazon Out of Stock';
+  }
+  if (alertType === ADMIN_ALERT_TYPES.PRODUCT_ASIN_NOT_FOUND) {
+    return 'ASIN Not Found';
   }
   return toTitleCase(alertType);
 }
@@ -155,6 +167,15 @@ export interface ProductMissingAmazonPricePayload {
   amazon_name: string | null;
   custom_price_cents: number | null;
   local_price_cents: number | null;
+}
+
+/** Snapshot stored in `admin_alerts.payload` for Amazon availability alerts. */
+export interface ProductAmazonAvailabilityAlertPayload {
+  voicex_id: string;
+  amazon_asin: string;
+  voice_name: string | null;
+  amazon_name: string | null;
+  amazon_availability_status: string;
 }
 
 /** Snapshot stored in `admin_alerts.payload` for high-returning-user alerts. */
