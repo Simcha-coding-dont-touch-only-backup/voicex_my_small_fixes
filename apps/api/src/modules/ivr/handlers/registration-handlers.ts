@@ -35,7 +35,33 @@ registerHandler('capture_name', async (ctx) => {
   const name = fieldTranscript || fieldValue || variables.caller_name_text || variables.caller_name;
 
   // #region agent log
-  fetch('http://127.0.0.1:7479/ingest/9a920176-a95b-47b6-ae76-08bcd952c50e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d5707'},body:JSON.stringify({sessionId:'1d5707',hypothesisId:'A,B,C,D,E',location:'registration-handlers.ts:capture_name',message:'raw TelTech collect payload for caller name',data:{field_transcript:fieldTranscript??null,field_value:fieldValue??null,field_id:ctx.req.body.field_id??null,field_type:ctx.req.body.field_type??null,recording_path:ctx.req.body.recording_path??ctx.req.body.last_recording??null,var_caller_name:variables.caller_name??null,var_caller_name_text:variables.caller_name_text??null,chosen_name:name??null,body_keys:Object.keys(ctx.req.body||{}),event:ctx.req.body.event??null},timestamp:Date.now()})}).catch(()=>{});
+  // Real calls hit the deployed Vercel API, which cannot reach a localhost
+  // ingest endpoint, so debug evidence is persisted to ivr_error_logs (read
+  // back via Supabase MCP). Captures the exact raw payload TelTech POSTs for
+  // the name recording so we can see whether the transcript itself is
+  // truncated (TelTech recording onset / transcription) vs. our parsing.
+  try {
+    await supabaseAdmin.from('ivr_error_logs').insert({
+      call_sid: ctx.callSid,
+      error_type: 'debug_1d5707',
+      error_detail: 'capture_name raw payload',
+      node_key: ctx.node.node_key,
+      raw_payload: {
+        hypothesisId: 'A,B,C,D,E',
+        field_transcript: fieldTranscript ?? null,
+        field_value: fieldValue ?? null,
+        field_id: ctx.req.body.field_id ?? null,
+        field_type: ctx.req.body.field_type ?? null,
+        recording_path: ctx.req.body.recording_path ?? (ctx.req.body as any).last_recording ?? null,
+        var_caller_name: variables.caller_name ?? null,
+        var_caller_name_text: variables.caller_name_text ?? null,
+        chosen_name: name ?? null,
+        body_keys: Object.keys(ctx.req.body || {}),
+        variable_keys: Object.keys(variables || {}),
+        event: (ctx.req.body as any).event ?? null,
+      },
+    });
+  } catch { /* never break the call on debug logging */ }
   // #endregion
 
   if (!name || name.trim().length < 2) {
@@ -58,10 +84,6 @@ registerHandler('capture_name', async (ctx) => {
   }
 
   const trimmedName = name.trim();
-
-  // #region agent log
-  fetch('http://127.0.0.1:7479/ingest/9a920176-a95b-47b6-ae76-08bcd952c50e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d5707'},body:JSON.stringify({sessionId:'1d5707',hypothesisId:'C,D',location:'registration-handlers.ts:capture_name:stored',message:'name after trim, just before storing/readback',data:{raw_name:name,trimmed_name:trimmedName,word_count:trimmedName.split(/\s+/).filter(Boolean).length},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
 
   await ivrRuntime.updateSession(ctx.callSid, {
     state_data: { registration_name: trimmedName },
