@@ -93,6 +93,22 @@ registerHandler('capture_name', async (ctx) => {
   // letter by letter, letting the caller verify the transcribed spelling.
   const confirmNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
   const spelled = spellNameForReadback(trimmedName);
+  // #region agent log
+  try {
+    await supabaseAdmin.from('ivr_error_logs').insert({
+      call_sid: ctx.callSid,
+      error_type: 'debug_1d5707',
+      error_detail: 'capture_name spell-out readback',
+      node_key: ctx.node.node_key,
+      raw_payload: {
+        hypothesisId: 'SPELL',
+        trimmed_name: trimmedName,
+        spelled_prompt: `${spelled}. Press 1 to confirm, or press 2 to re-enter.`,
+        confirm_node_key: confirmNode?.node_key ?? null,
+      },
+    });
+  } catch { /* never break the call on debug logging */ }
+  // #endregion
   return {
     type: 'actions',
     response: buildGather({
