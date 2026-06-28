@@ -64,13 +64,17 @@ registerHandler('check_user', async (ctx) => {
     response: buildCollect({
       type: 'recording',
       id: 'caller_name',
-      // The recorder needs a brief moment to arm after the beep; if the caller
-      // speaks the instant they hear it, the first name gets clipped. Tell the
-      // caller to wait for the beep and pause a moment before speaking.
-      prompt: 'Welcome to VoiceX! It looks like you are a new caller. To create an account, when you hear the beep, wait a moment, then clearly say your first and last name, and press pound when you are finished.',
-      // Confirmation (with a word-by-word spell-out) is handled by our own
-      // register_name_confirm step, so TelTech's built-in readback is disabled.
-      confirm: false,
+      prompt: 'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
+      // #region agent log
+      // DIAGNOSTIC (session 1d5707): temporarily play the recorded audio back to
+      // the caller AND read the transcript ('both'). If the caller HEARS their
+      // full first+last name in the playback but the transcript only has the
+      // last word, the audio is complete and Deepgram transcription is dropping
+      // the leading segment (H-H/H-J). If the playback is also missing the first
+      // name, the recording itself is clipped at onset (H-A/H-B).
+      confirm: true,
+      confirmMethod: 'both',
+      // #endregion
       transcribe: true,
       retry: 3,
       maxDuration: 10,
