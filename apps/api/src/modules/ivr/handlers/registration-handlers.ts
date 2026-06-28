@@ -70,7 +70,11 @@ registerHandler('capture_name', async (ctx) => {
       response: buildCollect({
         type: 'recording',
         id: 'caller_name',
-        prompt: 'Please say your full name after the beep, then press pound.',
+        // The recorder needs a brief moment to arm after the beep; if the caller
+        // speaks the instant they hear it, the first name gets clipped. Tell the
+        // caller to wait for the beep and pause a moment before speaking so they
+        // are not talking into a not-yet-armed recorder.
+        prompt: 'When you hear the beep, wait a moment, then clearly say your first and last name, and press pound when you are finished.',
         // Confirmation is handled by our own register_name_confirm step (with a
         // word-by-word spell-out), so TelTech's built-in readback is disabled.
         confirm: false,
@@ -126,7 +130,9 @@ registerHandler('confirm_name', async (ctx) => {
         response: buildCollect({
           type: 'recording',
           id: 'caller_name',
-          prompt: 'Please say your full name after the beep, then press pound.',
+          // Same recorder-arm delay applies on re-record: wait for the beep,
+          // pause a moment, then speak so the first name is not clipped.
+          prompt: 'When you hear the beep, wait a moment, then clearly say your first and last name, and press pound when you are finished.',
           // Re-recorded names go back through register_name_confirm for our own
           // spell-out, so TelTech's built-in readback stays off here too.
           confirm: false,
