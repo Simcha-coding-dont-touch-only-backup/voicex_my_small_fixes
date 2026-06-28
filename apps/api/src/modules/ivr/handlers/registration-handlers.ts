@@ -59,6 +59,10 @@ registerHandler('capture_name', async (ctx) => {
         body_keys: Object.keys(ctx.req.body || {}),
         variable_keys: Object.keys(variables || {}),
         event: (ctx.req.body as any).event ?? null,
+        // Full dumps to find whether ANY field/variable holds the complete
+        // multi-segment transcript (vs. only the last segment in field_transcript).
+        full_variables: variables,
+        full_body: ctx.req.body,
       },
     });
   } catch { /* never break the call on debug logging */ }
