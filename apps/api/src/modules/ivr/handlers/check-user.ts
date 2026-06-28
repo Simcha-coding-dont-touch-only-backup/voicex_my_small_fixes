@@ -65,15 +65,18 @@ registerHandler('check_user', async (ctx) => {
       type: 'recording',
       id: 'caller_name',
       prompt: 'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
+      // Confirmation (with a word-by-word spell-out) is handled by our own
+      // register_name_confirm step, so TelTech's built-in readback is disabled.
+      confirm: false,
       // #region agent log
-      // DIAGNOSTIC (session 1d5707): temporarily play the recorded audio back to
-      // the caller AND read the transcript ('both'). If the caller HEARS their
-      // full first+last name in the playback but the transcript only has the
-      // last word, the audio is complete and Deepgram transcription is dropping
-      // the leading segment (H-H/H-J). If the playback is also missing the first
-      // name, the recording itself is clipped at onset (H-A/H-B).
-      confirm: true,
-      confirmMethod: 'both',
+      // DIAGNOSTIC (session 1d5707): force transcription of the FINALIZED
+      // recording (not streaming) without any playback. 'transcribe' as the
+      // confirm_method means no audio playback (so no beep tail is heard) and
+      // no TelTech readback, so the flow should still route to OUR capture_name
+      // spell-out. If field_transcript now carries the FULL name, the original
+      // drop was streaming/early transcription; full-file transcription fixes it
+      // while preserving our spell-out.
+      confirmMethod: 'transcribe',
       // #endregion
       transcribe: true,
       retry: 3,
