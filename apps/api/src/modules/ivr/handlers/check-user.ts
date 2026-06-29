@@ -66,8 +66,7 @@ registerHandler('check_user', async (ctx) => {
       id: 'caller_name',
       prompt:
         'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
-      confirm: true,
-      confirmMethod: 'transcribe',
+      confirm: false,
       transcribe: true,
       retry: 3,
       maxDuration: 10,

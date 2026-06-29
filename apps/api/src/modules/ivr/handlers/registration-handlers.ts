@@ -45,11 +45,12 @@ function resolveRecordingTranscript(
 }
 
 /**
- * Collect the caller's full name in one recording. TelTech's `confirm: true` with
- * `confirm_method: 'transcribe'` transcribes the finalized recording (reliable
- * for multi-word names) and reads the transcript back for a quick 1/2 confirm —
- * without playing the raw audio (so no beep tail). After the caller confirms,
- * TelTech POSTs to us and we run our own letter-by-letter spell-out step.
+ * Collect the caller's full name in one recording. TelTech transcribes via
+ * Deepgram and posts `field_transcript` / `caller_name_text`. We own the only
+ * confirmation step (letter-by-letter spell-out). NOTE: when the caller pauses
+ * between first and last name, TelTech often returns only the final utterance
+ * segment — this is a TelTech/Deepgram transcription issue, not fixable via
+ * the `confirm` flag (see ivr_error_logs debug_1d5707).
  */
 function buildFullNameCollect(sessionData: Record<string, string>, prompt?: string) {
   return buildCollect({
@@ -58,8 +59,7 @@ function buildFullNameCollect(sessionData: Record<string, string>, prompt?: stri
     prompt:
       prompt ??
       'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
-    confirm: true,
-    confirmMethod: 'transcribe',
+    confirm: false,
     transcribe: true,
     retry: 3,
     maxDuration: 10,
