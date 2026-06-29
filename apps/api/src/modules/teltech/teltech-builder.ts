@@ -6,11 +6,20 @@ const BASE = config.apiBaseUrl;
 const TELTECH_TTS_MAX_CHARS = 500;
 /** Zero-width space — changes Teltech's TTS cache key without audible output. */
 const TTS_CACHE_BUST_MARKER = '\u200B';
+const TTS_CACHE_BUST_MAX_MARKERS = 50;
 
 function ttsCacheBustSuffix(): string {
   const version = config.teltech.ttsCacheVersion;
   if (!version) return '';
-  return TTS_CACHE_BUST_MARKER + version;
+
+  const parsed = parseInt(version, 10);
+  const count = Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : version.length;
+  const repeats = Math.min(Math.max(count, 1), TTS_CACHE_BUST_MAX_MARKERS);
+
+  // Repeat invisible markers only — digits after ZWSP were read aloud as "two", etc.
+  return TTS_CACHE_BUST_MARKER.repeat(repeats);
 }
 
 /**
@@ -39,7 +48,7 @@ export function resolveNodeTimeout(
  */
 function sanitizeForTTS(text: string): string {
   const suffix = ttsCacheBustSuffix();
-  const maxBody = TELTECH_TTS_MAX_CHARS - suffix.length;
+  const maxBody = Math.max(0, TELTECH_TTS_MAX_CHARS - suffix.length);
 
   const cleaned = text
     .replace(/(\d)[""\u201C\u201D]/g, '$1 inch')  // 12" → 12 inch
@@ -50,7 +59,7 @@ function sanitizeForTTS(text: string): string {
     .trim();
 
   if (!cleaned) return '';
-  return cleaned.slice(0, maxBody) + suffix;
+  return (cleaned.slice(0, maxBody) + suffix).slice(0, TELTECH_TTS_MAX_CHARS);
 }
 
 export function buildGather(options: {
