@@ -32,6 +32,12 @@ export const config = {
     addressValidationApiKey: process.env.GOOGLE_ADDRESS_VALIDATION_API_KEY!,
   },
 
+  telnyx: {
+    apiKey: process.env.TELNYX_API_KEY || '',
+    smsFromNumber: process.env.TELNYX_SMS_FROM_NUMBER || '',
+    messagingProfileId: process.env.TELNYX_MESSAGING_PROFILE_ID || '',
+  },
+
   defaults: {
     markupPercent: parseInt(process.env.DEFAULT_MARKUP_PERCENT || '15', 10),
   },

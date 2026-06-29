@@ -131,6 +131,9 @@ voicex/
 | `RYE_API_KEY` | Rye API key |
 | `GOOGLE_ADDRESS_VALIDATION_API_KEY` | Google API key |
 | `SOLA_API_KEY` | Sola Payments (Cardknox) API key |
+| `TELNYX_API_KEY` | Telnyx API key for outbound SMS |
+| `TELNYX_SMS_FROM_NUMBER` | Default outbound SMS sender in E.164 format |
+| `TELNYX_MESSAGING_PROFILE_ID` | Optional Telnyx messaging profile ID |
 
 ## Migration Note
 

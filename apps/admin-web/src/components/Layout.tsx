@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   Users, ShoppingCart, ShoppingBag, Package, FolderTree, Settings,
   BarChart3, Phone, LogOut, Menu, X, LayoutDashboard,
-  ChevronsLeft, ChevronsRight, AlertTriangle, MapPin,
+  ChevronsLeft, ChevronsRight, AlertTriangle, MapPin, MessageSquare,
   Wrench, ChevronDown, ShieldCheck, Inbox, Truck, Bell, RotateCcw, Repeat,
 } from 'lucide-react';
 import type { AdminPermissionKey } from '@voicex/shared';
@@ -60,6 +60,7 @@ const NAV_ITEMS: NavItem[] = [
 
 const TOOLS_ITEMS: NavItem[] = [
   { to: '/admin/address-test', label: 'Address Test', icon: MapPin, requires: { kind: 'fullAdmin' } },
+  { to: '/admin/sms-tester', label: 'SMS Tester', icon: MessageSquare, requires: { kind: 'fullAdmin' } },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
