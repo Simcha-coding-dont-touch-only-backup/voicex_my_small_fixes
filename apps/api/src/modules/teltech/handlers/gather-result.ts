@@ -52,7 +52,8 @@ async function logWebhookStep(
   actionCount: number,
   responseType: string,
   recursionDepth: number,
-  session: any
+  session: any,
+  rawBody?: Record<string, unknown>
 ) {
   try {
     let userName: string | null = null;
@@ -70,6 +71,18 @@ async function logWebhookStep(
     const safeDigits =
       digits && SENSITIVE_INPUT_NODE_KEYS.has(nodeKey) ? '[REDACTED]' : digits;
 
+    // TEMP DIAGNOSTIC: capture the full inbound webhook body (minus any raw card
+    // digits) so we can see exactly which fields Teltech sends on a `*` back
+    // press (digits, terminated_by, variables.last_digits, etc.).
+    let safeBody: Record<string, unknown> | undefined;
+    if (rawBody) {
+      if (SENSITIVE_INPUT_NODE_KEYS.has(nodeKey)) {
+        safeBody = { ...rawBody, digits: '[REDACTED]' };
+      } else {
+        safeBody = rawBody;
+      }
+    }
+
     await supabaseAdmin.from('ivr_error_logs').insert({
       call_sid: callSid,
       error_type: 'call_step',
@@ -81,11 +94,17 @@ async function logWebhookStep(
       flow_version_id: session?.flow_version_id || null,
       session_data: {
         digits: safeDigits,
+        // TEMP DIAGNOSTIC: surface the key that ended the gather so a `*` back
+        // press is directly queryable from session_data.
+        terminated_by:
+          rawBody && typeof rawBody.terminated_by === 'string'
+            ? (rawBody.terminated_by as string)
+            : null,
         action_count: actionCount,
         response_type: responseType,
         recursion_depth: recursionDepth,
       },
-      raw_payload: { node: nodeKey, digits: safeDigits },
+      raw_payload: { node: nodeKey, digits: safeDigits, body: safeBody },
     });
   } catch (err) {
     console.error('Failed to log webhook step:', err);
@@ -171,6 +190,11 @@ export async function handleGatherResult(req: Request, res: Response) {
     }
 
     let didPop = false;
+    // TEMP DIAGNOSTIC: snapshot the inbound body before any mutation below so
+    // the webhook-step log records exactly what Teltech sent (digits,
+    // terminated_by, variables, etc.) for a `*` back press.
+    const rawBodySnapshot: Record<string, unknown> =
+      req.body && typeof req.body === 'object' ? { ...req.body } : {};
     const incomingDigits = typeof req.body?.digits === 'string' ? req.body.digits : null;
     const terminatedBy = typeof req.body?.terminated_by === 'string' ? req.body.terminated_by : null;
 
@@ -242,7 +266,7 @@ export async function handleGatherResult(req: Request, res: Response) {
     const responseType = getResponseType(captured);
     const recursionDepth = (req as any)._dispatchDepth || 0;
 
-    await logWebhookStep(callSid, nodeKey, incomingDigits, actionCount, responseType, recursionDepth, session);
+    await logWebhookStep(callSid, nodeKey, incomingDigits, actionCount, responseType, recursionDepth, session, rawBodySnapshot);
   } catch (error) {
     console.error(`Error in gather result for node ${nodeKey}:`, error);
     captured = buildHangup('We encountered an error. Please try again later.');
