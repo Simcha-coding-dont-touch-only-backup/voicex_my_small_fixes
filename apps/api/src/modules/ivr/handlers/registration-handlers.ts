@@ -28,73 +28,70 @@ function spellNameForReadback(name: string): string {
     .join('. ');
 }
 
-registerHandler('capture_name', async (ctx) => {
-  const fieldTranscript = ctx.req.body.field_transcript;
-  const fieldValue = ctx.req.body.field_value;
-  const variables = ctx.req.body.variables || {};
-  const name = fieldTranscript || fieldValue || variables.caller_name_text || variables.caller_name;
+/** Strip trailing punctuation Deepgram adds to utterances (e.g. "Road." → "Road"). */
+function normalizeNamePart(text: string): string {
+  return text.trim().replace(/[.,!?]+$/, '').trim();
+}
 
-  // #region agent log
-  // Real calls hit the deployed Vercel API, which cannot reach a localhost
-  // ingest endpoint, so debug evidence is persisted to ivr_error_logs (read
-  // back via Supabase MCP). Captures the exact raw payload TelTech POSTs for
-  // the name recording so we can see whether the transcript itself is
-  // truncated (TelTech recording onset / transcription) vs. our parsing.
-  try {
-    await supabaseAdmin.from('ivr_error_logs').insert({
-      call_sid: ctx.callSid,
-      error_type: 'debug_1d5707',
-      error_detail: 'capture_name raw payload',
-      node_key: ctx.node.node_key,
-      raw_payload: {
-        hypothesisId: 'A,B,C,D,E',
-        field_transcript: fieldTranscript ?? null,
-        field_value: fieldValue ?? null,
-        field_id: ctx.req.body.field_id ?? null,
-        field_type: ctx.req.body.field_type ?? null,
-        recording_path: ctx.req.body.recording_path ?? (ctx.req.body as any).last_recording ?? null,
-        var_caller_name: variables.caller_name ?? null,
-        var_caller_name_text: variables.caller_name_text ?? null,
-        chosen_name: name ?? null,
-        body_keys: Object.keys(ctx.req.body || {}),
-        variable_keys: Object.keys(variables || {}),
-        event: (ctx.req.body as any).event ?? null,
-        // Full dumps to find whether ANY field/variable holds the complete
-        // multi-segment transcript (vs. only the last segment in field_transcript).
-        full_variables: variables,
-        full_body: ctx.req.body,
-      },
-    });
-  } catch { /* never break the call on debug logging */ }
-  // #endregion
+function resolveRecordingTranscript(
+  fieldId: string,
+  variables: Record<string, string>,
+  body: { field_transcript?: string },
+): string | null {
+  const transcript = body.field_transcript?.trim();
+  if (transcript) return transcript;
+  const fromVar = variables[`${fieldId}_text`]?.trim();
+  return fromVar || null;
+}
 
-  if (!name || name.trim().length < 2) {
-    return {
-      type: 'actions',
-      response: buildCollect({
-        type: 'recording',
-        id: 'caller_name',
-        prompt: 'Please say your full name after the beep, then press pound.',
-        // Confirmation is handled by our own register_name_confirm step (with a
-        // word-by-word spell-out), so TelTech's built-in readback is disabled.
-        confirm: false,
-        transcribe: true,
-        retry: 3,
-        maxDuration: 10,
-        actionPath: '/api/ivr/voice/gather',
-        sessionData: { call_sid: ctx.callSid, node_key: ctx.node.node_key },
-      }),
-    };
-  }
+/**
+ * Collect the caller's full name in one recording. TelTech's `confirm: true` with
+ * `confirm_method: 'transcribe'` transcribes the finalized recording (reliable
+ * for multi-word names) and reads the transcript back for a quick 1/2 confirm —
+ * without playing the raw audio (so no beep tail). After the caller confirms,
+ * TelTech POSTs to us and we run our own letter-by-letter spell-out step.
+ */
+function buildFullNameCollect(sessionData: Record<string, string>, prompt?: string) {
+  return buildCollect({
+    type: 'recording',
+    id: 'caller_name',
+    prompt:
+      prompt ??
+      'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
+    confirm: true,
+    confirmMethod: 'transcribe',
+    transcribe: true,
+    retry: 3,
+    maxDuration: 10,
+    actionPath: '/api/ivr/voice/gather',
+    sessionData,
+  });
+}
 
-  const trimmedName = name.trim();
+function normalizeFullName(raw: string): string {
+  return raw
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0)
+    .map((word) => normalizeNamePart(word))
+    .join(' ');
+}
+
+async function spellOutNameConfirm(
+  ctx: { callSid: string; flowVersionId: string; node: { id: string; node_key: string } },
+  fullName: string,
+) {
+  const trimmedName = fullName.trim();
+  const session = await ivrRuntime.getSession(ctx.callSid);
+  const stateData = (session?.state_data || {}) as Record<string, unknown>;
 
   await ivrRuntime.updateSession(ctx.callSid, {
-    state_data: { registration_name: trimmedName },
+    state_data: {
+      ...stateData,
+      registration_name: trimmedName,
+    },
   });
 
-  // Own the confirmation step so we can spell the name back word by word and
-  // letter by letter, letting the caller verify the transcribed spelling.
   const confirmNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, null);
   const spelled = spellNameForReadback(trimmedName);
   // #region agent log
@@ -114,7 +111,7 @@ registerHandler('capture_name', async (ctx) => {
   } catch { /* never break the call on debug logging */ }
   // #endregion
   return {
-    type: 'actions',
+    type: 'actions' as const,
     response: buildGather({
       prompt: `${spelled}. Press 1 to confirm, or press 2 to re-enter.`,
       actionPath: '/api/ivr/voice/gather',
@@ -128,6 +125,44 @@ registerHandler('capture_name', async (ctx) => {
       },
     }),
   };
+}
+
+registerHandler('capture_name', async (ctx) => {
+  const variables = ctx.req.body.variables || {};
+  const sessionDataBase = { call_sid: ctx.callSid, node_key: ctx.node.node_key };
+  const rawName = resolveRecordingTranscript('caller_name', variables, ctx.req.body);
+
+  // #region agent log
+  try {
+    await supabaseAdmin.from('ivr_error_logs').insert({
+      call_sid: ctx.callSid,
+      error_type: 'debug_1d5707',
+      error_detail: 'capture_name raw payload',
+      node_key: ctx.node.node_key,
+      raw_payload: {
+        hypothesisId: 'CONFIRM_TRUE_SPELL',
+        field_id: ctx.req.body.field_id ?? null,
+        field_transcript: ctx.req.body.field_transcript ?? null,
+        var_caller_name_text: variables.caller_name_text ?? null,
+        chosen_name: rawName ?? null,
+      },
+    });
+  } catch { /* never break the call on debug logging */ }
+  // #endregion
+
+  const fullName = rawName ? normalizeFullName(rawName) : '';
+
+  if (!fullName || fullName.length < 2) {
+    return {
+      type: 'actions',
+      response: buildFullNameCollect(
+        sessionDataBase,
+        'Please say your full name after the beep, then press pound.',
+      ),
+    };
+  }
+
+  return spellOutNameConfirm(ctx, fullName);
 });
 
 registerHandler('confirm_name', async (ctx) => {
@@ -141,21 +176,17 @@ registerHandler('confirm_name', async (ctx) => {
     const isReRecord = digits === '2' || !digits;
     if (isReRecord) {
       const retryNode = await ivrRuntime.resolveNextNode(ctx.flowVersionId, ctx.node.id, 'retry');
+      const session = await ivrRuntime.getSession(ctx.callSid);
+      const stateData = (session?.state_data || {}) as Record<string, unknown>;
+      await ivrRuntime.updateSession(ctx.callSid, {
+        state_data: { ...stateData, registration_name: null },
+      });
       return {
         type: 'actions',
-        response: buildCollect({
-          type: 'recording',
-          id: 'caller_name',
-          prompt: 'Please say your full name after the beep, then press pound.',
-          // Re-recorded names go back through register_name_confirm for our own
-          // spell-out, so TelTech's built-in readback stays off here too.
-          confirm: false,
-          transcribe: true,
-          retry: 3,
-          maxDuration: 10,
-          actionPath: '/api/ivr/voice/gather',
-          sessionData: { call_sid: ctx.callSid, node_key: retryNode?.node_key || 'register_name' },
-        }),
+        response: buildFullNameCollect(
+          { call_sid: ctx.callSid, node_key: retryNode?.node_key || 'register_name' },
+          'Please say your full name after the beep, then press pound.',
+        ),
       };
     }
 

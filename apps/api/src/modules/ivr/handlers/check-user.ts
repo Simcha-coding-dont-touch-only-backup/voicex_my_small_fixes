@@ -64,20 +64,10 @@ registerHandler('check_user', async (ctx) => {
     response: buildCollect({
       type: 'recording',
       id: 'caller_name',
-      prompt: 'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
-      // Confirmation (with a word-by-word spell-out) is handled by our own
-      // register_name_confirm step, so TelTech's built-in readback is disabled.
-      confirm: false,
-      // #region agent log
-      // DIAGNOSTIC (session 1d5707): force transcription of the FINALIZED
-      // recording (not streaming) without any playback. 'transcribe' as the
-      // confirm_method means no audio playback (so no beep tail is heard) and
-      // no TelTech readback, so the flow should still route to OUR capture_name
-      // spell-out. If field_transcript now carries the FULL name, the original
-      // drop was streaming/early transcription; full-file transcription fixes it
-      // while preserving our spell-out.
+      prompt:
+        'Welcome to VoiceX! It looks like you are a new caller. To create an account, please say your full name after the beep, then press pound.',
+      confirm: true,
       confirmMethod: 'transcribe',
-      // #endregion
       transcribe: true,
       retry: 3,
       maxDuration: 10,
