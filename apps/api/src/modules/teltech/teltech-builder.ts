@@ -3,6 +3,15 @@ import type { IvrNode, IvrIntent } from '@voicex/shared';
 import type { TeltechResponse, TeltechCollectAction, TeltechGatherAction } from '../../lib/teltech.js';
 
 const BASE = config.apiBaseUrl;
+const TELTECH_TTS_MAX_CHARS = 500;
+/** Zero-width space — changes Teltech's TTS cache key without audible output. */
+const TTS_CACHE_BUST_MARKER = '\u200B';
+
+function ttsCacheBustSuffix(): string {
+  const version = config.teltech.ttsCacheVersion;
+  if (!version) return '';
+  return TTS_CACHE_BUST_MARKER + version;
+}
 
 /**
  * Resolve the gather timeout (in seconds) for a node. The node's editor-set
@@ -26,16 +35,22 @@ export function resolveNodeTimeout(
  * - Double quotes / smart quotes (e.g. 12" Melamine)
  * - Ampersands, angle brackets, backslashes
  * - Truncates to 500 chars (TelTech hard limit)
+ * - Optionally appends an invisible cache-bust suffix (TELTECH_TTS_CACHE_VERSION)
  */
 function sanitizeForTTS(text: string): string {
-  return text
+  const suffix = ttsCacheBustSuffix();
+  const maxBody = TELTECH_TTS_MAX_CHARS - suffix.length;
+
+  const cleaned = text
     .replace(/(\d)[""\u201C\u201D]/g, '$1 inch')  // 12" → 12 inch
     .replace(/[""\u201C\u201D''\u2018\u2019]/g, '') // strip remaining quotes
     .replace(/&/g, ' and ')
     .replace(/[<>\\]/g, '')
     .replace(/\s{2,}/g, ' ')
-    .trim()
-    .slice(0, 500);
+    .trim();
+
+  if (!cleaned) return '';
+  return cleaned.slice(0, maxBody) + suffix;
 }
 
 export function buildGather(options: {
@@ -115,7 +130,12 @@ export function buildPayGather(_options: {
   const queryParams = new URLSearchParams(_options.sessionData || {});
   return {
     actions: [
-      { action: 'say', text: 'Phone-based payment is temporarily unavailable. Please use the web app to complete your purchase. Returning to the main menu.' },
+      {
+        action: 'say',
+        text: sanitizeForTTS(
+          'Phone-based payment is temporarily unavailable. Please use the web app to complete your purchase. Returning to the main menu.',
+        ),
+      },
       { action: 'redirect', url: `${BASE}/api/ivr/voice/gather?node_key=main_menu&${queryParams.toString()}` },
     ],
   };

@@ -14,6 +14,9 @@ export const config = {
 
   teltech: {
     apiAuth: process.env.TELTECH_API_AUTH || '',
+    // Appended invisibly to every TTS prompt to bust Teltech's audio cache when
+    // they change voice. Bump (e.g. 2 → 3) and redeploy after a platform voice update.
+    ttsCacheVersion: process.env.TELTECH_TTS_CACHE_VERSION?.trim() || '',
   },
 
   sola: {
