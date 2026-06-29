@@ -726,6 +726,7 @@ function NodeEditPanel({
     timeout: String(node.config?.timeout_seconds || 10),
     num_digits: String(node.config?.num_digits || ''),
     finish_on_key: node.config?.finish_on_key || '',
+    ignore_bare_terminator: node.config?.ignore_bare_terminator || false,
     speech_hints: (node.config?.speech_hints || []).join(', '),
     intents_json: JSON.stringify(node.config?.intents || [], null, 2),
   });
@@ -742,6 +743,7 @@ function NodeEditPanel({
       timeout: String(node.config?.timeout_seconds || 10),
       num_digits: String(node.config?.num_digits || ''),
       finish_on_key: node.config?.finish_on_key || '',
+      ignore_bare_terminator: node.config?.ignore_bare_terminator || false,
       speech_hints: (node.config?.speech_hints || []).join(', '),
       intents_json: JSON.stringify(node.config?.intents || [], null, 2),
     });
@@ -764,6 +766,7 @@ function NodeEditPanel({
           timeout_seconds: parseInt(form.timeout) || 10,
           num_digits: form.num_digits ? parseInt(form.num_digits) : undefined,
           finish_on_key: form.finish_on_key || undefined,
+          ignore_bare_terminator: form.ignore_bare_terminator || undefined,
           speech_hints: form.speech_hints ? form.speech_hints.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
           intents,
         },
@@ -839,6 +842,20 @@ function NodeEditPanel({
           <input disabled={!canEdit} value={form.finish_on_key} onChange={(e) => setForm({ ...form, finish_on_key: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm" placeholder="# or empty" />
         </Field>
+
+        {['menu', 'submenu', 'branch'].includes(form.node_type) && (
+          <Field label="Ignore Bare #">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                disabled={!canEdit}
+                checked={form.ignore_bare_terminator}
+                onChange={(e) => setForm({ ...form, ignore_bare_terminator: e.target.checked })}
+              />
+              Ignore a lone # (stops the menu re-prompt / doubling)
+            </label>
+          </Field>
+        )}
 
         <Field label="Speech Hints (comma-separated)">
           <input disabled={!canEdit} value={form.speech_hints} onChange={(e) => setForm({ ...form, speech_hints: e.target.value })}

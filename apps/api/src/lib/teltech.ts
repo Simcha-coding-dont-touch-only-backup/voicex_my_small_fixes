@@ -24,6 +24,7 @@ export interface TeltechGatherAction {
   digit_timeout?: number;
   prompt?: TeltechSayAction | TeltechPlayAction;
   action_url?: string;
+  ignore_bare_terminator?: boolean;
 }
 
 export interface TeltechRecordAction {

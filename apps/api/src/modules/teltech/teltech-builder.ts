@@ -48,6 +48,7 @@ export function buildGather(options: {
   tries?: number;
   sessionData?: Record<string, string>;
   regex?: string;
+  ignoreBareTerminator?: boolean;
 }): TeltechResponse {
   const queryParams = new URLSearchParams(options.sessionData || {});
   const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
@@ -76,6 +77,7 @@ export function buildGather(options: {
     action_url: actionUrl,
     terminator,
     regex: options.regex ?? '[0-9*#]+',
+    ignore_bare_terminator: options.ignoreBareTerminator || undefined,
   };
 
   return { actions: [gather] };
@@ -134,6 +136,7 @@ export function buildGatherFromNode(
     numDigits: node.config.num_digits,
     timeout: overrides?.timeout || node.config.timeout_seconds || 5,
     finishOnKey: node.config.finish_on_key,
+    ignoreBareTerminator: node.config.ignore_bare_terminator,
     sessionData: {
       ...sessionData,
       node_key: node.node_key,

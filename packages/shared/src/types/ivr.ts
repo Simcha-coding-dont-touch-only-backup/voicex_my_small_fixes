@@ -46,6 +46,7 @@ export interface IvrNodeConfig {
   timeout_seconds?: number;
   max_retries?: number;
   finish_on_key?: string;
+  ignore_bare_terminator?: boolean;
   speech_hints?: string[];
   speech_model?: string;
   intents?: IvrIntent[];
