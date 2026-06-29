@@ -766,7 +766,7 @@ function NodeEditPanel({
           timeout_seconds: parseInt(form.timeout) || 10,
           num_digits: form.num_digits ? parseInt(form.num_digits) : undefined,
           finish_on_key: form.finish_on_key || undefined,
-          ignore_bare_terminator: form.ignore_bare_terminator || undefined,
+          ignore_bare_terminator: form.ignore_bare_terminator ?? undefined,
           speech_hints: form.speech_hints ? form.speech_hints.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
           intents,
         },

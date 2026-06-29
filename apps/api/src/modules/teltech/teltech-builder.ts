@@ -77,7 +77,7 @@ export function buildGather(options: {
     action_url: actionUrl,
     terminator,
     regex: options.regex ?? '[0-9*#]+',
-    ignore_bare_terminator: options.ignoreBareTerminator || undefined,
+    ignore_bare_terminator: options.ignoreBareTerminator ?? undefined,
   };
 
   return { actions: [gather] };
