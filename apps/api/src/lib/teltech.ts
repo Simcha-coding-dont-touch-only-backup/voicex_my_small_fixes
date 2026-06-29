@@ -165,6 +165,7 @@ export interface TeltechWebhookPayload {
   timestamp: number;
   variables: Record<string, string>;
   digits?: string;
+  terminated_by?: string;
   recording_path?: string;
   field_id?: string;
   field_value?: string;
