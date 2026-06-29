@@ -25,6 +25,7 @@ export interface TeltechGatherAction {
   prompt?: TeltechSayAction | TeltechPlayAction;
   action_url?: string;
   ignore_bare_terminator?: boolean;
+  back_key?: string;
 }
 
 export interface TeltechRecordAction {

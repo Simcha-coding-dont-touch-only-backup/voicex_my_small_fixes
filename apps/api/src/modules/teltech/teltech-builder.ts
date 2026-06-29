@@ -78,6 +78,11 @@ export function buildGather(options: {
     terminator,
     regex: options.regex ?? '[0-9*#]+',
     ignore_bare_terminator: options.ignoreBareTerminator ?? undefined,
+    // `*` fires "back" immediately on Teltech's side, even mid-entry on
+    // multi-digit gathers (PIN, catalog ID, card number, etc.), so callers no
+    // longer need to press `*#`. The server-side back handler in
+    // gather-result.ts still treats incoming `*` as a back request.
+    back_key: '*',
   };
 
   return { actions: [gather] };
