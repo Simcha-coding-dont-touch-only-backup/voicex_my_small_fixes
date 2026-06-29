@@ -53,7 +53,8 @@ async function logWebhookStep(
   responseType: string,
   recursionDepth: number,
   session: any,
-  rawBody?: Record<string, unknown>
+  rawBody?: Record<string, unknown>,
+  backDebug?: Record<string, unknown>
 ) {
   try {
     let userName: string | null = null;
@@ -104,7 +105,7 @@ async function logWebhookStep(
         response_type: responseType,
         recursion_depth: recursionDepth,
       },
-      raw_payload: { node: nodeKey, digits: safeDigits, body: safeBody },
+      raw_payload: { node: nodeKey, digits: safeDigits, body: safeBody, back_debug: backDebug },
     });
   } catch (err) {
     console.error('Failed to log webhook step:', err);
@@ -217,20 +218,36 @@ export async function handleGatherResult(req: Request, res: Response) {
         incomingDigits.length > 0 &&
         (incomingDigits.startsWith('*') || incomingDigits.endsWith('*')));
 
+    // TEMP DIAGNOSTIC: capture the back-navigation decision so a test call tells
+    // us exactly which branch ran (detection / interactive / pop target).
+    let backDebug: Record<string, unknown> = {
+      isBackRequest,
+      terminatedBy,
+      incomingDigits,
+    };
+
     if (isBackRequest) {
       const currentNode = await ivrRuntime.getNodeByKey(flowVersionId, nodeKey);
       const isInteractive =
         currentNode && !NON_INTERACTIVE_NODE_TYPES.has(currentNode.node_type);
 
+      backDebug = {
+        ...backDebug,
+        currentNodeType: currentNode?.node_type ?? null,
+        isInteractive: !!isInteractive,
+      };
+
       if (isInteractive) {
         req.body.digits = undefined;
         const prevNodeKey = await ivrRuntime.popMenuStack(callSid);
+        backDebug = { ...backDebug, poppedTo: prevNodeKey };
         if (prevNodeKey) {
           nodeKey = prevNodeKey;
           didPop = true;
         }
       }
     }
+    (req as any)._backDebug = backDebug;
 
     await ivrRuntime.updateSession(callSid, { current_node_key: nodeKey });
 
@@ -266,7 +283,7 @@ export async function handleGatherResult(req: Request, res: Response) {
     const responseType = getResponseType(captured);
     const recursionDepth = (req as any)._dispatchDepth || 0;
 
-    await logWebhookStep(callSid, nodeKey, incomingDigits, actionCount, responseType, recursionDepth, session, rawBodySnapshot);
+    await logWebhookStep(callSid, nodeKey, incomingDigits, actionCount, responseType, recursionDepth, session, rawBodySnapshot, (req as any)._backDebug);
   } catch (error) {
     console.error(`Error in gather result for node ${nodeKey}:`, error);
     captured = buildHangup('We encountered an error. Please try again later.');

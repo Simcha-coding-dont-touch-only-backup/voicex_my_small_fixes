@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/cart-pricing.test.ts"
+    "test": "tsx --test src/cart-pricing.test.ts src/order-number.test.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

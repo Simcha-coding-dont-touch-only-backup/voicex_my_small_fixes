@@ -2670,7 +2670,7 @@ registerHandler('checkout_pay', async (ctx) => {
       return {
         type: 'actions',
         response: buildSay(
-          'Your order has been placed successfully. Thank you for shopping with Voicex.',
+          `Your order has been placed! Your order number is ${formatOrderIdForSpeech(order.id)}. Thank you for shopping with VoiceX!`,
           '/api/ivr/voice/gather',
           { call_sid: ctx.callSid, user_id: userId, node_key: 'main_menu' }
         ),

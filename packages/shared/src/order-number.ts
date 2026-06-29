@@ -25,9 +25,12 @@ export function orderIdFromParam(raw: string | undefined): string | null {
   return n;
 }
 
-/** Space-separated digits for phone TTS (avoids "twelve million" style misreads). */
+/** Separator between spoken digits; commas add a natural TTS pause on TelTech IVR. */
+export const ORDER_ID_SPEECH_DIGIT_SEPARATOR = ', ';
+
+/** Comma-separated digits for phone TTS (avoids "twelve million" style misreads; commas slow pacing). */
 export function formatOrderIdForSpeech(id: string | number): string {
   const normalized = normalizeOrderNumberInput(String(id));
   if (!normalized) return '';
-  return normalized.split('').join(' ');
+  return normalized.split('').join(ORDER_ID_SPEECH_DIGIT_SEPARATOR);
 }
