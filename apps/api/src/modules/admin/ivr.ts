@@ -1,7 +1,8 @@
-import { Router } from 'express';
+import { Router, raw } from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { getHandlerNames } from '../ivr/handler-registry.js';
 import { ivrRuntime } from '../ivr/runtime.js';
+import { uploadIvrAudio, deleteIvrAudio, extForAudioContentType } from '../../lib/ivr-audio.js';
 
 export const ivrRouter = Router();
 
@@ -283,6 +284,57 @@ ivrRouter.delete('/nodes/:id', async (req, res) => {
   }
 
   res.json({ success: true, message: 'Node deleted' });
+});
+
+// --- Node prompt recordings (audio) ---
+
+// Accept the raw audio bytes (no multipart dependency needed). The app-level
+// express.json() only parses `application/json`, so an audio upload streams
+// straight through to this route's raw() parser. ~8MB cap — prompts are short.
+ivrRouter.post(
+  '/nodes/:id/audio',
+  raw({ type: ['audio/*', 'application/octet-stream'], limit: '8mb' }),
+  async (req, res) => {
+    const contentType = (req.headers['content-type'] || '').toString();
+    const ext = extForAudioContentType(contentType);
+    if (!ext) {
+      res.status(400).json({ success: false, error: 'Unsupported audio type. Please upload an MP3 or WAV file.' });
+      return;
+    }
+
+    const body = req.body as unknown;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      res.status(400).json({ success: false, error: 'No audio data received.' });
+      return;
+    }
+
+    try {
+      const { path, url } = await uploadIvrAudio(req.params.id, body, contentType.split(';')[0].trim());
+      res.json({ success: true, data: { path, url } });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Upload failed' });
+    }
+  },
+);
+
+ivrRouter.delete('/nodes/:id/audio', async (req, res) => {
+  const path = typeof req.query.path === 'string' ? req.query.path : '';
+  if (!path) {
+    res.status(400).json({ success: false, error: 'Missing audio path.' });
+    return;
+  }
+  // Safety: only allow removing files namespaced under this node.
+  if (!path.startsWith(`${req.params.id}/`)) {
+    res.status(400).json({ success: false, error: 'Audio path does not belong to this node.' });
+    return;
+  }
+
+  try {
+    await deleteIvrAudio(path);
+    res.json({ success: true, message: 'Recording removed' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Delete failed' });
+  }
 });
 
 // --- Edges ---
