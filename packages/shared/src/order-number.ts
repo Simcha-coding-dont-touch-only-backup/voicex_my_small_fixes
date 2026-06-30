@@ -28,9 +28,14 @@ export function orderIdFromParam(raw: string | undefined): string | null {
 /** Separator between spoken digits; period + spaces force TelTech TTS to say each digit on its own. */
 export const ORDER_ID_SPEECH_DIGIT_SEPARATOR = ' . ';
 
+/** Join characters for slow digit/letter-by-letter TelTech TTS readback. */
+export function joinCharsForSpeech(chars: string[]): string {
+  return chars.join(ORDER_ID_SPEECH_DIGIT_SEPARATOR);
+}
+
 /** Digit-by-digit order id for phone TTS (avoids "twelve million" style misreads; periods slow pacing). */
 export function formatOrderIdForSpeech(id: string | number): string {
   const normalized = normalizeOrderNumberInput(String(id));
   if (!normalized) return '';
-  return normalized.split('').join(ORDER_ID_SPEECH_DIGIT_SEPARATOR);
+  return joinCharsForSpeech(normalized.split(''));
 }

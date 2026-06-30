@@ -3,14 +3,14 @@ import { supabaseAdmin } from '../../../lib/supabase.js';
 import { registerHandler } from '../handler-registry.js';
 import { buildGather, buildGatherFromNode, buildCollect, buildHangup, buildSay } from '../../teltech/teltech-builder.js';
 import { ivrRuntime } from '../runtime.js';
+import { joinCharsForSpeech } from '@voicex/shared';
 
 /**
  * Build a word-by-word spell-out of a name for the TTS confirmation readback so
  * the caller can verify the transcribed spelling. Each word is announced, then
  * its letters are read one at a time, e.g. "Bob Raven" becomes
- * "Bob, B, O, B. Raven, R, A, V, E, N". Letters are separated by commas (which
- * TTS reads as short pauses) so the engine reads them individually instead of
- * pronouncing the word. Only the registration name intake uses this.
+ * "Bob, B . O . B. Raven, R . A . V . E . N". Letters use the same paced
+ * separator as order IDs so TelTech reads each character separately.
  */
 function spellNameForReadback(name: string): string {
   return name
@@ -18,11 +18,11 @@ function spellNameForReadback(name: string): string {
     .split(/\s+/)
     .filter((word) => word.length > 0)
     .map((word) => {
-      const letters = word
+      const letterChars = word
         .split('')
         .filter((char) => /[A-Za-z0-9]/.test(char))
-        .map((char) => char.toUpperCase())
-        .join(', ');
+        .map((char) => char.toUpperCase());
+      const letters = joinCharsForSpeech(letterChars);
       return letters ? `${word}, ${letters}` : word;
     })
     .join('. ');

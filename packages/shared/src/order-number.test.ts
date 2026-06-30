@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatOrderIdForSpeech } from './order-number.js';
+import { formatOrderIdForSpeech, joinCharsForSpeech } from './order-number.js';
+
+describe('joinCharsForSpeech', () => {
+  it('joins characters with spaced periods for slow TTS pacing', () => {
+    assert.equal(joinCharsForSpeech(['B', 'O', 'B']), 'B . O . B');
+  });
+});
 
 describe('formatOrderIdForSpeech', () => {
   it('joins digits with spaced periods so TTS says each digit separately', () => {
