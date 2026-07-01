@@ -146,7 +146,7 @@ export async function dispatchNode(
     }
 
     case 'hangup': {
-      res.json(buildHangup(node.prompt_text || undefined));
+      res.json(buildHangup(node.prompt_text || undefined, node.config.prompt_audio_url));
       return;
     }
 
@@ -158,6 +158,7 @@ export async function dispatchNode(
           numDigits: node.config.num_digits,
           timeout: node.config.timeout_seconds || 10,
           finishOnKey: node.config.finish_on_key,
+          promptAudioUrl: node.config.prompt_audio_url,
           sessionData: { ...sessionData, node_key: nodeKey },
         })
       );
@@ -171,11 +172,12 @@ export async function dispatchNode(
           buildSay(
             node.prompt_text || 'Processing.',
             '/api/ivr/voice/gather',
-            { ...sessionData, node_key: nextNode.node_key }
+            { ...sessionData, node_key: nextNode.node_key },
+            node.config.prompt_audio_url,
           )
         );
       } else {
-        res.json(buildHangup(node.prompt_text || 'Thank you.'));
+        res.json(buildHangup(node.prompt_text || 'Thank you.', node.config.prompt_audio_url));
       }
       return;
     }

@@ -50,6 +50,11 @@ export interface IvrNodeConfig {
   speech_hints?: string[];
   speech_model?: string;
   intents?: IvrIntent[];
+  /** Public URL of an uploaded prompt recording. When set, TelTech plays this
+   *  audio instead of speaking `prompt_text`. */
+  prompt_audio_url?: string;
+  /** Storage path of the uploaded prompt recording (used to remove the file). */
+  prompt_audio_path?: string;
 }
 
 export interface IvrIntent {

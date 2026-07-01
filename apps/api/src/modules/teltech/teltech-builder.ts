@@ -73,6 +73,8 @@ export function buildGather(options: {
   sessionData?: Record<string, string>;
   regex?: string;
   ignoreBareTerminator?: boolean;
+  /** When set, TelTech plays this audio URL as the prompt instead of speaking `prompt`. */
+  promptAudioUrl?: string;
 }): TeltechResponse {
   const queryParams = new URLSearchParams(options.sessionData || {});
   const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
@@ -97,7 +99,9 @@ export function buildGather(options: {
     timeout: (options.timeout || 5) * 1000,
     digit_timeout: hasFixedDigits ? 500 : undefined,
     tries: options.tries ?? 3,
-    prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
+    prompt: options.promptAudioUrl
+      ? { action: 'play', file: options.promptAudioUrl }
+      : { action: 'say', text: sanitizeForTTS(options.prompt) },
     action_url: actionUrl,
     terminator,
     regex: options.regex ?? '[0-9*#]+',
@@ -112,11 +116,20 @@ export function buildGather(options: {
   return { actions: [gather] };
 }
 
-export function buildSay(message: string, redirectPath?: string, sessionData?: Record<string, string>): TeltechResponse {
+export function buildSay(
+  message: string,
+  redirectPath?: string,
+  sessionData?: Record<string, string>,
+  promptAudioUrl?: string,
+): TeltechResponse {
   const actions: TeltechResponse['actions'] = [];
-  const text = sanitizeForTTS(message);
-  if (text) {
-    actions.push({ action: 'say', text });
+  if (promptAudioUrl) {
+    actions.push({ action: 'play', file: promptAudioUrl });
+  } else {
+    const text = sanitizeForTTS(message);
+    if (text) {
+      actions.push({ action: 'say', text });
+    }
   }
   if (redirectPath) {
     let url = `${BASE}${redirectPath}`;
@@ -150,9 +163,11 @@ export function buildPayGather(_options: {
   };
 }
 
-export function buildHangup(message?: string): TeltechResponse {
+export function buildHangup(message?: string, promptAudioUrl?: string): TeltechResponse {
   const actions: TeltechResponse['actions'] = [];
-  if (message) {
+  if (promptAudioUrl) {
+    actions.push({ action: 'play', file: promptAudioUrl });
+  } else if (message) {
     actions.push({ action: 'say', text: sanitizeForTTS(message) });
   }
   actions.push({ action: 'hangup' });
@@ -164,6 +179,10 @@ export function buildGatherFromNode(
   sessionData: Record<string, string>,
   overrides?: { prompt?: string; timeout?: number }
 ): TeltechResponse {
+  // Only use the node's recording when we're speaking the node's own prompt.
+  // Dynamic overrides (e.g. a prompt with a live price) can't be pre-recorded.
+  const promptAudioUrl = overrides?.prompt ? undefined : node.config.prompt_audio_url;
+
   return buildGather({
     prompt: overrides?.prompt || node.prompt_text || 'Please make a selection.',
     actionPath: '/api/ivr/voice/gather',
@@ -171,6 +190,7 @@ export function buildGatherFromNode(
     timeout: overrides?.timeout || node.config.timeout_seconds || 5,
     finishOnKey: node.config.finish_on_key,
     ignoreBareTerminator: node.config.ignore_bare_terminator,
+    promptAudioUrl,
     sessionData: {
       ...sessionData,
       node_key: node.node_key,
