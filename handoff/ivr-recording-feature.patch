@@ -1,0 +1,533 @@
+diff --git a/apps/admin-web/src/lib/api.ts b/apps/admin-web/src/lib/api.ts
+index 2c82b13..563fde1 100644
+--- a/apps/admin-web/src/lib/api.ts
++++ b/apps/admin-web/src/lib/api.ts
+@@ -55,6 +55,18 @@ export async function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+   return apiFetch<T>(path, init);
+ }
+ 
++/**
++ * Uploads a raw file (e.g. an audio recording) with its own content type.
++ * The server reads the raw bytes — no multipart form needed.
++ */
++export async function apiUpload<T>(path: string, file: File): Promise<T> {
++  return apiFetch<T>(path, {
++    method: 'POST',
++    headers: { 'Content-Type': file.type || 'application/octet-stream' },
++    body: file,
++  });
++}
++
+ export async function apiDownload(path: string, filename: string): Promise<void> {
+   const headers = await getAuthHeaders();
+   const resp = await fetch(`${API_BASE}${path}`, { headers });
+diff --git a/apps/admin-web/src/pages/IvrFlowsPage.tsx b/apps/admin-web/src/pages/IvrFlowsPage.tsx
+index 3881fdb..11b42d9 100644
+--- a/apps/admin-web/src/pages/IvrFlowsPage.tsx
++++ b/apps/admin-web/src/pages/IvrFlowsPage.tsx
+@@ -14,7 +14,7 @@ import {
+   BackgroundVariant,
+ } from '@xyflow/react';
+ import '@xyflow/react/dist/style.css';
+-import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
++import { apiGet, apiPost, apiPatch, apiDelete, apiUpload } from '../lib/api';
+ import IvrNodeComponent from '../components/ivr/IvrNodeComponent';
+ import {
+   Plus, Play, Copy, Save, X, ChevronDown,
+@@ -717,57 +717,55 @@ function NodeEditPanel({
+   onDelete: (id: string) => Promise<void>;
+   onClose: () => void;
+ }) {
+-  const [form, setForm] = useState({
+-    node_key: node.node_key,
+-    node_type: node.node_type,
+-    handler_name: node.handler_name || '',
+-    prompt_text: node.prompt_text || '',
+-    input_type: node.config?.input_type || 'dtmf_speech',
+-    timeout: String(node.config?.timeout_seconds || 10),
+-    num_digits: String(node.config?.num_digits || ''),
+-    finish_on_key: node.config?.finish_on_key || '',
+-    ignore_bare_terminator: node.config?.ignore_bare_terminator || false,
+-    speech_hints: (node.config?.speech_hints || []).join(', '),
+-    intents_json: JSON.stringify(node.config?.intents || [], null, 2),
++  const initialForm = (n: IvrNodeData) => ({
++    node_key: n.node_key,
++    node_type: n.node_type,
++    handler_name: n.handler_name || '',
++    prompt_text: n.prompt_text || '',
++    input_type: n.config?.input_type || 'dtmf_speech',
++    timeout: String(n.config?.timeout_seconds || 10),
++    num_digits: String(n.config?.num_digits || ''),
++    finish_on_key: n.config?.finish_on_key || '',
++    ignore_bare_terminator: n.config?.ignore_bare_terminator || false,
++    speech_hints: (n.config?.speech_hints || []).join(', '),
++    prompt_audio_url: n.config?.prompt_audio_url || '',
++    prompt_audio_path: n.config?.prompt_audio_path || '',
++    intents_json: JSON.stringify(n.config?.intents || [], null, 2),
+   });
++
++  const [form, setForm] = useState(() => initialForm(node));
+   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
++  const [uploading, setUploading] = useState(false);
++  const [confirmRemove, setConfirmRemove] = useState(false);
++  const fileInputRef = useRef<HTMLInputElement>(null);
+   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+ 
+   useEffect(() => {
+-    setForm({
+-      node_key: node.node_key,
+-      node_type: node.node_type,
+-      handler_name: node.handler_name || '',
+-      prompt_text: node.prompt_text || '',
+-      input_type: node.config?.input_type || 'dtmf_speech',
+-      timeout: String(node.config?.timeout_seconds || 10),
+-      num_digits: String(node.config?.num_digits || ''),
+-      finish_on_key: node.config?.finish_on_key || '',
+-      ignore_bare_terminator: node.config?.ignore_bare_terminator || false,
+-      speech_hints: (node.config?.speech_hints || []).join(', '),
+-      intents_json: JSON.stringify(node.config?.intents || [], null, 2),
+-    });
++    setForm(initialForm(node));
+     setSaveStatus('idle');
++    setConfirmRemove(false);
+   }, [node]);
+ 
+-  const handleSave = async () => {
++  const persist = async (f: typeof form) => {
+     let intents = [];
+-    try { intents = JSON.parse(form.intents_json); } catch { /* keep existing */ }
++    try { intents = JSON.parse(f.intents_json); } catch { /* keep existing */ }
+ 
+     setSaveStatus('saving');
+     try {
+       await onUpdate(node.id, {
+-        node_key: form.node_key,
+-        node_type: form.node_type,
+-        handler_name: form.handler_name || null,
+-        prompt_text: form.prompt_text,
++        node_key: f.node_key,
++        node_type: f.node_type,
++        handler_name: f.handler_name || null,
++        prompt_text: f.prompt_text,
+         config: {
+-          input_type: form.input_type,
+-          timeout_seconds: parseInt(form.timeout) || 10,
+-          num_digits: form.num_digits ? parseInt(form.num_digits) : undefined,
+-          finish_on_key: form.finish_on_key || undefined,
+-          ignore_bare_terminator: form.ignore_bare_terminator ?? undefined,
+-          speech_hints: form.speech_hints ? form.speech_hints.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
++          input_type: f.input_type,
++          timeout_seconds: parseInt(f.timeout) || 10,
++          num_digits: f.num_digits ? parseInt(f.num_digits) : undefined,
++          finish_on_key: f.finish_on_key || undefined,
++          ignore_bare_terminator: f.ignore_bare_terminator ?? undefined,
++          speech_hints: f.speech_hints ? f.speech_hints.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
++          prompt_audio_url: f.prompt_audio_url || undefined,
++          prompt_audio_path: f.prompt_audio_path || undefined,
+           intents,
+         },
+       } as any);
+@@ -781,6 +779,47 @@ function NodeEditPanel({
+     }
+   };
+ 
++  const handleSave = () => persist(form);
++
++  // Upload a prompt recording, then persist immediately so it takes effect.
++  const handleAudioFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0];
++    e.target.value = ''; // allow re-picking the same file later
++    if (!file) return;
++
++    setUploading(true);
++    try {
++      const res = await apiUpload<{ data: { url: string; path: string } }>(
++        `/ivr/nodes/${node.id}/audio`,
++        file,
++      );
++      const next = { ...form, prompt_audio_url: res.data.url, prompt_audio_path: res.data.path };
++      setForm(next);
++      await persist(next);
++    } catch (err) {
++      alert(`Upload failed: ${err instanceof Error ? err.message : 'unknown error'}`);
++    } finally {
++      setUploading(false);
++    }
++  };
++
++  // Remove the recording: clear the reference and save first (so nothing points
++  // at it), then best-effort delete the stored file.
++  const handleAudioRemove = async () => {
++    setConfirmRemove(false);
++    const path = form.prompt_audio_path;
++    const next = { ...form, prompt_audio_url: '', prompt_audio_path: '' };
++    setForm(next);
++    await persist(next);
++    if (path) {
++      try {
++        await apiDelete(`/ivr/nodes/${node.id}/audio?path=${encodeURIComponent(path)}`);
++      } catch { /* orphaned file is harmless; ignore */ }
++    }
++  };
++
++  const audioFileName = form.prompt_audio_path ? form.prompt_audio_path.split('/').pop() : '';
++
+   return (
+     <div className="p-4">
+       <div className="flex items-center justify-between mb-4">
+@@ -818,6 +857,34 @@ function NodeEditPanel({
+             className="w-full rounded border px-2 py-1.5 text-sm" rows={4} />
+         </Field>
+ 
++        <Field label="Recording">
++          <input ref={fileInputRef} type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/ogg,.mp3,.wav,.m4a,.ogg"
++            className="hidden" onChange={handleAudioFile} />
++          {form.prompt_audio_url ? (
++            <div className="flex items-center gap-2 text-sm">
++              <button type="button" title="Listen" onClick={() => { void new Audio(form.prompt_audio_url).play(); }}
++                className="text-indigo-600 hover:text-indigo-700 shrink-0">
++                <Play size={16} />
++              </button>
++              <span className="text-gray-700 truncate flex-1">{audioFileName}</span>
++              {canEdit && (
++                <button type="button" title="Remove" disabled={uploading} onClick={() => setConfirmRemove(true)}
++                  className="text-gray-400 hover:text-red-600 shrink-0 disabled:opacity-50">
++                  <Trash2 size={16} />
++                </button>
++              )}
++            </div>
++          ) : (
++            canEdit && (
++              <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()}
++                className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
++                {uploading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />}
++                {uploading ? 'Uploading...' : 'Upload a file'}
++              </button>
++            )
++          )}
++        </Field>
++
+         <Field label="Input Type">
+           <select disabled={!canEdit} value={form.input_type} onChange={(e) => setForm({ ...form, input_type: e.target.value })}
+             className="w-full rounded border px-2 py-1.5 text-sm">
+@@ -891,6 +958,23 @@ function NodeEditPanel({
+           </div>
+         )}
+       </div>
++
++      {confirmRemove && (
++        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
++          <div className="bg-white rounded-lg shadow-xl p-6 w-[380px]">
++            <h4 className="font-semibold text-gray-900 mb-2">Delete recording?</h4>
++            <p className="text-sm text-gray-600 mb-5">
++              This will permanently remove the recording{audioFileName ? ` "${audioFileName}"` : ''} from this node. This cannot be undone.
++            </p>
++            <div className="flex justify-end gap-2">
++              <button onClick={() => setConfirmRemove(false)}
++                className="rounded border border-gray-300 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
++              <button onClick={handleAudioRemove}
++                className="rounded bg-red-600 px-4 py-1.5 text-sm text-white hover:bg-red-700">Delete</button>
++            </div>
++          </div>
++        </div>
++      )}
+     </div>
+   );
+ }
+diff --git a/apps/api/src/lib/ivr-audio.ts b/apps/api/src/lib/ivr-audio.ts
+new file mode 100644
+index 0000000..ae31bbf
+--- /dev/null
++++ b/apps/api/src/lib/ivr-audio.ts
+@@ -0,0 +1,66 @@
++import { supabaseAdmin } from './supabase.js';
++import { config } from '../config.js';
++
++const BUCKET = 'ivr-audio';
++
++/**
++ * Allowed audio content types and the file extension we store them under.
++ * Kept deliberately small (MP3 / WAV / M4A / OGG) — these are what TelTech's
++ * `play` action reliably handles. WAV is the safest for telephony; MP3 is the
++ * most convenient for admins recording on a phone.
++ */
++const CONTENT_TYPE_EXT: Record<string, string> = {
++  'audio/mpeg': 'mp3',
++  'audio/mp3': 'mp3',
++  'audio/wav': 'wav',
++  'audio/x-wav': 'wav',
++  'audio/wave': 'wav',
++  'audio/mp4': 'm4a',
++  'audio/x-m4a': 'm4a',
++  'audio/ogg': 'ogg',
++};
++
++/** Returns the stored file extension for an audio content type, or null if unsupported. */
++export function extForAudioContentType(contentType: string | undefined | null): string | null {
++  if (!contentType) return null;
++  const base = contentType.split(';')[0].trim().toLowerCase();
++  return CONTENT_TYPE_EXT[base] ?? null;
++}
++
++/** Builds the fully-qualified public URL for a stored IVR audio path, or null. */
++export function getIvrAudioPublicUrl(path: string | null | undefined): string | null {
++  if (!path) return null;
++  const base = config.supabase.url.replace(/\/$/, '');
++  return `${base}/storage/v1/object/public/${BUCKET}/${path}`;
++}
++
++/**
++ * Uploads an IVR prompt recording for a node and returns its storage path and
++ * public URL. Files are namespaced per node (`<nodeId>/prompt-<ts>.<ext>`); the
++ * timestamp also busts any CDN cache when a recording is replaced.
++ */
++export async function uploadIvrAudio(
++  nodeId: string,
++  buffer: Buffer,
++  contentType: string,
++): Promise<{ path: string; url: string }> {
++  const ext = extForAudioContentType(contentType) ?? 'mp3';
++  const path = `${nodeId}/prompt-${Date.now()}.${ext}`;
++
++  const { error } = await supabaseAdmin.storage
++    .from(BUCKET)
++    .upload(path, buffer, { contentType, upsert: true });
++  if (error) {
++    throw new Error(error.message);
++  }
++
++  return { path, url: getIvrAudioPublicUrl(path)! };
++}
++
++/** Removes a stored IVR prompt recording. */
++export async function deleteIvrAudio(path: string): Promise<void> {
++  const { error } = await supabaseAdmin.storage.from(BUCKET).remove([path]);
++  if (error) {
++    throw new Error(error.message);
++  }
++}
+diff --git a/apps/api/src/modules/admin/ivr.ts b/apps/api/src/modules/admin/ivr.ts
+index 345c2f1..3a0af64 100644
+--- a/apps/api/src/modules/admin/ivr.ts
++++ b/apps/api/src/modules/admin/ivr.ts
+@@ -1,7 +1,8 @@
+-import { Router } from 'express';
++import { Router, raw } from 'express';
+ import { supabaseAdmin } from '../../lib/supabase.js';
+ import { getHandlerNames } from '../ivr/handler-registry.js';
+ import { ivrRuntime } from '../ivr/runtime.js';
++import { uploadIvrAudio, deleteIvrAudio, extForAudioContentType } from '../../lib/ivr-audio.js';
+ 
+ export const ivrRouter = Router();
+ 
+@@ -285,6 +286,57 @@ ivrRouter.delete('/nodes/:id', async (req, res) => {
+   res.json({ success: true, message: 'Node deleted' });
+ });
+ 
++// --- Node prompt recordings (audio) ---
++
++// Accept the raw audio bytes (no multipart dependency needed). The app-level
++// express.json() only parses `application/json`, so an audio upload streams
++// straight through to this route's raw() parser. ~8MB cap — prompts are short.
++ivrRouter.post(
++  '/nodes/:id/audio',
++  raw({ type: ['audio/*', 'application/octet-stream'], limit: '8mb' }),
++  async (req, res) => {
++    const contentType = (req.headers['content-type'] || '').toString();
++    const ext = extForAudioContentType(contentType);
++    if (!ext) {
++      res.status(400).json({ success: false, error: 'Unsupported audio type. Please upload an MP3 or WAV file.' });
++      return;
++    }
++
++    const body = req.body as unknown;
++    if (!Buffer.isBuffer(body) || body.length === 0) {
++      res.status(400).json({ success: false, error: 'No audio data received.' });
++      return;
++    }
++
++    try {
++      const { path, url } = await uploadIvrAudio(req.params.id, body, contentType.split(';')[0].trim());
++      res.json({ success: true, data: { path, url } });
++    } catch (err) {
++      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Upload failed' });
++    }
++  },
++);
++
++ivrRouter.delete('/nodes/:id/audio', async (req, res) => {
++  const path = typeof req.query.path === 'string' ? req.query.path : '';
++  if (!path) {
++    res.status(400).json({ success: false, error: 'Missing audio path.' });
++    return;
++  }
++  // Safety: only allow removing files namespaced under this node.
++  if (!path.startsWith(`${req.params.id}/`)) {
++    res.status(400).json({ success: false, error: 'Audio path does not belong to this node.' });
++    return;
++  }
++
++  try {
++    await deleteIvrAudio(path);
++    res.json({ success: true, message: 'Recording removed' });
++  } catch (err) {
++    res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Delete failed' });
++  }
++});
++
+ // --- Edges ---
+ 
+ ivrRouter.post('/edges', async (req, res) => {
+diff --git a/apps/api/src/modules/ivr/graph-dispatcher.ts b/apps/api/src/modules/ivr/graph-dispatcher.ts
+index 489caca..39e433e 100644
+--- a/apps/api/src/modules/ivr/graph-dispatcher.ts
++++ b/apps/api/src/modules/ivr/graph-dispatcher.ts
+@@ -146,7 +146,7 @@ export async function dispatchNode(
+     }
+ 
+     case 'hangup': {
+-      res.json(buildHangup(node.prompt_text || undefined));
++      res.json(buildHangup(node.prompt_text || undefined, node.config.prompt_audio_url));
+       return;
+     }
+ 
+@@ -158,6 +158,7 @@ export async function dispatchNode(
+           numDigits: node.config.num_digits,
+           timeout: node.config.timeout_seconds || 10,
+           finishOnKey: node.config.finish_on_key,
++          promptAudioUrl: node.config.prompt_audio_url,
+           sessionData: { ...sessionData, node_key: nodeKey },
+         })
+       );
+@@ -171,11 +172,12 @@ export async function dispatchNode(
+           buildSay(
+             node.prompt_text || 'Processing.',
+             '/api/ivr/voice/gather',
+-            { ...sessionData, node_key: nextNode.node_key }
++            { ...sessionData, node_key: nextNode.node_key },
++            node.config.prompt_audio_url,
+           )
+         );
+       } else {
+-        res.json(buildHangup(node.prompt_text || 'Thank you.'));
++        res.json(buildHangup(node.prompt_text || 'Thank you.', node.config.prompt_audio_url));
+       }
+       return;
+     }
+diff --git a/apps/api/src/modules/teltech/teltech-builder.ts b/apps/api/src/modules/teltech/teltech-builder.ts
+index 6ebcf0d..0296bc3 100644
+--- a/apps/api/src/modules/teltech/teltech-builder.ts
++++ b/apps/api/src/modules/teltech/teltech-builder.ts
+@@ -73,6 +73,8 @@ export function buildGather(options: {
+   sessionData?: Record<string, string>;
+   regex?: string;
+   ignoreBareTerminator?: boolean;
++  /** When set, TelTech plays this audio URL as the prompt instead of speaking `prompt`. */
++  promptAudioUrl?: string;
+ }): TeltechResponse {
+   const queryParams = new URLSearchParams(options.sessionData || {});
+   const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
+@@ -97,7 +99,9 @@ export function buildGather(options: {
+     timeout: (options.timeout || 5) * 1000,
+     digit_timeout: hasFixedDigits ? 500 : undefined,
+     tries: options.tries ?? 3,
+-    prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
++    prompt: options.promptAudioUrl
++      ? { action: 'play', file: options.promptAudioUrl }
++      : { action: 'say', text: sanitizeForTTS(options.prompt) },
+     action_url: actionUrl,
+     terminator,
+     regex: options.regex ?? '[0-9*#]+',
+@@ -112,11 +116,20 @@ export function buildGather(options: {
+   return { actions: [gather] };
+ }
+ 
+-export function buildSay(message: string, redirectPath?: string, sessionData?: Record<string, string>): TeltechResponse {
++export function buildSay(
++  message: string,
++  redirectPath?: string,
++  sessionData?: Record<string, string>,
++  promptAudioUrl?: string,
++): TeltechResponse {
+   const actions: TeltechResponse['actions'] = [];
+-  const text = sanitizeForTTS(message);
+-  if (text) {
+-    actions.push({ action: 'say', text });
++  if (promptAudioUrl) {
++    actions.push({ action: 'play', file: promptAudioUrl });
++  } else {
++    const text = sanitizeForTTS(message);
++    if (text) {
++      actions.push({ action: 'say', text });
++    }
+   }
+   if (redirectPath) {
+     let url = `${BASE}${redirectPath}`;
+@@ -150,9 +163,11 @@ export function buildPayGather(_options: {
+   };
+ }
+ 
+-export function buildHangup(message?: string): TeltechResponse {
++export function buildHangup(message?: string, promptAudioUrl?: string): TeltechResponse {
+   const actions: TeltechResponse['actions'] = [];
+-  if (message) {
++  if (promptAudioUrl) {
++    actions.push({ action: 'play', file: promptAudioUrl });
++  } else if (message) {
+     actions.push({ action: 'say', text: sanitizeForTTS(message) });
+   }
+   actions.push({ action: 'hangup' });
+@@ -164,6 +179,10 @@ export function buildGatherFromNode(
+   sessionData: Record<string, string>,
+   overrides?: { prompt?: string; timeout?: number }
+ ): TeltechResponse {
++  // Only use the node's recording when we're speaking the node's own prompt.
++  // Dynamic overrides (e.g. a prompt with a live price) can't be pre-recorded.
++  const promptAudioUrl = overrides?.prompt ? undefined : node.config.prompt_audio_url;
++
+   return buildGather({
+     prompt: overrides?.prompt || node.prompt_text || 'Please make a selection.',
+     actionPath: '/api/ivr/voice/gather',
+@@ -171,6 +190,7 @@ export function buildGatherFromNode(
+     timeout: overrides?.timeout || node.config.timeout_seconds || 5,
+     finishOnKey: node.config.finish_on_key,
+     ignoreBareTerminator: node.config.ignore_bare_terminator,
++    promptAudioUrl,
+     sessionData: {
+       ...sessionData,
+       node_key: node.node_key,
+diff --git a/packages/shared/src/types/ivr.ts b/packages/shared/src/types/ivr.ts
+index 65134f5..b5adad4 100644
+--- a/packages/shared/src/types/ivr.ts
++++ b/packages/shared/src/types/ivr.ts
+@@ -50,6 +50,11 @@ export interface IvrNodeConfig {
+   speech_hints?: string[];
+   speech_model?: string;
+   intents?: IvrIntent[];
++  /** Public URL of an uploaded prompt recording. When set, TelTech plays this
++   *  audio instead of speaking `prompt_text`. */
++  prompt_audio_url?: string;
++  /** Storage path of the uploaded prompt recording (used to remove the file). */
++  prompt_audio_path?: string;
+ }
+ 
+ export interface IvrIntent {
+diff --git a/supabase/migrations/20260630120000_ivr_audio_bucket.sql b/supabase/migrations/20260630120000_ivr_audio_bucket.sql
+new file mode 100644
+index 0000000..c34d387
+--- /dev/null
++++ b/supabase/migrations/20260630120000_ivr_audio_bucket.sql
+@@ -0,0 +1,13 @@
++-- Storage for IVR node prompt recordings (audio files uploaded in the IVR flow editor).
++-- Public bucket so TelTech can fetch the recording over its public URL when playing it
++-- to the caller (mirrors the existing `product-images` bucket pattern). Files are
++-- written by the service role from the admin API; the public can only read.
++INSERT INTO storage.buckets (id, name, public)
++VALUES ('ivr-audio', 'ivr-audio', true)
++ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
++
++-- Allow public read of objects in this bucket (matches `public = true` semantics).
++DROP POLICY IF EXISTS "ivr-audio public read" ON storage.objects;
++CREATE POLICY "ivr-audio public read"
++  ON storage.objects FOR SELECT
++  USING (bucket_id = 'ivr-audio');
