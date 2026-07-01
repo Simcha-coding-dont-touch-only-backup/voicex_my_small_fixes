@@ -14,7 +14,7 @@ import {
   BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { apiGet, apiPost, apiPatch, apiDelete } from '../lib/api';
+import { apiGet, apiPost, apiPatch, apiDelete, apiUpload } from '../lib/api';
 import IvrNodeComponent from '../components/ivr/IvrNodeComponent';
 import {
   Plus, Play, Copy, Save, X, ChevronDown,
@@ -717,57 +717,55 @@ function NodeEditPanel({
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
 }) {
-  const [form, setForm] = useState({
-    node_key: node.node_key,
-    node_type: node.node_type,
-    handler_name: node.handler_name || '',
-    prompt_text: node.prompt_text || '',
-    input_type: node.config?.input_type || 'dtmf_speech',
-    timeout: String(node.config?.timeout_seconds || 10),
-    num_digits: String(node.config?.num_digits || ''),
-    finish_on_key: node.config?.finish_on_key || '',
-    ignore_bare_terminator: node.config?.ignore_bare_terminator || false,
-    speech_hints: (node.config?.speech_hints || []).join(', '),
-    intents_json: JSON.stringify(node.config?.intents || [], null, 2),
+  const initialForm = (n: IvrNodeData) => ({
+    node_key: n.node_key,
+    node_type: n.node_type,
+    handler_name: n.handler_name || '',
+    prompt_text: n.prompt_text || '',
+    input_type: n.config?.input_type || 'dtmf_speech',
+    timeout: String(n.config?.timeout_seconds || 10),
+    num_digits: String(n.config?.num_digits || ''),
+    finish_on_key: n.config?.finish_on_key || '',
+    ignore_bare_terminator: n.config?.ignore_bare_terminator || false,
+    speech_hints: (n.config?.speech_hints || []).join(', '),
+    prompt_audio_url: n.config?.prompt_audio_url || '',
+    prompt_audio_path: n.config?.prompt_audio_path || '',
+    intents_json: JSON.stringify(n.config?.intents || [], null, 2),
   });
+
+  const [form, setForm] = useState(() => initialForm(node));
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [uploading, setUploading] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    setForm({
-      node_key: node.node_key,
-      node_type: node.node_type,
-      handler_name: node.handler_name || '',
-      prompt_text: node.prompt_text || '',
-      input_type: node.config?.input_type || 'dtmf_speech',
-      timeout: String(node.config?.timeout_seconds || 10),
-      num_digits: String(node.config?.num_digits || ''),
-      finish_on_key: node.config?.finish_on_key || '',
-      ignore_bare_terminator: node.config?.ignore_bare_terminator || false,
-      speech_hints: (node.config?.speech_hints || []).join(', '),
-      intents_json: JSON.stringify(node.config?.intents || [], null, 2),
-    });
+    setForm(initialForm(node));
     setSaveStatus('idle');
+    setConfirmRemove(false);
   }, [node]);
 
-  const handleSave = async () => {
+  const persist = async (f: typeof form) => {
     let intents = [];
-    try { intents = JSON.parse(form.intents_json); } catch { /* keep existing */ }
+    try { intents = JSON.parse(f.intents_json); } catch { /* keep existing */ }
 
     setSaveStatus('saving');
     try {
       await onUpdate(node.id, {
-        node_key: form.node_key,
-        node_type: form.node_type,
-        handler_name: form.handler_name || null,
-        prompt_text: form.prompt_text,
+        node_key: f.node_key,
+        node_type: f.node_type,
+        handler_name: f.handler_name || null,
+        prompt_text: f.prompt_text,
         config: {
-          input_type: form.input_type,
-          timeout_seconds: parseInt(form.timeout) || 10,
-          num_digits: form.num_digits ? parseInt(form.num_digits) : undefined,
-          finish_on_key: form.finish_on_key || undefined,
-          ignore_bare_terminator: form.ignore_bare_terminator ?? undefined,
-          speech_hints: form.speech_hints ? form.speech_hints.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
+          input_type: f.input_type,
+          timeout_seconds: parseInt(f.timeout) || 10,
+          num_digits: f.num_digits ? parseInt(f.num_digits) : undefined,
+          finish_on_key: f.finish_on_key || undefined,
+          ignore_bare_terminator: f.ignore_bare_terminator ?? undefined,
+          speech_hints: f.speech_hints ? f.speech_hints.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
+          prompt_audio_url: f.prompt_audio_url || undefined,
+          prompt_audio_path: f.prompt_audio_path || undefined,
           intents,
         },
       } as any);
@@ -780,6 +778,47 @@ function NodeEditPanel({
       saveTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000);
     }
   };
+
+  const handleSave = () => persist(form);
+
+  // Upload a prompt recording, then persist immediately so it takes effect.
+  const handleAudioFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file later
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const res = await apiUpload<{ data: { url: string; path: string } }>(
+        `/ivr/nodes/${node.id}/audio`,
+        file,
+      );
+      const next = { ...form, prompt_audio_url: res.data.url, prompt_audio_path: res.data.path };
+      setForm(next);
+      await persist(next);
+    } catch (err) {
+      alert(`Upload failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Remove the recording: clear the reference and save first (so nothing points
+  // at it), then best-effort delete the stored file.
+  const handleAudioRemove = async () => {
+    setConfirmRemove(false);
+    const path = form.prompt_audio_path;
+    const next = { ...form, prompt_audio_url: '', prompt_audio_path: '' };
+    setForm(next);
+    await persist(next);
+    if (path) {
+      try {
+        await apiDelete(`/ivr/nodes/${node.id}/audio?path=${encodeURIComponent(path)}`);
+      } catch { /* orphaned file is harmless; ignore */ }
+    }
+  };
+
+  const audioFileName = form.prompt_audio_path ? form.prompt_audio_path.split('/').pop() : '';
 
   return (
     <div className="p-4">
@@ -816,6 +855,34 @@ function NodeEditPanel({
         <Field label="Prompt Text">
           <textarea disabled={!canEdit} value={form.prompt_text} onChange={(e) => setForm({ ...form, prompt_text: e.target.value })}
             className="w-full rounded border px-2 py-1.5 text-sm" rows={4} />
+        </Field>
+
+        <Field label="Recording">
+          <input ref={fileInputRef} type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/ogg,.mp3,.wav,.m4a,.ogg"
+            className="hidden" onChange={handleAudioFile} />
+          {form.prompt_audio_url ? (
+            <div className="flex items-center gap-2 text-sm">
+              <button type="button" title="Listen" onClick={() => { void new Audio(form.prompt_audio_url).play(); }}
+                className="text-indigo-600 hover:text-indigo-700 shrink-0">
+                <Play size={16} />
+              </button>
+              <span className="text-gray-700 truncate flex-1">{audioFileName}</span>
+              {canEdit && (
+                <button type="button" title="Remove" disabled={uploading} onClick={() => setConfirmRemove(true)}
+                  className="text-gray-400 hover:text-red-600 shrink-0 disabled:opacity-50">
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+          ) : (
+            canEdit && (
+              <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
+                {uploading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />}
+                {uploading ? 'Uploading...' : 'Upload a file'}
+              </button>
+            )
+          )}
         </Field>
 
         <Field label="Input Type">
@@ -891,6 +958,23 @@ function NodeEditPanel({
           </div>
         )}
       </div>
+
+      {confirmRemove && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-[380px]">
+            <h4 className="font-semibold text-gray-900 mb-2">Delete recording?</h4>
+            <p className="text-sm text-gray-600 mb-5">
+              This will permanently remove the recording{audioFileName ? ` "${audioFileName}"` : ''} from this node. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmRemove(false)}
+                className="rounded border border-gray-300 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button onClick={handleAudioRemove}
+                className="rounded bg-red-600 px-4 py-1.5 text-sm text-white hover:bg-red-700">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

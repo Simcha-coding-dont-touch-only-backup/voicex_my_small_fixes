@@ -55,6 +55,18 @@ export async function apiDelete<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, init);
 }
 
+/**
+ * Uploads a raw file (e.g. an audio recording) with its own content type.
+ * The server reads the raw bytes — no multipart form needed.
+ */
+export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  return apiFetch<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+}
+
 export async function apiDownload(path: string, filename: string): Promise<void> {
   const headers = await getAuthHeaders();
   const resp = await fetch(`${API_BASE}${path}`, { headers });
