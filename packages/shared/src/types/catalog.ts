@@ -100,6 +100,9 @@ export interface CatalogProduct {
   voice_name: string | null;
   voice_description: string | null;
   custom_price_cents: number | null;
+  /** Optional per-product markup %. When set and `custom_price_cents` is null, this
+   *  overrides the global default markup. Null = use the global default markup. */
+  custom_markup_percent: number | null;
   /** Optional average local retail store price (USD cents) for savings messaging vs VoiceX price. */
   local_price_cents: number | null;
   amazon_star_rating: number | null;
@@ -145,7 +148,10 @@ export function getProductPriceCents(
   }
   if (product.amazon_price_cents === null) return null;
   if (isWhitelisted) return product.amazon_price_cents;
-  return Math.round(product.amazon_price_cents * (1 + markupPercent / 100));
+  // A per-product custom markup overrides the global default markup.
+  const effectiveMarkup =
+    product.custom_markup_percent != null ? product.custom_markup_percent : markupPercent;
+  return Math.round(product.amazon_price_cents * (1 + effectiveMarkup / 100));
 }
 
 /** Savings vs local retail for one cart line (VoiceX unit price already includes markup). */

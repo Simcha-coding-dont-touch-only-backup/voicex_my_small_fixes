@@ -649,7 +649,7 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   const {
     voicex_id, amazon_asin, amazon_url, amazon_name, amazon_description,
     amazon_price_cents, amazon_star_rating, amazon_ratings_total,
-    voice_name, voice_description, custom_price_cents, local_price_cents,
+    voice_name, voice_description, custom_price_cents, custom_markup_percent, local_price_cents,
     status, category_ids,
   } = req.body;
 
@@ -665,6 +665,7 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   if (voice_name !== undefined) updates.voice_name = voice_name;
   if (voice_description !== undefined) updates.voice_description = voice_description;
   if (custom_price_cents !== undefined) updates.custom_price_cents = custom_price_cents;
+  if (custom_markup_percent !== undefined) updates.custom_markup_percent = custom_markup_percent;
   if (local_price_cents !== undefined) updates.local_price_cents = local_price_cents;
   if (status !== undefined) {
     if (typeof status !== 'string' || !isCatalogProductStatus(status)) {
@@ -690,13 +691,13 @@ catalogRouter.patch('/products/:id', async (req, res) => {
   const needsActivationCheck =
     status === 'active' ||
     (status === undefined &&
-      ['amazon_price_cents', 'custom_price_cents', 'local_price_cents'].some(
+      ['amazon_price_cents', 'custom_price_cents', 'custom_markup_percent', 'local_price_cents'].some(
         (k) => Object.prototype.hasOwnProperty.call(req.body ?? {}, k),
       ));
 
   const needsAlertSync =
     hasProductFieldUpdates &&
-    (['amazon_price_cents', 'custom_price_cents', 'local_price_cents'].some(
+    (['amazon_price_cents', 'custom_price_cents', 'custom_markup_percent', 'local_price_cents'].some(
       (k) => Object.prototype.hasOwnProperty.call(req.body ?? {}, k),
     ) ||
       status !== undefined);

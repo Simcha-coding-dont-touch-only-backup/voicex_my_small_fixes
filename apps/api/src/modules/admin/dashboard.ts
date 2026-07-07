@@ -23,6 +23,9 @@ function catalogSliceForPricing(row: {
     voice_name: null,
     voice_description: null,
     custom_price_cents: row.custom_price_cents,
+    // The dashboard RPC doesn't surface per-product markup, so best-seller
+    // pricing here uses the default markup only. Internal metric, not customer-facing.
+    custom_markup_percent: null,
     local_price_cents: row.local_price_cents,
     amazon_star_rating: null,
     amazon_ratings_total: null,

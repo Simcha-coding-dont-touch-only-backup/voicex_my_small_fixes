@@ -599,6 +599,7 @@ function buildEditForm(p: any) {
     voice_name: p.voice_name || '',
     voice_description: p.voice_description || '',
     custom_price_cents: p.custom_price_cents ?? '',
+    custom_markup_percent: p.custom_markup_percent ?? '',
     local_price_cents: p.local_price_cents ?? '',
     status: isCatalogProductStatus(p.status) ? p.status : 'inactive',
     category_ids: p.catalog_product_categories?.map((c: any) => c.category_id) || [],
@@ -1036,6 +1037,10 @@ export function ProductsPage() {
         amazon_price_cents: currentForm.amazon_price_cents !== '' ? parseInt(currentForm.amazon_price_cents) : null,
         custom_price_cents:
           currentForm.custom_price_cents !== '' ? parseInt(currentForm.custom_price_cents, 10) : null,
+        custom_markup_percent:
+          currentForm.custom_markup_percent !== '' && currentForm.custom_markup_percent != null
+            ? parseFloat(String(currentForm.custom_markup_percent))
+            : null,
         local_price_cents:
           currentForm.local_price_cents !== '' && currentForm.local_price_cents != null
             ? parseInt(String(currentForm.local_price_cents), 10)
@@ -1957,6 +1962,17 @@ export function ProductsPage() {
                               onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, custom_price_cents: v })); }}
                               onWheel={(e) => (e.target as HTMLInputElement).blur()}
                               placeholder={customPriceInputPlaceholder(p.amazon_price_cents, defaultMarkupPercent)}
+                              className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-gray-600">Custom Markup (%)</label>
+                            <input
+                              type="number"
+                              value={editForm.custom_markup_percent}
+                              onChange={(e) => { const v = e.target.value; setEditForm((prev: any) => ({ ...prev, custom_markup_percent: v })); }}
+                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                              placeholder={`${defaultMarkupPercent} (default)`}
                               className="mt-1 w-full rounded border px-3 py-2 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
                           </div>

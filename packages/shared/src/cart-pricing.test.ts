@@ -20,6 +20,7 @@ const baseProduct: CatalogProduct = {
   voice_name: null,
   voice_description: null,
   custom_price_cents: null,
+  custom_markup_percent: null,
   local_price_cents: 1200,
   amazon_star_rating: null,
   amazon_ratings_total: null,
@@ -77,6 +78,27 @@ describe('priceCartLine', () => {
   it('uses catalog custom_price_cents for non-whitelisted users', () => {
     const product = { ...baseProduct, custom_price_cents: 1250 };
     const ctx = buildCartPricingContext({ is_whitelisted: false, custom_markup_percent: 3 }, 10);
+    const priced = priceCartLine(makeItem({ catalog_products: product }), ctx);
+    assert.equal(priced.unitPriceCents, 1250);
+  });
+
+  it('applies a per-product custom_markup_percent over the default markup', () => {
+    const product = { ...baseProduct, custom_markup_percent: 20 };
+    const ctx = buildCartPricingContext({ is_whitelisted: false, custom_markup_percent: null }, 10);
+    const priced = priceCartLine(makeItem({ catalog_products: product }), ctx);
+    assert.equal(priced.unitPriceCents, 1200); // 1000 * 1.20, not the 10% default
+  });
+
+  it('a per-product custom_markup_percent overrides a per-user markup', () => {
+    const product = { ...baseProduct, custom_markup_percent: 20 };
+    const ctx = buildCartPricingContext({ is_whitelisted: false, custom_markup_percent: 3 }, 10);
+    const priced = priceCartLine(makeItem({ catalog_products: product }), ctx);
+    assert.equal(priced.unitPriceCents, 1200); // product markup wins over the user's 3%
+  });
+
+  it('an explicit custom_price_cents still wins over a per-product markup', () => {
+    const product = { ...baseProduct, custom_price_cents: 1250, custom_markup_percent: 20 };
+    const ctx = buildCartPricingContext({ is_whitelisted: false, custom_markup_percent: null }, 10);
     const priced = priceCartLine(makeItem({ catalog_products: product }), ctx);
     assert.equal(priced.unitPriceCents, 1250);
   });
