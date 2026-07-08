@@ -1,6 +1,6 @@
 import { config } from '../../config.js';
 import type { IvrNode, IvrIntent } from '@voicex/shared';
-import type { TeltechResponse, TeltechCollectAction, TeltechGatherAction } from '../../lib/teltech.js';
+import type { TeltechResponse, TeltechCollectAction, TeltechGatherAction, TeltechSayAction } from '../../lib/teltech.js';
 
 const BASE = config.apiBaseUrl;
 const TELTECH_TTS_MAX_CHARS = 500;
@@ -46,20 +46,67 @@ export function resolveNodeTimeout(
  * - Truncates to 500 chars (TelTech hard limit)
  * - Optionally appends an invisible cache-bust suffix (TELTECH_TTS_CACHE_VERSION)
  */
-function sanitizeForTTS(text: string): string {
-  const suffix = ttsCacheBustSuffix();
-  const maxBody = Math.max(0, TELTECH_TTS_MAX_CHARS - suffix.length);
-
-  const cleaned = text
+function cleanForTTS(text: string): string {
+  return text
     .replace(/(\d)[""\u201C\u201D]/g, '$1 inch')  // 12" → 12 inch
     .replace(/[""\u201C\u201D''\u2018\u2019]/g, '') // strip remaining quotes
     .replace(/&/g, ' and ')
     .replace(/[<>\\]/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
 
+function sanitizeForTTS(text: string): string {
+  const suffix = ttsCacheBustSuffix();
+  const maxBody = Math.max(0, TELTECH_TTS_MAX_CHARS - suffix.length);
+  const cleaned = cleanForTTS(text);
   if (!cleaned) return '';
   return (cleaned.slice(0, maxBody) + suffix).slice(0, TELTECH_TTS_MAX_CHARS);
+}
+
+/**
+ * Split long text into multiple TTS-safe chunks (each ≤ 500 chars).
+ * Splits at sentence boundaries (`. `) when possible, falling back to
+ * word boundaries, so speech sounds natural across chunks.
+ */
+function splitForTTS(text: string): string[] {
+  const suffix = ttsCacheBustSuffix();
+  const maxBody = Math.max(0, TELTECH_TTS_MAX_CHARS - suffix.length);
+  const cleaned = cleanForTTS(text);
+  if (!cleaned) return [];
+
+  // Fits in one chunk — no splitting needed.
+  if (cleaned.length <= maxBody) {
+    return [(cleaned + suffix).slice(0, TELTECH_TTS_MAX_CHARS)];
+  }
+
+  // Split at sentence boundaries first.
+  const sentences = cleaned.split(/(?<=[.!?])\s+/);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const sentence of sentences) {
+    const candidate = current ? `${current} ${sentence}` : sentence;
+    if (candidate.length > maxBody && current) {
+      chunks.push((current + suffix).slice(0, TELTECH_TTS_MAX_CHARS));
+      current = sentence;
+    } else {
+      current = candidate;
+    }
+  }
+
+  // Flush remaining text, hard-splitting at word boundaries if still too long.
+  while (current.length > maxBody) {
+    const splitIdx = current.lastIndexOf(' ', maxBody);
+    const idx = splitIdx > 0 ? splitIdx : maxBody;
+    chunks.push((current.slice(0, idx) + suffix).slice(0, TELTECH_TTS_MAX_CHARS));
+    current = current.slice(idx).trim();
+  }
+  if (current) {
+    chunks.push((current + suffix).slice(0, TELTECH_TTS_MAX_CHARS));
+  }
+
+  return chunks;
 }
 
 export function buildGather(options: {
@@ -92,6 +139,15 @@ export function buildGather(options: {
   // and is delivered as digits:"*", letting the back handler pop the stack.
   const terminator = hasExplicitTerminator ? options.finishOnKey : undefined;
 
+  // Split long prompts into multiple say actions so nothing is truncated.
+  // All chunks except the last play as standalone say actions before the
+  // gather; the final chunk becomes the gather's own prompt (the part the
+  // caller hears while the system waits for keypad input).
+  const chunks = options.promptAudioUrl ? [] : splitForTTS(options.prompt);
+  const prefixSays: TeltechSayAction[] = chunks.length > 1
+    ? chunks.slice(0, -1).map((text) => ({ action: 'say' as const, text }))
+    : [];
+
   const gather: TeltechGatherAction = {
     action: 'gather',
     min_digits: options.numDigits || 1,
@@ -101,7 +157,7 @@ export function buildGather(options: {
     tries: options.tries ?? 3,
     prompt: options.promptAudioUrl
       ? { action: 'play', file: options.promptAudioUrl }
-      : { action: 'say', text: sanitizeForTTS(options.prompt) },
+      : { action: 'say', text: chunks[chunks.length - 1] || sanitizeForTTS(options.prompt) },
     action_url: actionUrl,
     terminator,
     regex: options.regex ?? '[0-9*#]+',
@@ -113,7 +169,7 @@ export function buildGather(options: {
     back_key: '*',
   };
 
-  return { actions: [gather] };
+  return { actions: [...prefixSays, gather] };
 }
 
 export function buildSay(
@@ -126,8 +182,8 @@ export function buildSay(
   if (promptAudioUrl) {
     actions.push({ action: 'play', file: promptAudioUrl });
   } else {
-    const text = sanitizeForTTS(message);
-    if (text) {
+    const chunks = splitForTTS(message);
+    for (const text of chunks) {
       actions.push({ action: 'say', text });
     }
   }
@@ -150,14 +206,12 @@ export function buildPayGather(_options: {
   sessionData?: Record<string, string>;
 }): TeltechResponse {
   const queryParams = new URLSearchParams(_options.sessionData || {});
+  const chunks = splitForTTS(
+    'Phone-based payment is temporarily unavailable. Please use the web app to complete your purchase. Returning to the main menu.',
+  );
   return {
     actions: [
-      {
-        action: 'say',
-        text: sanitizeForTTS(
-          'Phone-based payment is temporarily unavailable. Please use the web app to complete your purchase. Returning to the main menu.',
-        ),
-      },
+      ...chunks.map((text) => ({ action: 'say' as const, text })),
       { action: 'redirect', url: `${BASE}/api/ivr/voice/gather?node_key=main_menu&${queryParams.toString()}` },
     ],
   };
@@ -168,7 +222,10 @@ export function buildHangup(message?: string, promptAudioUrl?: string): TeltechR
   if (promptAudioUrl) {
     actions.push({ action: 'play', file: promptAudioUrl });
   } else if (message) {
-    actions.push({ action: 'say', text: sanitizeForTTS(message) });
+    const chunks = splitForTTS(message);
+    for (const text of chunks) {
+      actions.push({ action: 'say', text });
+    }
   }
   actions.push({ action: 'hangup' });
   return { actions };
@@ -220,11 +277,16 @@ export function buildCollect(options: {
   const queryParams = new URLSearchParams(options.sessionData || {});
   const actionUrl = `${BASE}${options.actionPath}?${queryParams.toString()}`;
 
+  const chunks = splitForTTS(options.prompt);
+  const prefixSays: TeltechSayAction[] = chunks.length > 1
+    ? chunks.slice(0, -1).map((text) => ({ action: 'say' as const, text }))
+    : [];
+
   const collectAction: TeltechCollectAction = {
     action: 'collect' as const,
     type: options.type,
     id: options.id,
-    prompt: { action: 'say', text: sanitizeForTTS(options.prompt) },
+    prompt: { action: 'say', text: chunks[chunks.length - 1] || sanitizeForTTS(options.prompt) },
     confirm: options.confirm ?? true,
     retry: options.retry ?? 3,
     action_url: actionUrl,
@@ -233,7 +295,7 @@ export function buildCollect(options: {
     max_duration: options.maxDuration,
   };
 
-  return { actions: [collectAction] };
+  return { actions: [...prefixSays, collectAction] };
 }
 
 export function formatCurrency(cents: number): string {
