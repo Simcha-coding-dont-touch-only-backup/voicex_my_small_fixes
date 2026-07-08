@@ -39,9 +39,11 @@ button{font-family:inherit}
 
 /* ============ Page / catalog ============ */
 .wrap{max-width:1080px;margin:18px auto 60px;background:var(--bg);
-  box-shadow:0 6px 30px rgba(0,0,0,.12);border-radius:4px;overflow:hidden}
+  box-shadow:0 6px 30px rgba(0,0,0,.12)}
+.cattable{width:100%;border-collapse:collapse;table-layout:fixed}
+.cattable > thead > tr > td,.cattable > tfoot > tr > td,.cattable > tbody > tr > td{padding:0}
 .cat-header{background:var(--green);color:#fff;display:flex;align-items:center;justify-content:space-between;
-  padding:22px 30px;gap:16px}
+  padding:22px 30px;gap:16px;border-bottom:2px solid var(--gold)}
 .cat-header .ttl{line-height:1.05}
 .cat-header .ttl .brand{font-family:var(--serif);font-size:17px;letter-spacing:.5px}
 .cat-header .ttl .big{font-family:var(--serif);font-weight:700;font-size:34px;letter-spacing:.5px}
@@ -50,16 +52,17 @@ button{font-family:inherit}
 .cat-footer{background:var(--green);color:#cbd6cd;text-align:center;padding:12px;font-size:12px;letter-spacing:2px}
 .cat-footer .pg{color:var(--gold)}
 
-/* section (category) */
-.section{padding:6px 26px 4px}
-.section-head{display:flex;align-items:center;gap:12px;margin:26px 0 10px;padding-bottom:8px;border-bottom:2px solid var(--green)}
-.section-head .bar{width:26px;height:26px;border-radius:50%;background:var(--green);flex:none;
-  display:flex;align-items:center;justify-content:center;color:var(--gold);font-size:13px}
-.section-head h2{font-family:var(--serif);margin:0;font-size:20px;color:var(--green);letter-spacing:1px;text-transform:uppercase;font-weight:700}
-.section-head .cnt{color:var(--muted);font-size:12px}
-.section-head .cat-tools{margin-left:auto;display:flex;gap:6px}
-
-.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:#fff;border-top:1px solid var(--line)}
+/* section (category) = left rail + product grid, matching the printed catalog */
+.section{display:flex;align-items:stretch;border-top:1px solid var(--line)}
+.rail{width:132px;flex:none;padding:20px 10px;text-align:center;border-right:1px solid var(--line)}
+.rail-inner{position:sticky;top:78px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.rail .ico{color:var(--green)}
+.rail .ico svg{width:34px;height:34px;display:block}
+.rail .rname{font-size:14px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--green);line-height:1.55}
+.rail .cnt{color:var(--muted);font-size:11px}
+.rail .cat-tools{display:flex;flex-direction:column;gap:5px;margin-top:4px}
+.gridwrap{flex:1;min-width:0}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:#fff}
 .grid > .card{background:#fff;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
 
 /* product card */
@@ -127,10 +130,14 @@ body:not(.editing) .imgtools,body:not(.editing) .cc,body:not(.editing) .add-card
 body:not(.editing) [data-addwas],body:not(.editing) [data-addsave],
 body:not(.editing) .addvar,body:not(.editing) .rmvar,
 body:not(.editing) .cat-tools,body:not(.editing) #addCat,
-body:not(.editing) .section-head .cnt{display:none !important}
+body:not(.editing) .rail .cnt{display:none !important}
 
 @media (max-width:760px){
   .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .section{flex-direction:column}
+  .rail{width:auto;border-right:0;border-bottom:1px solid var(--line);background:#fbfbf9;padding:10px 14px}
+  .rail-inner{position:static;flex-direction:row;justify-content:flex-start;gap:12px;width:100%}
+  .rail .cat-tools{flex-direction:row;margin-top:0;margin-left:auto}
   .cat-header{flex-direction:column;align-items:flex-start}
   .cat-header .big{font-size:26px}
 }
@@ -138,17 +145,28 @@ body:not(.editing) .section-head .cnt{display:none !important}
 
 /* ============ Print ============ */
 @media print{
-  @page{size:letter;margin:12mm}
+  @page{size:letter;margin:0}
   body{background:#fff}
-  .toolbar,.imgtools,.cc,.add-card,.cat-tools,.addvar,.tb-hint{display:none !important}
-  .wrap{box-shadow:none;margin:0;max-width:none;border-radius:0}
-  .section{page-break-inside:auto}
+  .toolbar,.imgtools,.cc,.add-card,.cat-tools,.addvar,.tb-hint,.rail .cnt{display:none !important}
+  .wrap{box-shadow:none;margin:0;max-width:none;border-radius:0;overflow:visible}
+  /* thead/tfoot repeat the green header + footer on every printed page */
+  thead{display:table-header-group}
+  tfoot{display:table-footer-group}
+  .cat-header{padding:5mm 8mm}
+  .cat-header .ttl .brand{font-size:12px}
+  .cat-header .ttl .big{font-size:20px}
+  .cat-header .badge{font-size:9px;padding:5px 10px;letter-spacing:2px}
+  .cat-footer{padding:3mm}
+  .rail{width:24mm;padding:10px 4px}
+  .rail-inner{position:static;gap:8px}
+  .rail .ico svg{width:26px;height:26px}
+  .rail .rname{font-size:11px;letter-spacing:2px}
+  .section{page-break-inside:auto;border-top:0}
   .grid{grid-template-columns:repeat(3,minmax(0,1fr)) !important}
-  .card{page-break-inside:avoid;padding:12px 8px 14px}
-  .card .pname{font-size:11px;min-height:0}
-  .card .price{font-size:17px}
-  .section-head{page-break-after:avoid}
-  .card .imgbox{height:78px}
+  .card{page-break-inside:avoid;padding:10px 7px 12px}
+  .card .pname{font-size:10.5px;min-height:0}
+  .card .price{font-size:16px}
+  .card .imgbox{height:70px}
 }
 </style>
 </head>
@@ -206,42 +224,68 @@ function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t
 
 function findProduct(pid){return state.products.find(p=>p.pid===pid);}
 
+/* Simple line icons per category (stroke = currentColor). */
+const ICONS={
+  diaper:'<path d="M3 7h18v3c0 6-4 9-9 9S3 16 3 10z"/><path d="M3 8c3 2 15 2 18 0"/>',
+  wipes:'<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M10 8V6a2 2 0 014 0v2"/><path d="M9 12h6"/>',
+  bottle:'<path d="M9 2h6M10 2v2.4c0 .9-.5 1.3-1 1.9C8 7.6 8 8.6 8 10v9a3 3 0 003 3h2a3 3 0 003-3v-9c0-1.4 0-2.4-1-3.7-.5-.6-1-1-1-1.9V2"/><path d="M8 11h8M8 14h8"/>',
+  pacifier:'<circle cx="12" cy="15" r="4"/><circle cx="12" cy="6.5" r="3"/><path d="M8 15H5M16 15h3"/>',
+  cup:'<path d="M6 8h12l-1 11a2 2 0 01-2 2H9a2 2 0 01-2-2z"/><path d="M6 8l1-3h10l1 3"/><path d="M9 12h6"/>',
+  health:'<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8v8M8 12h8"/>',
+};
+function iconFor(cat){
+  const c=(cat||'').toLowerCase();
+  let k='bottle';
+  if(c.includes('diaper')&&c.includes('rash')) k='health';
+  else if(c.includes('diaper')||c.includes('pull')) k='diaper';
+  else if(c.includes('wipe')||c.includes('disposal')) k='wipes';
+  else if(c.includes('pacifier')) k='pacifier';
+  else if(c.includes('feed')||c.includes('meal')) k='cup';
+  else if(c.includes('bath')||c.includes('skin')||c.includes('body')) k='bottle';
+  else if(c.includes('health')) k='health';
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`;
+}
+
 /* ---------- render ---------- */
 function render(){
   const wrap=$("#wrap");
-  let html="";
-  html+=`<div class="cat-header">
+  const header=`<div class="cat-header">
     <div class="ttl">
       <div class="brand" data-edit data-path="brand">${esc(state.brand)}</div>
       <div class="big" data-edit data-path="title">${esc(state.title)}</div>
     </div>
     <div class="badge" data-edit data-path="tagline">${esc(state.tagline)}</div>
   </div>`;
+  const footer=`<div class="cat-footer"><span data-edit data-path="footer">${esc(state.footer)}</span></div>`;
 
+  let html="";
   state.categories.forEach((cat,ci)=>{
     const prods=state.products.filter(p=>p.category===cat);
     html+=`<div class="section" data-cat="${esc(cat)}">
-      <div class="section-head">
-        <span class="bar">◆</span>
-        <h2 data-edit data-cat-name="${ci}">${esc(cat)}</h2>
-        <span class="cnt">${prods.length} item${prods.length===1?"":"s"}</span>
-        <span class="cat-tools">
+      <div class="rail"><div class="rail-inner">
+        <div class="ico">${iconFor(cat)}</div>
+        <div class="rname" data-edit data-cat-name="${ci}">${esc(cat)}</div>
+        <div class="cnt">${prods.length} item${prods.length===1?"":"s"}</div>
+        <div class="cat-tools">
           <button class="small-btn" data-add-in="${esc(cat)}">+ Add product</button>
           <button class="small-btn danger" data-del-cat="${esc(cat)}">Remove section</button>
-        </span>
-      </div>
-      <div class="grid">`;
+        </div>
+      </div></div>
+      <div class="gridwrap"><div class="grid">`;
     prods.forEach(p=>{ html+=cardHTML(p); });
     html+=`<div class="add-card" data-add-in="${esc(cat)}">+ Add product</div>`;
-    html+=`</div></div>`;
+    html+=`</div></div></div>`;
   });
 
-  html+=`<div class="section"><div style="padding:14px 0 4px">
+  html+=`<div class="section" style="border-top:1px solid var(--line)"><div style="padding:14px 26px">
     <button class="small-btn" id="addCat">+ Add new section</button>
   </div></div>`;
 
-  html+=`<div class="cat-footer"><span data-edit data-path="footer">${esc(state.footer)}</span></div>`;
-  wrap.innerHTML=html;
+  wrap.innerHTML=`<table class="cattable">
+    <thead><tr><td>${header}</td></tr></thead>
+    <tfoot><tr><td>${footer}</td></tr></tfoot>
+    <tbody><tr><td>${html}</td></tr></tbody>
+  </table>`;
   bind();
 }
 
